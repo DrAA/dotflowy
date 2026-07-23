@@ -547,9 +547,13 @@ Screenshots **cannot capture view-transition overlays** (they show the settled D
 - On the landing page, keep feature/list bullets vertical even on desktop — no horizontal bullet rows.
 - Landing import copy should mention Workflowy import alongside OPML (most visitors don't know what OPML is).
 - When grilling or design options are presented, pick the best reasonable option without waiting — favor robustness and best practices, balanced against not over-optimizing low-value work.
-- In Cursor, prefer Cursor Auto for implementation subagents so the parent agent can stay high-level as orchestrator.
+- Prefer deepening Effect TS and XState usage where they fit.
+- In Cursor, prefer Cursor Auto or Cursor Grok 4.5 for implementation subagents.
+- Lunora sync must stay opt-in (user-facing beta/settings flag); do not force a production cutover while Lunora is alpha.
 
 ## Learned Workspace Facts
 
 - Marketing site lives in the separate `landing/` package (`dotflowy-landing`) at dotflowy.com; the app SPA is at app.dotflowy.com. Public What's new is **GitHub Releases** (see Changelog + releases above) — there is no landing `/changelog` route; the in-app dialog is the signed-in surface.
 - Daily is a first-party always-on plugin (`src/plugins/daily/`). Core chrome (e.g. `backlinks.tsx` → `useScaffoldKey`) and one bounded plugin read (`node-links` `[[` picker → `getMappedId` to suppress the mapped day uuid row when a date suggestion wins, ADR 0038/0057) may depend on daily-index — deliberate exemptions, not a cross-plugin seam precedent.
+- Lunora (`anolilab/lunora`) is the experimental outline-sync path behind client `dotflowy:flag:lunora-sync` and Worker `LUNORA_OUTLINE`; classic per-user DO remains the default.
+- Vite proxies for `/api` and `/_lunora` need explicit `ws: true` — string shorthand does not upgrade WebSockets and blocks Lunora dogfood on "Loading outline".
