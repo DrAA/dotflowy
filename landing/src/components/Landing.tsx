@@ -1,64 +1,10 @@
-import type { VariantProps } from "class-variance-authority";
-
-import { Play, Star } from "lucide-react";
+import { Play } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Logo } from "@/components/Logo";
-import { buttonVariants } from "@/components/ui/button-variants";
+import { ChangelogList } from "@/components/Changelog";
+import { APP_URL, Footer, LinkButton, Nav } from "@/components/SiteChrome";
+import { releases } from "@/lib/changelog-data";
 import { cn } from "@/lib/utils";
-
-// Single source of truth for the outbound links. Handle is `cameronapak`.
-const APP_URL = "https://app.dotflowy.com";
-const GITHUB_URL = "https://github.com/cameronapak/dotflowy";
-const GITHUB_API = "https://api.github.com/repos/cameronapak/dotflowy";
-const X_URL = "https://x.com/cameronpak";
-
-function useGithubStars() {
-  const [stars, setStars] = useState<number | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(GITHUB_API)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { stargazers_count?: number } | null) => {
-        if (!cancelled && typeof data?.stargazers_count === "number") {
-          setStars(data.stargazers_count);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return stars;
-}
-
-/** A link styled as a button. Links are `<a>` elements (correct semantics),
- * not Base UI Buttons rendering an anchor. */
-function LinkButton({
-  href,
-  external,
-  variant,
-  size,
-  className,
-  children,
-}: {
-  href: string;
-  external?: boolean;
-  variant?: VariantProps<typeof buttonVariants>["variant"];
-  size?: VariantProps<typeof buttonVariants>["size"];
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
-      className={cn(buttonVariants({ variant, size }), className)}
-    >
-      {children}
-    </a>
-  );
-}
 
 /** The bullet dot, the page's structural through-line. Solid, like the app's. */
 function Dot({ className }: { className?: string }) {
@@ -69,44 +15,6 @@ function Dot({ className }: { className?: string }) {
         className,
       )}
     />
-  );
-}
-
-function Nav() {
-  const stars = useGithubStars();
-  return (
-    <header>
-      <div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-6">
-        <a href="/" className="flex items-center">
-          <Logo className="h-5 w-auto" />
-        </a>
-        <nav className="flex items-center gap-1 sm:gap-2">
-          <LinkButton
-            href={GITHUB_URL}
-            external
-            variant="ghost"
-            size="sm"
-            className="min-h-10 min-w-10 gap-1.5 px-2.5 sm:min-w-0 sm:pr-2.5 sm:pl-2"
-          >
-            <Star className="size-4" />
-            <span className="hidden sm:inline">Star on GitHub</span>
-            {stars != null && (
-              <span className="text-muted-foreground tabular-nums">
-                {stars.toLocaleString()}
-              </span>
-            )}
-          </LinkButton>
-          <LinkButton
-            href={APP_URL}
-            variant="outline"
-            size="sm"
-            className="min-h-10 px-3"
-          >
-            Sign in
-          </LinkButton>
-        </nav>
-      </div>
-    </header>
   );
 }
 
@@ -278,6 +186,35 @@ function OnlyHere() {
             </p>
           </Reveal>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/** Latest releases — proof the product is moving. Full history on /changelog. */
+function WhatsNew() {
+  return (
+    <section className="border-t border-border/60">
+      <div className="mx-auto w-full max-w-2xl px-6 py-20 sm:py-24">
+        <Reveal>
+          <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+            What&apos;s new
+          </h2>
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-pretty text-muted-foreground">
+            Recent updates to Dotflowy. No sign-in required.
+          </p>
+        </Reveal>
+        <Reveal delay={80} className="mt-10">
+          <ChangelogList releases={releases} limit={3} />
+        </Reveal>
+        <Reveal delay={140} className="mt-10">
+          <a
+            href="/changelog"
+            className="text-[15px] font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            See all updates
+          </a>
+        </Reveal>
       </div>
     </section>
   );
@@ -510,94 +447,6 @@ function Pricing() {
   );
 }
 
-function Footer() {
-  const year = new Date().getFullYear();
-  return (
-    <footer className="border-t border-border/60">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center text-sm">
-          <Logo className="h-4 w-auto" />
-        </div>
-        <nav className="flex items-center gap-5 text-sm text-muted-foreground">
-          <a href={APP_URL} className="transition-colors hover:text-foreground">
-            Open app
-          </a>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="transition-colors hover:text-foreground"
-          >
-            GitHub
-          </a>
-          <a
-            href={`${APP_URL}/terms`}
-            className="transition-colors hover:text-foreground"
-          >
-            Terms
-          </a>
-          <a
-            href={`${APP_URL}/privacy`}
-            className="transition-colors hover:text-foreground"
-          >
-            Privacy
-          </a>
-        </nav>
-      </div>
-      <div className="mx-auto w-full max-w-2xl px-6 pb-6">
-        <a
-          href="https://tools.launchllama.co?utm_source=badge&utm_medium=referral"
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <img
-            src="https://speaktechenglish.com/wp-content/uploads/2026/04/Screenshot_2026-04-09_at_17.40.44-removebg-preview.png"
-            alt="Featured on Launch Llama"
-            width={200}
-            height={50}
-          />
-        </a>
-      </div>
-      <div className="mx-auto w-full max-w-2xl px-6 pb-6">
-        <p className="text-xs text-muted-foreground/70">
-          FAITH TOOLS SOFTWARE SOLUTIONS, LLC © {year}
-        </p>
-      </div>
-      {/* Nominative-fair-use disclaimer: naming Workflowy is lawful, but state
-       * plainly that we're independent and unaffiliated. */}
-      <div className="mx-auto w-full max-w-2xl px-6 pb-6">
-        <p className="text-xs leading-relaxed text-muted-foreground/70">
-          Workflowy is a trademark of its respective owner. Dotflowy is an
-          independent, open-source project and is not affiliated with, sponsored
-          by, or endorsed by Workflowy.
-        </p>
-      </div>
-      <div className="mx-auto w-full max-w-2xl px-6 pb-10">
-        <a
-          href={X_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="group inline-flex items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <img
-            src="/cameron-pak.png"
-            alt="Cameron Pak"
-            width={28}
-            height={28}
-            className="size-7 rounded-full"
-          />
-          <span>
-            Created and maintained by{" "}
-            <span className="text-foreground/80 underline-offset-4 group-hover:underline">
-              Cameron Pak
-            </span>
-          </span>
-        </a>
-      </div>
-    </footer>
-  );
-}
-
 export function Landing() {
   return (
     <div className="flex min-h-screen flex-col">
@@ -605,6 +454,7 @@ export function Landing() {
       <main className="flex-1">
         <Hero />
         <OnlyHere />
+        <WhatsNew />
         <Pricing />
       </main>
       <Footer />

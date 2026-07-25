@@ -28,12 +28,12 @@ import {
  * dialogs, reached from three surfaces through `openChangelog()`: the header
  * badge, the More menu, and Cmd+K.
  *
- * Not a route: SPA mode prerenders only the shell, so `/changelog` would be
- * neither crawlable nor shareable, and everything under `AuthGate` is
- * authed-only anyway. The public, feed-carrying changelog is GitHub Releases,
- * linked at the bottom. Not the Tier-3 panel either: `openPanel` is ADR 0031's
- * containment boundary for untrusted Lane-B code, and core chrome must not squat
- * in the room built to hold it.
+ * Not a route: SPA mode prerenders only the shell, so an in-app `/changelog`
+ * would be neither crawlable nor shareable, and everything under `AuthGate` is
+ * authed-only anyway. The branded public page is `dotflowy.com/changelog`;
+ * GitHub Releases stay the feed, linked at the bottom. Not the Tier-3 panel
+ * either: `openPanel` is ADR 0031's containment boundary for untrusted Lane-B
+ * code, and core chrome must not squat in the room built to hold it.
  *
  * Opening it marks everything read. That is the only write, and it is why the
  * badge can be trusted: the badge and the dialog cannot disagree about what

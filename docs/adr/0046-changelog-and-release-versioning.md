@@ -56,8 +56,8 @@ an agent that reasoned its way to `changeset version`; a build-time invariant do
 as [ADR 0014](./0014-validate-the-worker-do-trust-boundary.md) — validate at the boundary, fail
 closed.
 
-The release script also emits `changelog.json` as a public static asset, so a branded page later
-(on either domain) is a pure renderer rather than a rewrite.
+The app build also emits `changelog.json` as a public static asset. The branded landing page
+compiles the same archive directly (not by fetching that asset).
 
 ## The cursor is `lastSeenVersion`. There is no `seq`
 
@@ -129,15 +129,16 @@ file the affected user will never load. It also forces the fix for `SERVER_INFO.
 construction: adopting semver without it ships `2.0.0` to humans and `0.1.0` to every agent on the
 same deploy.
 
-## The public changelog is GitHub Releases
+## The branded public changelog is the landing site
 
-The repo is public. `gh release create` in the release script gives, for zero build code: a
-crawlable page, permanent per-version URLs, immutable git tags binding each release to a commit,
-and an **Atom feed** at `/releases.atom` — the entire RSS requirement.
+`dotflowy.com/changelog` (and a homepage teaser of the latest three releases) is the
+**branded, crawlable, shareable** surface for anonymous readers — same `changelog/**` archive
+compiled at **landing build time** via the same Vite plugin the app uses. No unread cursor: the
+marketing site is anonymous. Landing can lag a release until the next landing deploy; that lag is
+accepted (do not fetch live from the app origin).
 
-The cost is accepted: a code host is a jarring destination for an outliner's users. The in-app
-dialog is the primary surface; the public page serves links, feeds, and crawlers, and those three
-don't care about brand.
+GitHub Releases remain the **feed + permanent per-version URL** backup (`gh release create`, Atom
+at `/releases.atom`). The in-app dialog stays the primary surface for signed-in users.
 
 ## Considered and rejected
 
@@ -153,9 +154,9 @@ don't care about brand.
 - **The changesets GitHub Action / Release PR.** Real enforcement, but stands up a release pipeline
   that doesn't exist (`ci.yml` is quality-only) for a solo repo. The build-time invariant enforces
   the same thing for free.
-- **A branded page on the landing site, fed by the app build.** Cross-repo coupling with a
-  deploy-ordering hazard: the changelog goes stale until the _other_ site rebuilds. `changelog.json`
-  keeps this reversible.
+- **A branded page fed by fetching the app's `changelog.json` at runtime.** Cross-origin fetch +
+  deploy-ordering hazard; rejected in favor of compiling `changelog/**` into the landing bundle
+  (same plugin, same invariant). `changelog.json` remains available if a third consumer wants it.
 
 ## Don't
 
