@@ -265,8 +265,11 @@ export function OpmlImportDialog() {
         if (op.op === "delete") continue;
         outlineNodes.push({ ...op.value, userId: lunora.userId });
       }
+      // Chunks persist independently, so a mid-import failure is NOT the
+      // classic path's all-or-nothing rollback. `applied` lives out here
+      // because the catch has to know whether anything landed.
+      let applied = 0;
       try {
-        let applied = 0;
         const total = outlineNodes.length;
         for (let i = 0; i < outlineNodes.length; i += IMPORT_SLICE_NODES) {
           const chunk = outlineNodes.slice(i, i + IMPORT_SLICE_NODES);
@@ -281,12 +284,17 @@ export function OpmlImportDialog() {
         }
         setStage({ kind: "success", containerId, count: plan.count });
       } catch {
-        drop();
+        // Only drop the undo point when NOTHING landed. Once a chunk is
+        // durable, that capture is the only thing Cmd+Z can remove — dropping
+        // it would delete the very escape hatch the message below points at.
+        if (applied === 0) drop();
         setStage({
           kind: "error",
           title: "Import failed",
           detail:
-            "The outline could not be fully saved. Earlier chunks may have landed — undo or re-import carefully.",
+            applied === 0
+              ? "The outline could not be saved. Nothing was imported."
+              : "The outline could not be fully saved. Earlier chunks landed — press Cmd+Z to remove them.",
         });
       }
       return;

@@ -740,6 +740,20 @@ function AppearanceSection() {
 
 function BetaSection() {
   const { ready, enabled } = useLunoraBetaPref();
+  // The write is a synced `kvPut` followed by a `hardReset`, so it has two
+  // failure modes worth owning: an offline toggle would otherwise be an
+  // unhandled rejection with no explanation (the switch just snaps back), and
+  // a double tap would fire two writes plus two reloads.
+  const [saving, setSaving] = useState(false);
+  const onToggle = useCallback((checked: boolean) => {
+    setSaving(true);
+    setLunoraBetaEnabled(checked).catch(() => {
+      setSaving(false);
+      toast.error("Couldn't save that. Check your connection and try again.");
+    });
+    // No `finally`: on success `hardReset` tears this tree down, so leaving
+    // the switch disabled through the reload is the honest state.
+  }, []);
   return (
     <Section
       title="Beta"
@@ -759,8 +773,8 @@ function BetaSection() {
           action={
             <Switch
               checked={ready ? enabled : false}
-              disabled={!ready}
-              onCheckedChange={(checked) => void setLunoraBetaEnabled(checked)}
+              disabled={!ready || saving}
+              onCheckedChange={onToggle}
               aria-label="Upgraded outline sync beta"
             />
           }

@@ -159,12 +159,17 @@ export const applyChangeOps = internalMutation
     };
   });
 
+/**
+ * Every table that holds this user's CONTENT. `ratelimit_buckets` is
+ * deliberately absent: it's the `.externallyManaged()` extension table
+ * (`key/value/ts/prev`, no `userId`, no `.shardBy("userId")`), so it isn't
+ * user content under ADR 0051 and a per-user wipe has no business reaching it.
+ */
 const WIPE_TABLES: ShardTable[] = [
   "nodes",
   "tagColors",
   "savedQueries",
   "dailyIndex",
-  "ratelimit_buckets",
 ];
 
 /**

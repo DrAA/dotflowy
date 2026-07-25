@@ -21,6 +21,7 @@ import { getLiveNodes, getLiveOutlineNodes } from "../data/live-nodes";
 import {
   getLunoraOutlineContext,
   trackLunoraMutation,
+  type LunoraOutlineContext,
 } from "../data/lunora-sync";
 import {
   countForest,
@@ -144,9 +145,19 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
       return true;
     }
     capture(index, activeKey);
-    runStructural(() => {
-      applyMarkdownPasteViaRestore(plan, anchorId, timestamp, lunora.userId);
-    });
+    const landed = runStructural(() =>
+      applyMarkdownPasteViaRestore(plan, anchorId, timestamp, lunora),
+    );
+    // `plan` was built from `getTreeIndex()` while the write reads
+    // `getLiveOutlineNodes()`, so the two CAN disagree on the anchor. Without
+    // this the paste would burn the undo point just captured, move the caret,
+    // and write nothing — a silent no-op is the one outcome a paste must never
+    // have (ADR 0044).
+    if (!landed) {
+      drop();
+      toast.error("Couldn't paste there — try again.");
+      return true;
+    }
     const seam = resolveSeam(plan, anchorId, count);
     if (seam.id === anchorId)
       focus.placeCaretHere(plan.anchor.text, seam.offset);
@@ -229,21 +240,27 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
   return true;
 }
 
-/** Build the post-paste outline and commit via Lunora `restoreNodes`. */
+/**
+ * Build the post-paste outline and commit via Lunora `restoreNodes`.
+ *
+ * Returns whether anything was written — `false` means the anchor vanished
+ * between planning and writing, and the caller owns the disclosure (see the
+ * `landed` check at the call site). The context is passed IN rather than
+ * re-read: the caller already resolved it, and re-reading here would invent a
+ * second, silent failure mode for the same condition.
+ */
 function applyMarkdownPasteViaRestore(
   plan: MdPastePlan,
   anchorId: string,
   timestamp: number,
-  userId: string,
-): void {
-  const lunora = getLunoraOutlineContext();
-  if (!lunora) return;
-
+  lunora: LunoraOutlineContext,
+): boolean {
+  const userId = lunora.userId;
   const byId = new Map(
     getLiveOutlineNodes().map((n) => [n.id, { ...n } as OutlineNode]),
   );
   const anchor = byId.get(anchorId);
-  if (!anchor) return;
+  if (!anchor) return false;
 
   const nextAnchor: OutlineNode = {
     ...anchor,
@@ -289,12 +306,19 @@ function applyMarkdownPasteViaRestore(
     });
   }
 
+  // KNOWN LIMIT (Lunora alpha): this ships the whole outline as the restore
+  // target, not just the touched rows. `planRestoreNodes` diffs server-side so
+  // untouched rows emit no patch, but the payload is still O(outline) and a
+  // row another device changed inside this read/write window gets diffed back
+  // to our stale copy. The fix is a delta mutator (anchor patch + inserts +
+  // repoints), matching what the classic branch sends.
   trackLunoraMutation(
     lunora.store.mutators.restoreNodes({
       userId,
       nodes: [...byId.values()],
     }),
   );
+  return true;
 }
 
 /**

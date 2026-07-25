@@ -91,6 +91,14 @@ describe("isLunoraOutlineEnabledForUser", () => {
     ).toBe(true);
     expect(await isLunoraOutlineEnabledForUser({}, async () => [])).toBe(false);
   });
+
+  test("a failed preference read falls back to classic, not a thrown /mcp", async () => {
+    expect(
+      await isLunoraOutlineEnabledForUser({}, async () => {
+        throw new Error("DO unavailable");
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("shard RPC decode (Worker→Lunora trust boundary)", () => {

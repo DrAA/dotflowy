@@ -72,7 +72,15 @@ async function writeLunoraBeta(enabled: boolean): Promise<void> {
   await kvPut(KV, [{ key: LUNORA_BETA_ROW_ID, value: row }]);
 }
 
-/** Persist Lunora beta opt-in, mirror the runtime flag, and reload. */
+/**
+ * Persist Lunora beta opt-in, mirror the runtime flag, and reload.
+ *
+ * REJECTS on a failed write, and callers MUST handle that. The order is
+ * load-bearing: the synced row lands first, so a rejection means the local
+ * mirror was never touched and no reload happens — the app is still in its
+ * previous, consistent state. Dropping the rejection (a bare `void`) leaves
+ * the user with a switch that silently snaps back and no idea why.
+ */
 export async function setLunoraBetaEnabled(enabled: boolean): Promise<void> {
   await writeLunoraBeta(enabled);
   mirrorLunoraFlag(enabled);

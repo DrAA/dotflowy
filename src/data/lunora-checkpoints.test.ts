@@ -4,6 +4,7 @@ import {
   DIRECT_TRANSACTION_METADATA_KEY,
   SHAPE_CHECKPOINT_FALLBACK_MS,
   shapeFirstCheckpoints,
+  WATERMARK_POLL_CEILING_MS,
   withDirectOptimisticMetadata,
   type CheckpointRegistry,
 } from "./lunora-checkpoints";
@@ -105,6 +106,34 @@ describe("shapeFirstCheckpoints", () => {
 
   test("default fallback window is 3s", () => {
     expect(SHAPE_CHECKPOINT_FALLBACK_MS).toBe(3000);
+  });
+
+  test("releases the overlay when the RPC ack never lands", async () => {
+    const shape = makeShapeGate();
+    let resolved = false;
+    const gate = shapeFirstCheckpoints(
+      // Watermark never advances past the mutation id — a dropped connection
+      // or a rolled-back mutation. Without the ceiling this polls forever.
+      { confirmedMutationWatermark: () => 0 },
+      "u1",
+      {
+        ...shape,
+        resolve: (w) => {
+          resolved = true;
+          shape.resolve(w);
+        },
+      },
+      { fallbackMs: 10, pollCeilingMs: 100 },
+    );
+
+    await gate.awaitMutationId(9);
+    // Released without confirming: we never saw the ack, so the shape must not
+    // have been told the mutation landed.
+    expect(resolved).toBe(false);
+  });
+
+  test("default poll ceiling is 30s", () => {
+    expect(WATERMARK_POLL_CEILING_MS).toBe(30_000);
   });
 
   test("shape await rejection still falls back after RPC watermark", async () => {

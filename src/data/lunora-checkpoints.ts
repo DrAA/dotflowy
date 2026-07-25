@@ -53,9 +53,23 @@ export function withDirectOptimisticMetadata<
  */
 export const SHAPE_CHECKPOINT_FALLBACK_MS = 3000;
 
+/** How often the fallback re-checks the RPC ack watermark. */
+const WATERMARK_POLL_MS = 50;
+
+/**
+ * Hard ceiling on the watermark poll. Neither branch that settles this promise
+ * is guaranteed to happen — a dropped connection or a rolled-back mutation can
+ * mean the ack never lands — so without a cap the poll runs, and holds the
+ * optimistic overlay, for the lifetime of the tab. Releasing the overlay is the
+ * safer end state: the shape is the source of truth and will correct it.
+ */
+export const WATERMARK_POLL_CEILING_MS = 30_000;
+
 export type ShapeFirstCheckpointsOpts = {
   /** Override for unit tests (default {@link SHAPE_CHECKPOINT_FALLBACK_MS}). */
   fallbackMs?: number;
+  /** Override for unit tests (default {@link WATERMARK_POLL_CEILING_MS}). */
+  pollCeilingMs?: number;
 };
 
 export function shapeFirstCheckpoints(
@@ -65,6 +79,7 @@ export function shapeFirstCheckpoints(
   opts: ShapeFirstCheckpointsOpts = {},
 ): CheckpointRegistry {
   const fallbackMs = opts.fallbackMs ?? SHAPE_CHECKPOINT_FALLBACK_MS;
+  const ceilingMs = opts.pollCeilingMs ?? WATERMARK_POLL_CEILING_MS;
   return {
     awaitCheckpoint: (cursor) => shape.awaitCheckpoint(cursor),
     resolve: (watermark) => shape.resolve(watermark),
@@ -80,10 +95,20 @@ export function shapeFirstCheckpoints(
         // RPC-watermark fallback below still settles the overlay.
         void shape.awaitMutationId(id).then(finish, () => undefined);
 
+        // Bounded: `waited` caps the poll so a mutation whose ack never lands
+        // releases its overlay instead of pinning a timer chain for the tab's
+        // lifetime. Hitting the ceiling releases WITHOUT `shape.resolve` — we
+        // never confirmed anything, so we must not tell the shape we did.
+        let waited = 0;
         const armFallback = () => {
           if (settled) return;
           if (id > client.confirmedMutationWatermark(shardKey)) {
-            setTimeout(armFallback, 50);
+            if (waited >= ceilingMs) {
+              finish();
+              return;
+            }
+            waited += WATERMARK_POLL_MS;
+            setTimeout(armFallback, WATERMARK_POLL_MS);
             return;
           }
           setTimeout(() => {

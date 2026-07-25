@@ -222,6 +222,13 @@ export function isLunoraOutlineEnabledSync(env: LunoraOutlineEnv): boolean {
  * Kill-switch pairing (ADR 0055): env force first; else synced
  * `account-prefs` on classic DO; browser reads mirrored localStorage after
  * {@link AccountPrefsController} sync.
+ *
+ * FAILS CLOSED TO CLASSIC. The preference lives on the classic DO, so reading
+ * it is a round-trip on the `/mcp` hot path — and letting that reject would
+ * abort the request before a store is even chosen, breaking MCP for every user
+ * (including the ones not in the beta) whenever the DO hiccups. Classic is the
+ * default for everyone anyway, so an unreadable preference is a downgrade, not
+ * a failure. An explicit env force never reaches the read at all.
  */
 export async function isLunoraOutlineEnabledForUser(
   env: LunoraOutlineEnv,
@@ -229,8 +236,11 @@ export async function isLunoraOutlineEnabledForUser(
 ): Promise<boolean> {
   const forced = resolveLunoraOutlineEnvForce(env);
   if (forced !== null) return forced;
-  const rows = await getAccountPrefs();
-  return parseLunoraBetaPref(rows);
+  try {
+    return parseLunoraBetaPref(await getAccountPrefs());
+  } catch {
+    return false;
+  }
 }
 
 /** Permanently erase this user's Lunora shard — account deletion (ADR 0051). */

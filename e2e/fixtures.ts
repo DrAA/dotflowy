@@ -543,13 +543,16 @@ export async function seedOutlineLunora(
     failMutatorWrites?: boolean;
   } = {},
 ): Promise<void> {
-  // Drop prior Lunora mocks from earlier tests on this page — stacked
-  // `routeWebSocket` handlers can keep an old in-memory store alive across
-  // reload (delete "persists" then resurrects from the stale mock).
-  await page.unroute("**/_lunora/**");
-  await page.unroute("**/api/auth/get-session");
-  await page.unroute("**/api/nodes");
-  await page.unroute("**/api/kv");
+  // Drop prior mocks from earlier tests on this page — stacked handlers can
+  // keep an old in-memory store alive across reload (delete "persists" then
+  // resurrects from the stale mock). This MUST be `unrouteAll`: every route
+  // below is registered with a PREDICATE matcher, and `page.unroute("**/x")`
+  // only removes a handler registered with that same glob — so the per-pattern
+  // form silently removed nothing.
+  //
+  // NOTE: `routeWebSocket` and `addInitScript` have no unroute at all, so this
+  // is best-effort. One `seedOutlineLunora` per `page` is the supported use.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 
   const userId = opts.userId ?? "test-user";
   const store = new Map<string, LunoraRow>();

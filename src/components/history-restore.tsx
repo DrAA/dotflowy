@@ -11,10 +11,7 @@ import {
   undo,
   type RestorePlan,
 } from "../data/history";
-import {
-  getLunoraOutlineContext,
-  trackLunoraMutation,
-} from "../data/lunora-sync";
+import { getLunoraOutlineContext } from "../data/lunora-sync";
 import { runStructural, runStructuralSliced } from "../data/structural";
 import { getTreeIndex } from "../data/tree-store";
 import {
@@ -66,12 +63,20 @@ export function runHistoryRestore(
       userId: lunora.userId,
     }));
     if (plan.opCount < RESTORE_SLICE_OPS) {
-      trackLunoraMutation(
-        lunora.store.mutators.restoreNodes({
-          userId: lunora.userId,
-          nodes,
-        }),
-      );
+      // Most undo/redo lands here, so this path owns the failure UX the same
+      // way `runLunoraRestore` does below: `plan.revert()` is what puts the
+      // undo/redo stack back in step with what actually persisted. The generic
+      // `trackLunoraMutation` toast can't do that, so don't use it here.
+      const tx = lunora.store.mutators.restoreNodes({
+        userId: lunora.userId,
+        nodes,
+      });
+      tx.isPersisted.promise.catch(() => {
+        plan.revert();
+        toast.error(
+          `${kind === "undo" ? "Undo" : "Redo"} failed. Nothing was changed.`,
+        );
+      });
       if (plan.focusId) setPendingFocus(plan.focusId);
       return;
     }
