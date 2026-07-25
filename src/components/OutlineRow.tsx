@@ -14,7 +14,7 @@ import type { PluginContext, SlotSpec } from "../plugins/types";
 import type { NodeCommands } from "./node-commands";
 
 import { echoedTextFor } from "../data/collection";
-import { isMirrorsEnabled } from "../data/flags";
+import { isLunoraSyncEnabled, isMirrorsEnabled } from "../data/flags";
 import { useSelectionFill } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
 import {
@@ -321,16 +321,28 @@ function RowChrome({
   // that merely echoes the network back is a lagging/out-of-order echo of our
   // own keystrokes -- repainting it scrambles characters and jumps the caret
   // mid-type, so it's skipped; blur reconciles. See collection.ts `echoedText`.
-  // Lunora: optimistic overlay can briefly drop to a stale synced snapshot
-  // before the shape row lands — treat DOM-ahead-of-store the same as an echo.
   useEffect(() => {
     const el = textRef.current;
     if (!el || composingRef.current) return;
     if (syncedRef.current === content.text) return;
     if (document.activeElement === el) {
       if (echoedTextFor(content.id) === content.text) return;
-      const dom = readSource(el);
-      if (dom !== content.text && dom.startsWith(content.text)) return;
+      // Lunora has no echo registry (`echoedText` is fed by classic sync
+      // frames), so it stands in a prefix test: the optimistic overlay can
+      // briefly drop to a stale synced snapshot that is BEHIND what's typed,
+      // and repainting that is the vanishing-text bug.
+      //
+      // Flag-gated on purpose. It is a heuristic, not a fact — every store
+      // value that happens to be a prefix of the DOM looks identical to a
+      // lagging echo, so it also swallows legitimate SHRINKS (undo of a paste,
+      // a programmatic truncation). Letting it run on the classic path made
+      // Cmd+Z after a markdown paste leave the anchor's text on screen.
+      // The empty-string guard is not redundant: `startsWith("")` is always
+      // true, so without it ANY reset-to-empty on a focused row is dropped.
+      if (isLunoraSyncEnabled() && content.text !== "") {
+        const dom = readSource(el);
+        if (dom !== content.text && dom.startsWith(content.text)) return;
+      }
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;

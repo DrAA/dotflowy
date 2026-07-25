@@ -264,8 +264,13 @@ export function appendChild(
       parentId,
       prevSiblingId,
       text,
-      isTask: opts?.isTask,
-      kind: opts?.kind,
+      // Resolved, NOT forwarded as `opts?.isTask`. `makeNode` applies its
+      // defaults via `...partial`, so an explicit `undefined` OVERWRITES them
+      // and the insert fails schema validation on `isTask`/`kind` — which is
+      // what silently broke every no-opts caller (the Daily container append,
+      // so the Today button threw and did nothing).
+      isTask: opts?.isTask ?? false,
+      kind: opts?.kind ?? null,
     }),
   );
   return id;
