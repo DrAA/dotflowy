@@ -52,6 +52,7 @@ import {
   moveManyNodes,
 } from "../../data/mutations";
 import { isNodesLimitError } from "../../data/nodes-client-effect";
+import { parseGoToDateQuery } from "../../data/parse-go-to-date";
 import { runStructural } from "../../data/structural";
 import { buildTreeIndex } from "../../data/tree";
 import {
@@ -507,7 +508,9 @@ export default definePlugin({
     if (!key) return [];
     switch (scaffoldKeyKind(key)) {
       case "day":
-        return [formatDayBadge(key)];
+        // ISO key so Cmd+K "2031-08-12" finds an existing day after go-to-date
+        // suppress (ADR 0055) — Fuse alone won't match the full weekday title.
+        return [formatDayBadge(key), key];
       case "week": {
         const relative = formatWeekRelative(key);
         return relative ? [relative, weekLabel(key)] : [weekLabel(key)];
@@ -558,33 +561,29 @@ export default definePlugin({
     },
   }),
 
-  // Seam J: a VIRTUAL switcher row that appears only when today's note does NOT
-  // exist yet (when it does, the alias above surfaces the real node -- no dup).
-  // Picking it creates the note + container, then navigates. This is the "search
-  // today even if it isn't there" half (ADR 0001).
+  // Seam J: VIRTUAL go-to-date row when the queried day does NOT exist yet
+  // (when it does, Fuse + searchAliases surface the real node -- no dup).
+  // NL via chrono (ADR 0055); today stays write-intent seed (ADR 0041).
   searchActions: (query, ctx) => {
-    const q = query.trim().toLowerCase();
-    if (q.length < 2 || !"today".startsWith(q)) return [];
-    const key = localDateKey();
-    const existing = getMappedId(key);
+    const hit = parseGoToDateQuery(query);
+    if (!hit) return [];
+    const existing = getMappedId(hit.key);
     if (existing && ctx.index.byId.has(existing)) return [];
+    const isToday = hit.key === localDateKey();
     return [
       {
-        key: "daily-go-today",
-        label: "Go to Today",
-        hint: "Creates today's daily note",
+        key: `daily-go-date-${hit.key}`,
+        label: hit.label,
+        hint: isToday
+          ? "Creates today's daily note"
+          : "Creates this daily note",
         icon: CalendarDaysIcon,
-        // "Go to Today" is a write-intent surface (ADR 0041): seed an entry
-        // line and land the caret on it via focus=last.
         run: () =>
-          void getOrCreateDay(key, { seedEntryLine: true })
-            // getOrCreateDay owns the generic failure toast now (F3); this only
-            // navigates on success. The catch is defensive (a synchronous body
-            // throw), mutually exclusive with the internal toast, so no double.
+          void getOrCreateDay(hit.key, { seedEntryLine: isToday })
             .then((id) => {
-              if (id) ctx.goTo(id, { focus: "last" });
+              if (id) ctx.goTo(id, isToday ? { focus: "last" } : undefined);
             })
-            .catch(() => toast.error("Couldn't open today's daily note")),
+            .catch(() => toast.error("Couldn't open that daily note")),
       },
     ];
   },

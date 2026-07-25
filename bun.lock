@@ -23,6 +23,7 @@
         "@tanstack/react-virtual": "^3.14.4",
         "@xstate/react": "7.0.0-alpha.1",
         "better-auth": "^1.6.23",
+        "chrono-node": "^2.10.1",
         "class-variance-authority": "^0.7.1",
         "cmdk": "^1.1.1",
         "cnfast": "^0.0.8",
@@ -844,6 +845,8 @@
     "chardet": ["chardet@2.2.0", "", {}, "sha512-rddelWYNPRrXq6PtNEN2S3f6t9ILzvqaN5pVgi4kqt9jHQaXIial9PznB5iSPVlQSLNaaH22ItWz3EJtQ10+OA=="],
 
     "chokidar": ["chokidar@5.0.0", "", { "dependencies": { "readdirp": "^5.0.0" } }, "sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw=="],
+
+    "chrono-node": ["chrono-node@2.10.1", "", {}, "sha512-tPOsBzYVAK5zth+CiHCgp5NGeqRc4mMD8FPthQ5IxkgjPWWxIFdM5odnmfw//IRAzl6C++Xy8olQW7wn5qBR1g=="],
 
     "cjs-module-lexer": ["cjs-module-lexer@2.2.0", "", {}, "sha512-4bHTS2YuzUvtoLjdy+98ykbNB5jS0+07EvFNXerqZQJ89F7DI6ET7OQo/HJuW6K0aVsKA9hj9/RVb2kQVOrPDQ=="],
 

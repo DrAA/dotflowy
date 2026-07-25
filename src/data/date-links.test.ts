@@ -12,8 +12,10 @@ import {
   formatDateLabel,
   isValidDateKey,
   localDateKey,
+  monthKeyToCalendarGrid,
   monthKeyToYearKey,
   monthLabel,
+  shiftMonthKey,
   parentScaffoldKey,
   parseDateLink,
   scaffoldKeyKind,
@@ -250,6 +252,27 @@ describe("monthKeyToYearKey", () => {
     expect(monthKeyToYearKey("2026-13")).toBeNull();
     expect(monthKeyToYearKey("2026-00")).toBeNull();
     expect(monthKeyToYearKey("2026")).toBeNull();
+  });
+});
+
+describe("shiftMonthKey / monthKeyToCalendarGrid (ADR 0055)", () => {
+  test("shiftMonthKey pages months and years", () => {
+    expect(shiftMonthKey("2026-07", 1)).toBe("2026-08");
+    expect(shiftMonthKey("2026-12", 1)).toBe("2027-01");
+    expect(shiftMonthKey("2026-01", -1)).toBe("2025-12");
+    expect(shiftMonthKey("2026-13", 1)).toBeNull();
+  });
+
+  test("monthKeyToCalendarGrid is Mon-start and pads out-of-month cells", () => {
+    const grid = monthKeyToCalendarGrid("2026-08");
+    expect(grid).not.toBeNull();
+    expect(grid!.length % 7).toBe(0);
+    expect(grid![0]).toEqual({ key: "2026-07-27", inMonth: false }); // Mon
+    expect(grid!.find((c) => c.key === "2026-08-12")).toEqual({
+      key: "2026-08-12",
+      inMonth: true,
+    });
+    expect(grid!.at(-1)).toEqual({ key: "2026-09-06", inMonth: false }); // Sun
   });
 });
 

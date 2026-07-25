@@ -136,6 +136,26 @@ export function flattenDateLinks(text: string, today = localDateKey()): string {
   });
 }
 
+const EMPTY_KEYS: string[] = [];
+
+/**
+ * The unique daily-index keys `text` mentions via date tokens, in
+ * first-occurrence order (ADR 0056). Bails before any regex when `[[` is
+ * absent — same hot-path discipline as `parseNodeLinks`. Mentions never mint.
+ */
+export function parseDateLinkKeys(text: string): string[] {
+  if (!text.includes("[[")) return EMPTY_KEYS;
+  let out: string[] | null = null;
+  DATE_LINK_REGEX.lastIndex = 0;
+  for (const m of text.matchAll(DATE_LINK_REGEX)) {
+    const parsed = parseDateLink(m[0]!);
+    if (!parsed) continue;
+    if (!out) out = [parsed.key];
+    else if (!out.includes(parsed.key)) out.push(parsed.key);
+  }
+  return out ?? EMPTY_KEYS;
+}
+
 /** One row the `[[` picker offers for a date-ish query. */
 export interface DateSuggestion {
   key: string;
@@ -146,8 +166,9 @@ export interface DateSuggestion {
  * The date rows for a `[[` picker query: today / tomorrow / yesterday on a
  * word-prefix match (>= 2 chars, the daily search-action threshold -- one char
  * would shove date rows above node matches on any "t"/"y" query), plus a fully
- * typed ISO date. No natural-language parsing (ADR 0038). Empty on a
- * non-date-ish query, which is also the caller's "should I pin dates" signal.
+ * typed ISO date. Natural-language chrono for the `[[` picker lives in
+ * client-only `parseDatePickerQuery` / `pickerDateSuggestions` (ADR 0038
+ * amend) so this module stays Worker-safe. Empty on a non-date-ish query.
  */
 export function dateSuggestions(
   query: string,
@@ -299,6 +320,59 @@ export function monthKeyToYearKey(monthKey: string): string | null {
   const mo = Number(m[2]);
   if (mo < 1 || mo > 12) return null;
   return m[1] ?? null;
+}
+
+/** Month key shifted by whole calendar months: `shiftMonthKey("2026-07", 1)` ->
+ *  `"2026-08"`. Used by the week-strip month picker (ADR 0055). Null when the
+ *  key isn't a valid month. */
+export function shiftMonthKey(
+  monthKey: string,
+  deltaMonths: number,
+): string | null {
+  const m = MONTH_KEY_RE.exec(monthKey);
+  if (!m || !monthKeyToYearKey(monthKey)) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = new Date(Date.UTC(y, mo - 1 + deltaMonths, 1));
+  const yy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${yy}-${mm}`;
+}
+
+/** One cell in a Mon-start month calendar grid (ADR 0055). `inMonth` is false
+ *  for leading/trailing days that pad the ISO week rows. */
+export type MonthGridCell = { key: string; inMonth: boolean };
+
+/** Mon-start calendar cells covering `monthKey` (padded to full weeks). Local
+ *  day keys via {@link localDateKey} so they match the daily index. Null on a
+ *  malformed month key. */
+export function monthKeyToCalendarGrid(
+  monthKey: string,
+): MonthGridCell[] | null {
+  const m = MONTH_KEY_RE.exec(monthKey);
+  if (!m || !monthKeyToYearKey(monthKey)) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const first = new Date(y, mo - 1, 1, 12);
+  const last = new Date(y, mo, 0, 12);
+  const firstDow = (first.getDay() + 6) % 7; // Mon=0
+  const start = new Date(first);
+  start.setDate(first.getDate() - firstDow);
+  const lastDow = (last.getDay() + 6) % 7;
+  const end = new Date(last);
+  end.setDate(last.getDate() + (6 - lastDow));
+  const cells: MonthGridCell[] = [];
+  for (
+    let d = new Date(start);
+    d.getTime() <= end.getTime();
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12)
+  ) {
+    cells.push({
+      key: localDateKey(d),
+      inMonth: d.getFullYear() === y && d.getMonth() === mo - 1,
+    });
+  }
+  return cells;
 }
 
 /**
