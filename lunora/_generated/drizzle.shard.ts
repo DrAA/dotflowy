@@ -53,6 +53,14 @@ export const dailyIndex = sqliteTable("dailyIndex", {
     by_key: index("by_key").on(t.key),
 }));
 
+export const migrateState = sqliteTable("migrateState", {
+    _id: text("_id").primaryKey(),
+    _creationTime: integer("_creationTime").notNull(),
+    userId: text("userId").notNull(),
+    nodesAt: real("nodesAt").notNull(),
+    kvAt: real("kvAt").notNull(),
+});
+
 export const ratelimit_buckets = sqliteTable("ratelimit_buckets", {
     _id: text("_id").primaryKey(),
     _creationTime: integer("_creationTime").notNull(),

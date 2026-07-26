@@ -232,6 +232,34 @@ const LUNORA_TABLE_COLUMNS: Record<string, Array<{ isStorage?: boolean; name: st
             "type": "string"
         }
     ],
+    "migrateState": [
+        {
+            "name": "_id",
+            "optional": false,
+            "pk": true,
+            "type": "id"
+        },
+        {
+            "name": "_creationTime",
+            "optional": false,
+            "type": "number"
+        },
+        {
+            "name": "userId",
+            "optional": false,
+            "type": "string"
+        },
+        {
+            "name": "nodesAt",
+            "optional": false,
+            "type": "number"
+        },
+        {
+            "name": "kvAt",
+            "optional": false,
+            "type": "number"
+        }
+    ],
     "ratelimit_buckets": [
         {
             "name": "_id",
@@ -877,6 +905,7 @@ export const createShardDO = (config: ShardDOConfig = {}): new (state: ShardDOSt
             facade["tagColors"] = bindTableFacade(db, "tagColors");
             facade["savedQueries"] = bindTableFacade(db, "savedQueries");
             facade["dailyIndex"] = bindTableFacade(db, "dailyIndex");
+            facade["migrateState"] = bindTableFacade(db, "migrateState");
             facade["ratelimit_buckets"] = bindTableFacade(db, "ratelimit_buckets");
 
 

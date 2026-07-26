@@ -767,7 +767,10 @@ function BetaSection() {
               Try Dotflowy&apos;s next sync engine. Your outline stays yours —
               we never claim your data. Opting in helps us harden it before
               everyone gets it. May have rough edges; your choice syncs across
-              devices, and toggling reloads the app.
+              devices, and toggling reloads the app. Turning it off returns you
+              to your last classic snapshot — edits you make while this is on
+              stay on the upgraded backend until you turn it back on (one-way
+              for now; they do not copy back automatically).
             </>
           }
           action={

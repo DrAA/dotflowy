@@ -170,6 +170,7 @@ const CONTENT_TABLES = [
   "tagColors",
   "savedQueries",
   "dailyIndex",
+  "migrateState",
 ] as const;
 
 /**

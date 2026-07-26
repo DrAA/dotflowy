@@ -1,11 +1,12 @@
 /**
  * One-shot UserOutlineDO → Lunora shard migrate (ADR 0058).
  *
- * Safe default: if Lunora already has nodes, skip (do not replace).
- * Classic DO data is left untouched.
+ * Completeness is tracked in Lunora `migrateState` (`nodesAt` / `kvAt`).
+ * Nodes alone never skip KV — a partial migrate (nodes landed, daily-index
+ * missing) heals on the next flag-ON / `__dotflowyMigrateToLunora` pass.
  *
- * Auto-runs from `lunora-sync` when flag ON + Lunora empty + classic has data.
- * Manual: `await window.__dotflowyMigrateToLunora()` or More menu.
+ * Auto-runs from `lunora-sync` when flag ON.
+ * Manual: `await window.__dotflowyMigrateToLunora()`.
  */
 
 import type { FunctionReference } from "lunorash/client";
@@ -14,11 +15,18 @@ import type { OutlineStore } from "./lunora-outline-store";
 import type { OutlineNode } from "./outline-plans";
 
 import { api } from "../../lunora/_generated/api";
+import {
+  planClassicKvImportRows,
+  planMigrateSteps,
+  type ClassicKvRow,
+  type ImportKvRow,
+  type MigrateStateSnapshot,
+} from "./lunora-migrate-plan";
 import { notifySaveFailed } from "./save-failure";
 
 export type MigrateResult =
   | { status: "migrated"; nodes: number; kv: number }
-  | { status: "skipped-nonempty"; nodes: number }
+  | { status: "skipped-complete"; nodes: number }
   | { status: "skipped-empty-source" }
   | { status: "failed"; error: unknown };
 
@@ -38,24 +46,7 @@ type ClassicNode = {
   kind: "paragraph" | null;
 };
 
-type KvRow = { key: string; value: unknown };
-
 type ImportNodesArgs = { userId: string; nodes: ReadonlyArray<OutlineNode> };
-type ImportKvRow =
-  | { kind: "tagColor"; tag: string; color: string }
-  | {
-      kind: "savedQuery";
-      id: string;
-      name: string;
-      query: string;
-      createdAt: number;
-    }
-  | {
-      kind: "dailyIndex";
-      key: string;
-      nodeId: string;
-      touchedAt: number;
-    };
 type MigrationApi = {
   mutators: {
     importNodes: FunctionReference<"mutation", ImportNodesArgs, unknown>;
@@ -95,7 +86,7 @@ async function fetchClassicNodes(): Promise<ClassicNode[]> {
   return Array.isArray(body) ? body : [];
 }
 
-async function fetchKv(collection: string): Promise<KvRow[]> {
+async function fetchKv(collection: string): Promise<ClassicKvRow[]> {
   const res = await fetch(
     `/api/kv?collection=${encodeURIComponent(collection)}`,
     { credentials: "include" },
@@ -119,6 +110,34 @@ async function fetchKv(collection: string): Promise<KvRow[]> {
   });
 }
 
+async function readMigrateState(
+  store: OutlineStore,
+  userId: string,
+): Promise<MigrateStateSnapshot> {
+  const { result } = await store.client.callMutator(
+    "mutators:getMigrateState",
+    { userId },
+    { shardKey: userId },
+  );
+  const row = result as MigrateStateSnapshot | null | undefined;
+  return {
+    nodesAt: typeof row?.nodesAt === "number" ? row.nodesAt : null,
+    kvAt: typeof row?.kvAt === "number" ? row.kvAt : null,
+  };
+}
+
+async function writeMigrateState(
+  store: OutlineStore,
+  userId: string,
+  patch: { nodesAt?: number | null; kvAt?: number | null },
+): Promise<void> {
+  await store.client.callMutator(
+    "mutators:setMigrateState",
+    { userId, ...patch },
+    { shardKey: userId },
+  );
+}
+
 async function importNodes(
   store: OutlineStore,
   userId: string,
@@ -131,64 +150,68 @@ async function importNodes(
   });
 }
 
-async function importKv(store: OutlineStore, userId: string): Promise<number> {
-  const t = Date.now();
+/**
+ * Fetch classic DO side-collections. Empty arrays are only valid when GET
+ * succeeds with `[]` — a failed fetch must reject so migrate leaves `kvAt`
+ * null and can heal on retry (never stamp mark-kv-complete from a 5xx/network
+ * miss).
+ */
+export async function fetchClassicKvBundles(): Promise<{
+  tagColors: ClassicKvRow[];
+  savedQueries: ClassicKvRow[];
+  dailyIndex: ClassicKvRow[];
+  count: number;
+}> {
+  const [tagColors, savedQueries, dailyIndex] = await Promise.all([
+    fetchKv("tag-colors"),
+    fetchKv("saved-queries"),
+    fetchKv("daily-index"),
+  ]);
+  return {
+    tagColors,
+    savedQueries,
+    dailyIndex,
+    count: tagColors.length + savedQueries.length + dailyIndex.length,
+  };
+}
 
-  const tags = await fetchKv("tag-colors").catch(() => [] as KvRow[]);
-  const tagRows = tags.flatMap((row) => {
-    const value = row.value as { tag?: string; color?: string };
-    const tag = String(value.tag ?? row.key);
-    const color = String(value.color ?? "");
-    return tag && color ? [{ kind: "tagColor" as const, tag, color }] : [];
-  });
+function lunoraKvCount(store: OutlineStore): number {
+  return (
+    store.tagColors.toArray.length +
+    store.savedQueries.toArray.length +
+    store.dailyIndex.toArray.length
+  );
+}
 
-  const saved = await fetchKv("saved-queries").catch(() => [] as KvRow[]);
-  const savedRows = saved.flatMap((row) => {
-    const value = row.value as {
-      id?: string;
-      name?: string;
-      query?: string;
-      createdAt?: number;
-    };
-    const id = String(value.id ?? row.key);
-    return id
-      ? [
-          {
-            kind: "savedQuery" as const,
-            id,
-            name: String(value.name ?? value.query ?? id),
-            query: String(value.query ?? ""),
-            createdAt: Number(value.createdAt ?? t),
-          },
-        ]
-      : [];
+async function importKv(
+  store: OutlineStore,
+  userId: string,
+  bundles: {
+    tagColors: ClassicKvRow[];
+    savedQueries: ClassicKvRow[];
+    dailyIndex: ClassicKvRow[];
+  },
+): Promise<number> {
+  const rows = planClassicKvImportRows({
+    ...bundles,
+    touchedAt: Date.now(),
   });
-
-  const daily = await fetchKv("daily-index").catch(() => [] as KvRow[]);
-  const dailyRows = daily.flatMap((row) => {
-    const value = row.value as { key?: string; nodeId?: string };
-    const key = String(value.key ?? row.key);
-    const nodeId = String(value.nodeId ?? "");
-    return key && nodeId
-      ? [{ kind: "dailyIndex" as const, key, nodeId, touchedAt: t }]
-      : [];
-  });
+  if (rows.length === 0) return 0;
   const result = await store.client.importRows(
     migrationApi.mutators.importKvRows,
-    [...tagRows, ...savedRows, ...dailyRows],
+    rows,
     {
       importId: `classic-${userId}-kv`,
       shardKey: userId,
-      toArgs: (rows) => ({ userId, rows }),
+      toArgs: (chunk) => ({ userId, rows: chunk }),
     },
   );
-
   return result.imported;
 }
 
 /**
- * Import classic DO outline (+ kv) into an empty Lunora shard.
- * @param force — unused for replace (replace is out of scope); reserved.
+ * Import classic DO outline (+ kv) into Lunora, healing incomplete KV when
+ * nodes already exist. Classic DO data is left untouched.
  */
 export async function migrateClassicToLunora(
   store: OutlineStore,
@@ -196,26 +219,71 @@ export async function migrateClassicToLunora(
   opts: { force?: boolean } = {},
 ): Promise<MigrateResult> {
   void opts.force;
-  const lunoraCount = store.collection.toArray.length;
-  if (lunoraCount > 0) {
-    return { status: "skipped-nonempty", nodes: lunoraCount };
-  }
-
   try {
-    const classic = await fetchClassicNodes();
-    if (classic.length === 0) {
-      return { status: "skipped-empty-source" };
+    // Wait for side-collections so lunoraKvCount is accurate for mark-complete.
+    await Promise.all([
+      store.collection.toArrayWhenReady(),
+      store.tagColors.toArrayWhenReady(),
+      store.savedQueries.toArrayWhenReady(),
+      store.dailyIndex.toArrayWhenReady(),
+    ]);
+
+    const migrateState = await readMigrateState(store, userId);
+    const lunoraNodes = store.collection.toArray.length;
+
+    // Both watermarks set → complete. Do not fetch classic: a 5xx/network
+    // error would spuriously fail an already-finished migrate.
+    if (migrateState.nodesAt != null && migrateState.kvAt != null) {
+      return { status: "skipped-complete", nodes: lunoraNodes };
     }
-    const nodes = classic.map((n) => asOutlineNode(n, userId));
-    await importNodes(store, userId, nodes);
-    const kv = await importKv(store, userId);
-    return { status: "migrated", nodes: nodes.length, kv };
+
+    const classic = await fetchClassicNodes();
+    const classicKv = await fetchClassicKvBundles();
+    const step = planMigrateSteps({
+      lunoraNodeCount: lunoraNodes,
+      migrateState,
+      classicHasNodes: classic.length > 0,
+      classicKvCount: classicKv.count,
+      lunoraKvCount: lunoraKvCount(store),
+    });
+
+    const now = Date.now();
+
+    switch (step) {
+      case "noop":
+        return { status: "skipped-complete", nodes: lunoraNodes };
+      case "empty-source":
+        return { status: "skipped-empty-source" };
+      case "mark-kv-complete": {
+        await writeMigrateState(store, userId, {
+          nodesAt: migrateState.nodesAt ?? now,
+          kvAt: now,
+        });
+        return { status: "migrated", nodes: 0, kv: 0 };
+      }
+      case "kv-only": {
+        const kv = await importKv(store, userId, classicKv);
+        await writeMigrateState(store, userId, {
+          nodesAt: migrateState.nodesAt ?? now,
+          kvAt: now,
+        });
+        return { status: "migrated", nodes: 0, kv };
+      }
+      case "full": {
+        const nodes = classic.map((n) => asOutlineNode(n, userId));
+        await importNodes(store, userId, nodes);
+        await writeMigrateState(store, userId, { nodesAt: now });
+        const kv = await importKv(store, userId, classicKv);
+        await writeMigrateState(store, userId, { kvAt: Date.now() });
+        return { status: "migrated", nodes: nodes.length, kv };
+      }
+    }
   } catch (error) {
     return { status: "failed", error };
   }
 }
 
-/** Auto path: migrate when Lunora empty; returns whether seedIfEmpty should run. */
+/** Auto path: migrate / heal; returns whether seedIfEmpty should run. */
 export async function maybeAutoMigrateToLunora(
   store: OutlineStore,
   userId: string,
@@ -227,7 +295,7 @@ export async function maybeAutoMigrateToLunora(
         `[lunora-migrate] imported ${result.nodes} nodes + ${result.kv} kv rows from classic DO`,
       );
       return "ready";
-    case "skipped-nonempty":
+    case "skipped-complete":
       return "ready";
     case "skipped-empty-source":
       return "seed";
@@ -240,7 +308,7 @@ export async function maybeAutoMigrateToLunora(
   }
 }
 
-/** DevTools / More-menu entry. */
+/** DevTools entry. */
 export function installMigrateConsoleHelper(
   getStore: () => { store: OutlineStore; userId: string } | null,
 ): void {
