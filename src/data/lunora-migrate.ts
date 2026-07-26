@@ -338,16 +338,49 @@ export async function maybeAutoMigrateToLunora(
   }
 }
 
-/** DevTools entry. */
+/**
+ * Clear `kvAt` and re-run migrate so classic side-collections (esp.
+ * `daily-index`) import again. Use when watermarks were stamped after a
+ * failed/empty KV pass and Daily looks empty while classic is fine.
+ */
+export async function forceHealClassicKv(
+  store: OutlineStore,
+  userId: string,
+): Promise<MigrateResult> {
+  await writeMigrateState(store, userId, { kvAt: null });
+  return migrateClassicToLunora(store, userId);
+}
+
+/**
+ * Clear both watermarks and re-run migrate (missing classic node ids + KV).
+ * Stronger than {@link forceHealClassicKv} when day *nodes* may be missing
+ * too — still preserves existing Lunora rows (import is insert-missing /
+ * KV upsert, not a wipe).
+ */
+export async function forceRemigrateFromClassic(
+  store: OutlineStore,
+  userId: string,
+): Promise<MigrateResult> {
+  await writeMigrateState(store, userId, { nodesAt: null, kvAt: null });
+  return migrateClassicToLunora(store, userId);
+}
+
+/** DevTools entries for stuck / false-complete migrate watermarks. */
 export function installMigrateConsoleHelper(
   getStore: () => { store: OutlineStore; userId: string } | null,
 ): void {
   if (typeof window === "undefined") return;
-  (
-    window as unknown as {
-      __dotflowyMigrateToLunora?: () => Promise<MigrateResult>;
-    }
-  ).__dotflowyMigrateToLunora = async () => {
+  type MigrateWin = {
+    __dotflowyMigrateToLunora?: () => Promise<MigrateResult>;
+    /** Clear `kvAt` → re-import classic KV (Daily identity). */
+    __dotflowyForceLunoraKvHeal?: () => Promise<MigrateResult>;
+    /** Clear both watermarks → missing nodes + KV from classic. */
+    __dotflowyForceLunoraRemigrate?: () => Promise<MigrateResult>;
+  };
+  const w = window as unknown as MigrateWin;
+  const needCtx = ():
+    | { store: OutlineStore; userId: string }
+    | { status: "failed"; error: Error } => {
     const ctx = getStore();
     if (!ctx) {
       return {
@@ -355,6 +388,21 @@ export function installMigrateConsoleHelper(
         error: new Error("Lunora sync not started (flag off?)"),
       };
     }
+    return ctx;
+  };
+  w.__dotflowyMigrateToLunora = async () => {
+    const ctx = needCtx();
+    if ("status" in ctx) return ctx;
     return migrateClassicToLunora(ctx.store, ctx.userId);
+  };
+  w.__dotflowyForceLunoraKvHeal = async () => {
+    const ctx = needCtx();
+    if ("status" in ctx) return ctx;
+    return forceHealClassicKv(ctx.store, ctx.userId);
+  };
+  w.__dotflowyForceLunoraRemigrate = async () => {
+    const ctx = needCtx();
+    if ("status" in ctx) return ctx;
+    return forceRemigrateFromClassic(ctx.store, ctx.userId);
   };
 }

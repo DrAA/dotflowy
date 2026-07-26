@@ -4,6 +4,8 @@ import type { OutlineStore } from "./lunora-outline-store";
 
 import {
   fetchClassicKvBundles,
+  forceHealClassicKv,
+  forceRemigrateFromClassic,
   migrateClassicToLunora,
 } from "./lunora-migrate";
 
@@ -236,6 +238,67 @@ describe("migrateClassicToLunora", () => {
     expect(patches[0]?.args.nodesAt).toEqual(expect.any(Number));
     expect(patches[0]?.args.kvAt).toBeUndefined();
     expect(patches.some((p) => typeof p.args.kvAt === "number")).toBe(true);
+  });
+
+  test("forceHealClassicKv clears false-complete kvAt and re-imports KV", async () => {
+    const imports: ImportCall[] = [];
+    installClassicFetch({
+      nodes: [classicNode("a")],
+      kv: {
+        "tag-colors": [],
+        "saved-queries": [],
+        "daily-index": [
+          { key: "container", nodeId: "daily" },
+          { key: "2026-07-26", nodeId: "today" },
+        ],
+      },
+    });
+
+    const store = stubStore({
+      nodes: [{ _id: "a" }],
+      // Stuck after a bad prior pass — migrate alone would skipped-complete.
+      migrateState: { nodesAt: 100, kvAt: 200 },
+      onImport: (c) => imports.push(c),
+    });
+
+    expect(await migrateClassicToLunora(store, "user-1")).toEqual({
+      status: "skipped-complete",
+      nodes: 1,
+    });
+
+    const healed = await forceHealClassicKv(store, "user-1");
+    expect(healed.status).toBe("migrated");
+    if (healed.status !== "migrated") return;
+    expect(healed.kv).toBe(2);
+    expect(imports.filter((i) => i.kind === "kv")).toEqual([
+      { kind: "kv", count: 2 },
+    ]);
+  });
+
+  test("forceRemigrateFromClassic clears both watermarks and imports missing nodes", async () => {
+    const imports: ImportCall[] = [];
+    installClassicFetch({
+      nodes: [classicNode("a"), classicNode("b", "a")],
+      kv: {
+        "tag-colors": [],
+        "saved-queries": [],
+        "daily-index": [],
+      },
+    });
+
+    const result = await forceRemigrateFromClassic(
+      stubStore({
+        nodes: [{ _id: "a" }],
+        migrateState: { nodesAt: 100, kvAt: 200 },
+        onImport: (c) => imports.push(c),
+      }),
+      "user-1",
+    );
+
+    expect(result.status).toBe("migrated");
+    if (result.status !== "migrated") return;
+    expect(result.nodes).toBe(1); // missing b
+    expect(imports.some((i) => i.kind === "nodes")).toBe(true);
   });
 
   test("malformed KV 200 → failed migrate, no kvAt stamp", async () => {
