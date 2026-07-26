@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.10.0
+
+### Minor Changes
+
+- 1922c1e: Opt-in experimental outline sync in Settings (classic sync stays the default; preference syncs across devices). Fixes typed text vanishing after a Settings round-trip, and big-delete / mirror-instance delete on the beta path. More menu lists actions first and restores Copy as Markdown; Settings no longer names the sync engine.
+
 ## 1.9.1
 
 ### Patch Changes
