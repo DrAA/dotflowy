@@ -299,7 +299,7 @@ async function materializeNewDayLunora(args: {
   month: { id: string; won: boolean; present: boolean } | null;
   week: { id: string; won: boolean; present: boolean } | null;
   parentId: string;
-}): Promise<NewDayResult> {
+}): Promise<GetOrCreateResult> {
   const lunora = getLunoraOutlineContext();
   if (!lunora) return { id: null, cause: null };
 
@@ -773,10 +773,7 @@ export async function getOrCreateScaffold(
 
       const { persisted } = runStructuralTracked(() => {
         if (!hasNode(container.id)) {
-          const tops = childrenOf(
-            buildTreeIndex(nodesCollection.toArray),
-            null,
-          );
+          const tops = childrenOf(buildTreeIndex(getLiveNodes()), null);
           const after = tops.length ? tops[tops.length - 1]!.id : null;
           appendChild(null, after, DAILY_CONTAINER_TEXT, container.id);
         }

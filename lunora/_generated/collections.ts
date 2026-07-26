@@ -10,7 +10,7 @@ import type { Doc } from "./dataModel.js";
 
 /** Options for the `userDailyIndex` shape binding. */
 export interface UserDailyIndexCollectionOptions {
-        args: { userId: string };
+        args?: {};
     /**
      * Share the optimistic-overlay gate with other collections + mutators on this
      * shard. Defaults to the shared per-shard registry, which is almost always what
@@ -48,7 +48,7 @@ export const userDailyIndexCollectionOptions = (options: UserDailyIndexCollectio
 /** Live collection for the `userDailyIndex` shape, with its sync controls. */
 export const userDailyIndexCollection = (
     options: UserDailyIndexCollectionOptions,
-): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"dailyIndex"> & Row, string>; scope: (args: { userId: string }) => void } => {
+): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"dailyIndex"> & Row, string>; scope: (args?: {}) => void } => {
     const { checkpoints, config, scope } = userDailyIndexCollectionOptions(options);
 
     return { checkpoints, collection: createCollection(config), scope };
@@ -56,7 +56,7 @@ export const userDailyIndexCollection = (
 
 /** Options for the `userSavedQueries` shape binding. */
 export interface UserSavedQueriesCollectionOptions {
-        args: { userId: string };
+        args?: {};
     /**
      * Share the optimistic-overlay gate with other collections + mutators on this
      * shard. Defaults to the shared per-shard registry, which is almost always what
@@ -94,7 +94,7 @@ export const userSavedQueriesCollectionOptions = (options: UserSavedQueriesColle
 /** Live collection for the `userSavedQueries` shape, with its sync controls. */
 export const userSavedQueriesCollection = (
     options: UserSavedQueriesCollectionOptions,
-): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"savedQueries"> & Row, string>; scope: (args: { userId: string }) => void } => {
+): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"savedQueries"> & Row, string>; scope: (args?: {}) => void } => {
     const { checkpoints, config, scope } = userSavedQueriesCollectionOptions(options);
 
     return { checkpoints, collection: createCollection(config), scope };
@@ -102,7 +102,7 @@ export const userSavedQueriesCollection = (
 
 /** Options for the `userTagColors` shape binding. */
 export interface UserTagColorsCollectionOptions {
-        args: { userId: string };
+        args?: {};
     /**
      * Share the optimistic-overlay gate with other collections + mutators on this
      * shard. Defaults to the shared per-shard registry, which is almost always what
@@ -140,7 +140,7 @@ export const userTagColorsCollectionOptions = (options: UserTagColorsCollectionO
 /** Live collection for the `userTagColors` shape, with its sync controls. */
 export const userTagColorsCollection = (
     options: UserTagColorsCollectionOptions,
-): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"tagColors"> & Row, string>; scope: (args: { userId: string }) => void } => {
+): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"tagColors"> & Row, string>; scope: (args?: {}) => void } => {
     const { checkpoints, config, scope } = userTagColorsCollectionOptions(options);
 
     return { checkpoints, collection: createCollection(config), scope };
@@ -148,7 +148,7 @@ export const userTagColorsCollection = (
 
 /** Options for the `wholeOutline` shape binding. */
 export interface WholeOutlineCollectionOptions {
-        args: { userId: string };
+        args?: {};
     /**
      * Share the optimistic-overlay gate with other collections + mutators on this
      * shard. Defaults to the shared per-shard registry, which is almost always what
@@ -186,7 +186,7 @@ export const wholeOutlineCollectionOptions = (options: WholeOutlineCollectionOpt
 /** Live collection for the `wholeOutline` shape, with its sync controls. */
 export const wholeOutlineCollection = (
     options: WholeOutlineCollectionOptions,
-): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"nodes"> & Row, string>; scope: (args: { userId: string }) => void } => {
+): { checkpoints: CheckpointRegistry; collection: Collection<Doc<"nodes"> & Row, string>; scope: (args?: {}) => void } => {
     const { checkpoints, config, scope } = wholeOutlineCollectionOptions(options);
 
     return { checkpoints, collection: createCollection(config), scope };

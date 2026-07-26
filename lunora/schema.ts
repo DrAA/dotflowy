@@ -27,6 +27,7 @@ export default defineSchema({
     userId: v.string(),
   })
     .shardBy("userId")
+    .ownedBy("userId")
     .index("by_parent", ["parentId"]),
 
   /**
@@ -39,6 +40,7 @@ export default defineSchema({
     userId: v.string(),
   })
     .shardBy("userId")
+    .ownedBy("userId")
     .index("by_tag", ["tag"]),
 
   /** Saved filter queries (ADR 0048). `_id` = row id via clientId (UUID). */
@@ -47,7 +49,9 @@ export default defineSchema({
     query: v.string(),
     createdAt: v.number(),
     userId: v.string(),
-  }).shardBy("userId"),
+  })
+    .shardBy("userId")
+    .ownedBy("userId"),
 
   /**
    * Daily scaffold identity (ADR 0052). Natural key = `key` (`by_key`) —
@@ -62,5 +66,6 @@ export default defineSchema({
     userId: v.string(),
   })
     .shardBy("userId")
+    .ownedBy("userId")
     .index("by_key", ["key"]),
 }).extend(ratelimit.extension);

@@ -35,7 +35,7 @@ export default defineConfig({
     // `ws: true` is required — Vite's string shorthand only sets
     // `{ target, changeOrigin }` and skips the upgrade listener, so
     // `/api/sync` and `/_lunora/ws` never reach wrangler (outline stuck on
-    // "Loading outline"). See ADR 0055 dogfood hang.
+    // "Loading outline"). See ADR 0058 dogfood hang.
     proxy: {
       "/api": {
         target: "http://localhost:8787",
@@ -90,12 +90,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": new URL("./src", import.meta.url).pathname,
-      // @lunora/react ships precompiled `jsxDEV` imports; Vite's prod React
-      // stub leaves jsxDEV undefined (LunoraProvider crash under cf:dev).
-      "react/jsx-dev-runtime": new URL(
-        "./scripts/react-jsx-dev-runtime-shim.ts",
-        import.meta.url,
-      ).pathname,
     },
   },
 });

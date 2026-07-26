@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 /**
- * Lunora outline plane composed beside the product Worker (ADR 0055 Phase 2).
+ * Lunora outline plane composed beside the product Worker (ADR 0058 Phase 2).
  *
  * - No `@lunora/auth` / dual signup — product Better Auth stays session authority.
  * - `resolveIdentity` bridges the existing Better Auth session into Lunora.
@@ -9,6 +9,8 @@
  */
 
 import type { ShardNamespaceLike } from "lunorash/runtime";
+
+import { memoizeIdentityPerRequest } from "lunorash/runtime";
 
 import type { AuthEnv } from "./auth";
 
@@ -20,8 +22,7 @@ export type LunoraEnv = AuthEnv & {
   /** Optional Studio / admin bearer (unset = admin routes stay closed). */
   LUNORA_ADMIN_TOKEN?: string;
   /**
-   * Default ON when unset — browser + MCP share the Lunora SHARD. Set
-   * `"0"` / `"false"` / `"off"` to route MCP through classic UserOutlineDO.
+   * Optional force for local dogfood. Production follows the synced beta flag.
    */
   LUNORA_OUTLINE?: string;
   /**
@@ -32,9 +33,6 @@ export type LunoraEnv = AuthEnv & {
   /** Same comma-list as `.dev.vars.example` for Better Auth CSRF (optional). */
   BETTER_AUTH_TRUSTED_ORIGINS?: string;
 };
-
-// defineApp requires `Record<string, unknown>`; AuthEnv is a closed interface.
-type LunoraAppEnv = LunoraEnv & Record<string, unknown>;
 
 /**
  * Origins the SPA may use when talking to Lunora through the Vite/dev proxy.
@@ -71,7 +69,7 @@ function lunoraTrustedOrigins(env: LunoraEnv): string[] {
   ];
 }
 
-const app = defineApp<LunoraAppEnv>()
+const app = defineApp<LunoraEnv>()
   .shard((env) => env.SHARD)
   .extend((env) => {
     const trustedOrigins = lunoraTrustedOrigins(env);
@@ -85,7 +83,7 @@ const app = defineApp<LunoraAppEnv>()
         },
         csrf: { trustedOrigins },
       },
-      resolveIdentity: async (request) => {
+      resolveIdentity: memoizeIdentityPerRequest(async (request) => {
         const url = new URL(request.url);
         const auth = createAuth(env, url.origin);
         const session = await auth.api.getSession({ headers: request.headers });
@@ -95,7 +93,7 @@ const app = defineApp<LunoraAppEnv>()
           userId,
           email: session.user.email ?? undefined,
         };
-      },
+      }),
       authorizeShard: (identity, shardKey) => identity?.userId === shardKey,
     };
   })

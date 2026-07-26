@@ -1,14 +1,13 @@
 /**
- * Client outline store for the Lunora flag-swap path (ADR 0055).
+ * Client outline store for the Lunora flag-swap path (ADR 0058).
  * `wholeOutline` shape + `bindMutators` with watermark checkpoints (replaces
  * `waitForSeq`).
  */
 
+import type { Collection } from "@tanstack/db";
 import type { LunoraClient } from "lunorash/client";
 
-import { lunoraCollectionOptions } from "@lunora/db";
 import { bindMutators, defineMutator } from "@lunora/db/mutators";
-import { createCollection, type Collection } from "@tanstack/db";
 
 import type {
   DailyIndexRowDoc,
@@ -17,10 +16,11 @@ import type {
 } from "./lunora-kv-store";
 
 import {
-  shapeFirstCheckpoints,
-  withDirectOptimisticMetadata,
-  type CheckpointRegistry,
-} from "./lunora-checkpoints";
+  userDailyIndexCollection,
+  userSavedQueriesCollection,
+  userTagColorsCollection,
+  wholeOutlineCollection,
+} from "../../lunora/_generated/collections";
 import {
   buildTreeIndex,
   nodeToRow,
@@ -52,22 +52,6 @@ import {
   type OutlineNode,
   type OutlinePlan,
 } from "./outline-plans";
-
-/**
- * Kv-only mutators poke their own shape, not `wholeOutline`. Fan those pokes
- * into the mutator gate so a shape-based wait can still complete (e2e force-
- * pokes `wholeOutline` for the same reason).
- */
-function relayCheckpoints(
-  from: CheckpointRegistry,
-  to: CheckpointRegistry,
-): void {
-  const orig = from.resolve.bind(from);
-  from.resolve = (watermark) => {
-    orig(watermark);
-    to.resolve(watermark);
-  };
-}
 
 /** Row shape for TanStack — Lunora Doc + index signature for collection drafts. */
 export type NodeRow = NodeDocLike &
@@ -111,15 +95,11 @@ function bindOutlineMutators(
   tagColors: Collection<TagColorRowDoc, string>,
   savedQueries: Collection<SavedQueryRowDoc, string>,
   dailyIndex: Collection<DailyIndexRowDoc, string>,
-  checkpoints: ReturnType<
-    typeof lunoraCollectionOptions<NodeRow>
-  >["checkpoints"],
   userId: string,
 ) {
   return bindMutators(
     client,
     {
-      checkpoints,
       collections: {
         nodes: collection as never,
         tagColors: tagColors as never,
@@ -621,74 +601,52 @@ export function createOutlineStore(
   client: LunoraClient,
   userId: string,
 ): OutlineStore {
-  const { config, checkpoints } = lunoraCollectionOptions<NodeRow>({
+  const outlineBinding = wholeOutlineCollection({
     client,
-    id: `nodes:${userId}`,
-    shape: {
-      name: "wholeOutline",
-      args: { userId },
-      shardKey: userId,
-    },
     load: "eager",
+    shardKey: userId,
   });
-  const tagOpts = lunoraCollectionOptions<TagColorRowDoc>({
+  const tagBinding = userTagColorsCollection({
     client,
-    id: `tagColors:${userId}`,
-    // Natural key = tag (server `_id` is a UUID — tag names aren't valid clientIds).
     getKey: (row) => row.tag,
-    shape: {
-      name: "userTagColors",
-      args: { userId },
-      shardKey: userId,
-    },
     load: "eager",
+    shardKey: userId,
   });
-  const savedOpts = lunoraCollectionOptions<SavedQueryRowDoc>({
+  const savedBinding = userSavedQueriesCollection({
     client,
-    id: `savedQueries:${userId}`,
-    shape: {
-      name: "userSavedQueries",
-      args: { userId },
-      shardKey: userId,
-    },
     load: "eager",
+    shardKey: userId,
   });
-  const dailyOpts = lunoraCollectionOptions<DailyIndexRowDoc>({
+  const dailyBinding = userDailyIndexCollection({
     client,
-    id: `dailyIndex:${userId}`,
-    // Natural key = scaffold/day key (server `_id` is a UUID).
     getKey: (row) => row.key,
-    shape: {
-      name: "userDailyIndex",
-      args: { userId },
-      shardKey: userId,
-    },
     load: "eager",
+    shardKey: userId,
   });
 
-  // Fan side-collection shape pokes into the wholeOutline gate (belt for the
-  // offline/outbox path where RPC ack hasn't advanced the watermark yet).
-  relayCheckpoints(tagOpts.checkpoints, checkpoints);
-  relayCheckpoints(savedOpts.checkpoints, checkpoints);
-  relayCheckpoints(dailyOpts.checkpoints, checkpoints);
-
-  const collection = createCollection(config);
-  const tagColors = createCollection(tagOpts.config);
-  const savedQueries = createCollection(savedOpts.config);
-  const dailyIndex = createCollection(dailyOpts.config);
-  // Shared clientSeq FIFO; hold overlays until shape poke (shapeFirstCheckpoints).
-  // Stamp TanStack "direct" metadata so a missed shape poke's 3s fallback
-  // doesn't drop optimistic typed text as stale.
-  const mutators = withDirectOptimisticMetadata(
-    bindOutlineMutators(
-      client,
-      collection,
-      tagColors,
-      savedQueries,
-      dailyIndex,
-      shapeFirstCheckpoints(client, userId, checkpoints),
-      userId,
-    ),
+  const collection = outlineBinding.collection as unknown as Collection<
+    NodeRow,
+    string
+  >;
+  const tagColors = tagBinding.collection as unknown as Collection<
+    TagColorRowDoc,
+    string
+  >;
+  const savedQueries = savedBinding.collection as unknown as Collection<
+    SavedQueryRowDoc,
+    string
+  >;
+  const dailyIndex = dailyBinding.collection as unknown as Collection<
+    DailyIndexRowDoc,
+    string
+  >;
+  const mutators = bindOutlineMutators(
+    client,
+    collection,
+    tagColors,
+    savedQueries,
+    dailyIndex,
+    userId,
   );
   return { collection, tagColors, savedQueries, dailyIndex, mutators };
 }
