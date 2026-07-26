@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.10.1
+
+### Patch Changes
+
+- c0dba55: Heal incomplete classic→upgraded-sync migrate: backfill daily-index (and other side-collections) when outline nodes already landed, so Daily is not left empty after opting in.
+
 ## 1.10.0
 
 ### Minor Changes
