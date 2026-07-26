@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.9.1
+
+### Patch Changes
+
+- e8101a1: Date NL: weekday `[[` picks, Next/Last week·month·year catalog, chip relative voice, scaffold-only Cmd+K jumps
+
 ## 1.9.0
 
 ### Minor Changes
