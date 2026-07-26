@@ -41,32 +41,27 @@ type ClassicNode = {
 type KvRow = { key: string; value: unknown };
 
 type ImportNodesArgs = { userId: string; nodes: ReadonlyArray<OutlineNode> };
-type ImportTagColorArgs = { userId: string; tag: string; color: string };
-type ImportSavedQueryArgs = {
-  userId: string;
-  id: string;
-  name: string;
-  query: string;
-  createdAt: number;
-};
-type ImportDailyMappingArgs = {
-  userId: string;
-  key: string;
-  nodeId: string;
-  touchedAt: number;
-};
+type ImportKvRow =
+  | { kind: "tagColor"; tag: string; color: string }
+  | {
+      kind: "savedQuery";
+      id: string;
+      name: string;
+      query: string;
+      createdAt: number;
+    }
+  | {
+      kind: "dailyIndex";
+      key: string;
+      nodeId: string;
+      touchedAt: number;
+    };
 type MigrationApi = {
   mutators: {
     importNodes: FunctionReference<"mutation", ImportNodesArgs, unknown>;
-    upsertTagColor: FunctionReference<"mutation", ImportTagColorArgs, unknown>;
-    upsertSavedQuery: FunctionReference<
+    importKvRows: FunctionReference<
       "mutation",
-      ImportSavedQueryArgs,
-      unknown
-    >;
-    upsertDailyMapping: FunctionReference<
-      "mutation",
-      ImportDailyMappingArgs,
+      { userId: string; rows: ReadonlyArray<ImportKvRow> },
       unknown
     >;
   };
@@ -144,21 +139,8 @@ async function importKv(store: OutlineStore, userId: string): Promise<number> {
     const value = row.value as { tag?: string; color?: string };
     const tag = String(value.tag ?? row.key);
     const color = String(value.color ?? "");
-    return tag && color ? [{ tag, color }] : [];
+    return tag && color ? [{ kind: "tagColor" as const, tag, color }] : [];
   });
-  const importedTags = await store.client.importRows(
-    migrationApi.mutators.upsertTagColor,
-    tagRows,
-    {
-      chunkSize: 1,
-      importId: `classic-${userId}-tag-colors`,
-      shardKey: userId,
-      toArgs: ([row]) => ({
-        userId,
-        ...(row as Omit<ImportTagColorArgs, "userId">),
-      }),
-    },
-  );
 
   const saved = await fetchKv("saved-queries").catch(() => [] as KvRow[]);
   const savedRows = saved.flatMap((row) => {
@@ -172,6 +154,7 @@ async function importKv(store: OutlineStore, userId: string): Promise<number> {
     return id
       ? [
           {
+            kind: "savedQuery" as const,
             id,
             name: String(value.name ?? value.query ?? id),
             query: String(value.query ?? ""),
@@ -180,44 +163,27 @@ async function importKv(store: OutlineStore, userId: string): Promise<number> {
         ]
       : [];
   });
-  const importedSaved = await store.client.importRows(
-    migrationApi.mutators.upsertSavedQuery,
-    savedRows,
-    {
-      chunkSize: 1,
-      importId: `classic-${userId}-saved-queries`,
-      shardKey: userId,
-      toArgs: ([row]) => ({
-        userId,
-        ...(row as Omit<ImportSavedQueryArgs, "userId">),
-      }),
-    },
-  );
 
   const daily = await fetchKv("daily-index").catch(() => [] as KvRow[]);
   const dailyRows = daily.flatMap((row) => {
     const value = row.value as { key?: string; nodeId?: string };
     const key = String(value.key ?? row.key);
     const nodeId = String(value.nodeId ?? "");
-    return key && nodeId ? [{ key, nodeId, touchedAt: t }] : [];
+    return key && nodeId
+      ? [{ kind: "dailyIndex" as const, key, nodeId, touchedAt: t }]
+      : [];
   });
-  const importedDaily = await store.client.importRows(
-    migrationApi.mutators.upsertDailyMapping,
-    dailyRows,
+  const result = await store.client.importRows(
+    migrationApi.mutators.importKvRows,
+    [...tagRows, ...savedRows, ...dailyRows],
     {
-      chunkSize: 1,
-      importId: `classic-${userId}-daily-index`,
+      importId: `classic-${userId}-kv`,
       shardKey: userId,
-      toArgs: ([row]) => ({
-        userId,
-        ...(row as Omit<ImportDailyMappingArgs, "userId">),
-      }),
+      toArgs: (rows) => ({ userId, rows }),
     },
   );
 
-  return (
-    importedTags.imported + importedSaved.imported + importedDaily.imported
-  );
+  return result.imported;
 }
 
 /**

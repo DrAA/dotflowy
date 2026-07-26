@@ -556,6 +556,87 @@ export const importNodes = defineMutator({
   },
 });
 
+const kvImportRowArg = v.union(
+  v.object({
+    kind: v.literal("tagColor"),
+    tag: v.string(),
+    color: v.string(),
+  }),
+  v.object({
+    kind: v.literal("savedQuery"),
+    id: idArg,
+    name: v.string(),
+    query: v.string(),
+    createdAt: tsArg,
+  }),
+  v.object({
+    kind: v.literal("dailyIndex"),
+    key: v.string(),
+    nodeId: idArg,
+    touchedAt: tsArg,
+  }),
+);
+
+/** One migration batch across the three shard-local side-collections. */
+export const importKvRows = defineMutator({
+  args: {
+    userId: userIdArg,
+    rows: v.array(kvImportRowArg),
+  },
+  server: async (ctx, args) => {
+    const mctx = ctx as unknown as MutatorCtx;
+    assertOwner(mctx, args.userId);
+    for (const row of args.rows) {
+      if (row.kind === "tagColor") {
+        const existing = await getTagColorByTag(mctx, row.tag);
+        if (existing) {
+          await mctx.db.patch(existing._id as Id<"tagColors">, {
+            color: row.color,
+          });
+        } else {
+          await mctx.db.insert("tagColors", {
+            tag: row.tag,
+            color: row.color,
+            userId: args.userId,
+          });
+        }
+      } else if (row.kind === "savedQuery") {
+        const id = row.id as Id<"savedQueries">;
+        const existing = await mctx.db.get(id);
+        const fields = {
+          name: row.name,
+          query: row.query,
+          createdAt: row.createdAt,
+        };
+        if (existing) await mctx.db.patch(id, fields);
+        else {
+          await mctx.db.insert(
+            "savedQueries",
+            { ...fields, userId: args.userId },
+            { clientId: row.id },
+          );
+        }
+      } else {
+        const existing = await getDailyByKey(mctx, row.key);
+        const fields = {
+          nodeId: row.nodeId,
+          touchedAt: row.touchedAt,
+        };
+        if (existing) {
+          await mctx.db.patch(existing._id as Id<"dailyIndex">, fields);
+        } else {
+          await mctx.db.insert("dailyIndex", {
+            key: row.key,
+            ...fields,
+            userId: args.userId,
+          });
+        }
+      }
+    }
+    return { count: args.rows.length };
+  },
+});
+
 /** `/mirror` — last-child mirror of source under targetParentId (ADR 0022). */
 export const mirrorNode = defineMutator({
   args: {
