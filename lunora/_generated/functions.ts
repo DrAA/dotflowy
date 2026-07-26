@@ -44,6 +44,7 @@ export const LUNORA_FUNCTIONS: Record<string, RegisteredLunoraFunction> = {
     "mutators:deleteDailyMapping": lunora_mutators_1.deleteDailyMapping as unknown as RegisteredLunoraFunction,
     "mutators:deleteSavedQuery": lunora_mutators_1.deleteSavedQuery as unknown as RegisteredLunoraFunction,
     "mutators:deleteTagColor": lunora_mutators_1.deleteTagColor as unknown as RegisteredLunoraFunction,
+    "mutators:getMigrateState": lunora_mutators_1.getMigrateState as unknown as RegisteredLunoraFunction,
     "mutators:hello": lunora_mutators_1.hello as unknown as RegisteredLunoraFunction,
     "mutators:importKvRows": lunora_mutators_1.importKvRows as unknown as RegisteredLunoraFunction,
     "mutators:importNodes": lunora_mutators_1.importNodes as unknown as RegisteredLunoraFunction,
@@ -67,6 +68,7 @@ export const LUNORA_FUNCTIONS: Record<string, RegisteredLunoraFunction> = {
     "mutators:setCompleted": lunora_mutators_1.setCompleted as unknown as RegisteredLunoraFunction,
     "mutators:setIsTask": lunora_mutators_1.setIsTask as unknown as RegisteredLunoraFunction,
     "mutators:setKind": lunora_mutators_1.setKind as unknown as RegisteredLunoraFunction,
+    "mutators:setMigrateState": lunora_mutators_1.setMigrateState as unknown as RegisteredLunoraFunction,
     "mutators:setText": lunora_mutators_1.setText as unknown as RegisteredLunoraFunction,
     "mutators:splitNode": lunora_mutators_1.splitNode as unknown as RegisteredLunoraFunction,
     "mutators:upsertDailyMapping": lunora_mutators_1.upsertDailyMapping as unknown as RegisteredLunoraFunction,
@@ -121,7 +123,7 @@ export const LUNORA_SHAPES: Record<string, RegisteredShape> = {
  * ShardDO's `isCustomMutator` override routes through the client-watermark push
  * protocol (`x-lunora-client-id`/`x-lunora-client-seq` ordering).
  */
-export const LUNORA_MUTATOR_PATHS: ReadonlySet<string> = new Set(["mutators:appendChild", "mutators:claimDailyMapping", "mutators:deleteDailyMapping", "mutators:deleteSavedQuery", "mutators:deleteTagColor", "mutators:hello", "mutators:importKvRows", "mutators:importNodes", "mutators:indent", "mutators:indentMany", "mutators:insertChildAtStart", "mutators:insertSibling", "mutators:materializeDailyNodes", "mutators:mirrorNode", "mutators:moveMany", "mutators:moveNode", "mutators:outdent", "mutators:outdentMany", "mutators:patchSavedQuery", "mutators:removeMany", "mutators:removeNode", "mutators:restoreNodes", "mutators:seedIfEmpty", "mutators:setBookmarkedAt", "mutators:setCollapsed", "mutators:setCompleted", "mutators:setIsTask", "mutators:setKind", "mutators:setText", "mutators:splitNode", "mutators:upsertDailyMapping", "mutators:upsertSavedQuery", "mutators:upsertTagColor"]);
+export const LUNORA_MUTATOR_PATHS: ReadonlySet<string> = new Set(["mutators:appendChild", "mutators:claimDailyMapping", "mutators:deleteDailyMapping", "mutators:deleteSavedQuery", "mutators:deleteTagColor", "mutators:getMigrateState", "mutators:hello", "mutators:importKvRows", "mutators:importNodes", "mutators:indent", "mutators:indentMany", "mutators:insertChildAtStart", "mutators:insertSibling", "mutators:materializeDailyNodes", "mutators:mirrorNode", "mutators:moveMany", "mutators:moveNode", "mutators:outdent", "mutators:outdentMany", "mutators:patchSavedQuery", "mutators:removeMany", "mutators:removeNode", "mutators:restoreNodes", "mutators:seedIfEmpty", "mutators:setBookmarkedAt", "mutators:setCollapsed", "mutators:setCompleted", "mutators:setIsTask", "mutators:setKind", "mutators:setMigrateState", "mutators:setText", "mutators:splitNode", "mutators:upsertDailyMapping", "mutators:upsertSavedQuery", "mutators:upsertTagColor"]);
 
 /**
  * Connection-lifecycle manifest: the function paths the generated ShardDO

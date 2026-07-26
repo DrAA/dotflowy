@@ -34,7 +34,12 @@ import {
 } from "../src/data/outline-plans";
 import { resolveDailyClaim } from "../src/plugins/daily/claim-mapping";
 
-type ShardTable = "nodes" | "tagColors" | "savedQueries" | "dailyIndex";
+type ShardTable =
+  | "nodes"
+  | "tagColors"
+  | "savedQueries"
+  | "dailyIndex"
+  | "migrateState";
 
 /** Minimal mutator ctx — defineMutator's ServerContext is the base MutationCtx. */
 type MutatorDb = {
@@ -949,5 +954,68 @@ export const deleteDailyMapping = defineMutator({
     assertOwner(mctx, args.userId);
     const existing = await getDailyByKey(mctx, args.key);
     if (existing) await mctx.db.delete(existing._id as Id<"dailyIndex">);
+  },
+});
+
+// --- migrateState (classic → Lunora watermarks) -----------------------------
+
+async function getMigrateStateRow(
+  ctx: MutatorCtx,
+): Promise<(Record<string, unknown> & { _id: string }) | null> {
+  const rows = await ctx.db.query("migrateState").collect();
+  return rows[0] ?? null;
+}
+
+/** Read migrate watermarks (`null` fields = incomplete). */
+export const getMigrateState = defineMutator({
+  args: { userId: userIdArg },
+  server: async (ctx, args) => {
+    const mctx = ctx as unknown as MutatorCtx;
+    assertOwner(mctx, args.userId);
+    const row = await getMigrateStateRow(mctx);
+    if (!row)
+      return { nodesAt: null as number | null, kvAt: null as number | null };
+    return {
+      nodesAt: typeof row.nodesAt === "number" ? row.nodesAt : null,
+      kvAt: typeof row.kvAt === "number" ? row.kvAt : null,
+    };
+  },
+});
+
+/**
+ * Upsert migrate watermarks. Omitted fields are left unchanged (or null on
+ * first insert). Pass an explicit timestamp to mark that half complete.
+ */
+export const setMigrateState = defineMutator({
+  args: {
+    userId: userIdArg,
+    nodesAt: v.optional(v.number().nullable()),
+    kvAt: v.optional(v.number().nullable()),
+  },
+  server: async (ctx, args) => {
+    const mctx = ctx as unknown as MutatorCtx;
+    assertOwner(mctx, args.userId);
+    const existing = await getMigrateStateRow(mctx);
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (args.nodesAt !== undefined) patch.nodesAt = args.nodesAt;
+      if (args.kvAt !== undefined) patch.kvAt = args.kvAt;
+      if (Object.keys(patch).length > 0) {
+        await mctx.db.patch(existing._id as Id<"migrateState">, patch);
+      }
+      const next = await getMigrateStateRow(mctx);
+      return {
+        nodesAt: typeof next?.nodesAt === "number" ? next.nodesAt : null,
+        kvAt: typeof next?.kvAt === "number" ? next.kvAt : null,
+      };
+    }
+    const nodesAt = args.nodesAt === undefined ? null : args.nodesAt;
+    const kvAt = args.kvAt === undefined ? null : args.kvAt;
+    await mctx.db.insert("migrateState", {
+      userId: args.userId,
+      nodesAt,
+      kvAt,
+    });
+    return { nodesAt, kvAt };
   },
 });

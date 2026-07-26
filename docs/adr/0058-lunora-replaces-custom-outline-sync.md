@@ -34,6 +34,17 @@ Dotflowy’s hand-rolled per-user DO sync (`/api/sync` + client-planned `{ops}` 
 - **Kill-switch pairing:** the browser reads `isLunoraSyncEnabled()` (`dotflowy:flag:lunora-sync`, mirrored from synced `account-prefs` on load); Worker MCP reads env force first, else the same preference on classic DO (`isLunoraOutlineEnabledForUser`). For local debugging divergence, flip env + client together (`LUNORA_OUTLINE=0` **and** `lunora-sync=off`, or force both ON).
 - **KV side-collections:** phase **2b** after nodes sync is on Lunora — do not block the collection swap on tag-colors/daily-index/saved-queries.
 
+## Classic → Lunora migrate completeness (locked)
+
+Daily identity lives in the `daily-index` KV side-collection, not in nodes. A migrate that imports nodes then skips KV (or fails mid-KV) leaves Daily empty forever if the gate is “Lunora already has nodes → skip.” The same trap applies to **nodes**: a mid-import chunk failure can leave some Lunora rows durable while classic still has missing ids — `lunoraNodeCount > 0` must never mean “node migration complete.”
+
+- **Watermarks:** shard table `migrateState` `{ userId, nodesAt, kvAt }` (timestamps; null/absent = incomplete). Split so each half is independently recoverable.
+- **`nodesAt` semantics:** stamped only after the classic node snapshot is fully imported. When `nodesAt` is null and classic still has nodes → run node import even if Lunora is nonempty. `importNodes` is insert-only, so the runner imports **missing classic ids only** (preserves existing Lunora rows / Lunora-era edits). Never stamp `nodesAt` from `kv-only` / `mark-kv-complete` while classic still has nodes.
+- **KV heal:** when `kvAt` is missing → backfill all three classic KV collections (`daily-index`, `tag-colors`, `saved-queries`) via the existing idempotent `importKvRows` path, then set `kvAt`. If classic KV is empty after a **successful** array read and Lunora side-collections already have rows — **or both are empty** (nothing to import) — set `kvAt` without re-import so we don't retry forever. Failed classic GETs **and non-array 200 bodies** must not count as empty. **Never skip solely on `nodes.length > 0`.**
+- **Complete watermarks short-circuit:** when both `nodesAt` and `kvAt` are set, migrate returns noop **without** fetching classic DO (avoids spurious `failed` if classic is down).
+- **Bootstrap for existing prod shards:** no `migrateState` row + Lunora nodes + no classic nodes + missing `kvAt` uses the KV heal rules above (and may stamp `nodesAt` because classic has nothing left to import).
+- **Toggle OFF is one-way:** Settings discloses that turning off returns the last classic snapshot; edits made while upgraded sync is on stay on that backend until turned back on. Reverse Lunora→classic sync is **out of scope** (follow-up ADR later).
+
 ## Sequence (implementation order)
 
 1. Spike Phase 0–1 (done): prove mutators/shapes/watermark/bridge/`seedIfEmpty`.

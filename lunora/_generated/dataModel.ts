@@ -33,7 +33,7 @@ export type {
     WhereOperators,
 } from "lunorash/server/data-model";
 
-export type TableName = "nodes" | "tagColors" | "savedQueries" | "dailyIndex" | "ratelimit_buckets";
+export type TableName = "nodes" | "tagColors" | "savedQueries" | "dailyIndex" | "migrateState" | "ratelimit_buckets";
 
 /**
  * The tables **this app declared** — every {@link TableName} except those an add-on
@@ -50,7 +50,7 @@ export type TableName = "nodes" | "tagColors" | "savedQueries" | "dailyIndex" | 
  * const EXPORTED: readonly AppTableName[] = ["nodes", "tagColors"];
  * ```
  */
-export type AppTableName = "nodes" | "tagColors" | "savedQueries" | "dailyIndex";
+export type AppTableName = "nodes" | "tagColors" | "savedQueries" | "dailyIndex" | "migrateState";
 
 export type Id<TName extends string> = string & { readonly __table: TName };
 
@@ -98,6 +98,14 @@ export interface Doc_dailyIndex {
     userId: string;
 }
 
+export interface Doc_migrateState {
+    _id: Id<"migrateState">;
+    _creationTime: number;
+    userId: string;
+    nodesAt: number;
+    kvAt: number;
+}
+
 export interface Doc_ratelimit_buckets {
     _id: Id<"ratelimit_buckets">;
     _creationTime: number;
@@ -112,6 +120,7 @@ export interface DataModel {
     tagColors: Doc_tagColors;
     savedQueries: Doc_savedQueries;
     dailyIndex: Doc_dailyIndex;
+    migrateState: Doc_migrateState;
     ratelimit_buckets: Doc_ratelimit_buckets;
 }
 
@@ -126,6 +135,7 @@ export interface IndexNamesByTable {
     tagColors: "by_tag";
     savedQueries: never;
     dailyIndex: "by_key";
+    migrateState: never;
     ratelimit_buckets: "by_key";
 }
 
@@ -137,6 +147,7 @@ export interface SearchIndexNamesByTable {
     tagColors: never;
     savedQueries: never;
     dailyIndex: never;
+    migrateState: never;
     ratelimit_buckets: never;
 }
 
@@ -148,6 +159,7 @@ export interface RankIndexNamesByTable {
     tagColors: never;
     savedQueries: never;
     dailyIndex: never;
+    migrateState: never;
     ratelimit_buckets: never;
 }
 
@@ -159,6 +171,7 @@ export interface GeoIndexNamesByTable {
     tagColors: never;
     savedQueries: never;
     dailyIndex: never;
+    migrateState: never;
     ratelimit_buckets: never;
 }
 
@@ -211,6 +224,14 @@ export interface Insert_dailyIndex {
     userId: string;
 }
 
+export interface Insert_migrateState {
+    _id?: Id<"migrateState">;
+    _creationTime?: number;
+    userId: string;
+    nodesAt: number;
+    kvAt: number;
+}
+
 export interface Insert_ratelimit_buckets {
     _id?: Id<"ratelimit_buckets">;
     _creationTime?: number;
@@ -226,6 +247,7 @@ export interface InsertModel {
     tagColors: Insert_tagColors;
     savedQueries: Insert_savedQueries;
     dailyIndex: Insert_dailyIndex;
+    migrateState: Insert_migrateState;
     ratelimit_buckets: Insert_ratelimit_buckets;
 }
 
@@ -252,6 +274,7 @@ export interface Relations {
     tagColors: {};
     savedQueries: {};
     dailyIndex: {};
+    migrateState: {};
     ratelimit_buckets: {};
 }
 

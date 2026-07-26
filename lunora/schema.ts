@@ -68,4 +68,17 @@ export default defineSchema({
     .shardBy("userId")
     .ownedBy("userId")
     .index("by_key", ["key"]),
+
+  /**
+   * Classic → Lunora migrate watermarks (ADR 0058). One row per shard.
+   * `nodesAt` / `kvAt` are completion timestamps; null/absent = incomplete.
+   * Split so a nodes-only partial migrate can still heal KV (daily-index etc.).
+   */
+  migrateState: defineTable({
+    userId: v.string(),
+    nodesAt: v.number().nullable(),
+    kvAt: v.number().nullable(),
+  })
+    .shardBy("userId")
+    .ownedBy("userId"),
 }).extend(ratelimit.extension);

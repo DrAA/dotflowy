@@ -530,6 +530,16 @@ export async function seedOutlineLunora(
      *  (`daily-index` / `tag-colors` / `saved-queries`). */
     kv?: Record<string, { key: string; value: unknown }[]>;
     /**
+     * Classic DO source for auto-migrate / KV heal. When set, GET `/api/nodes`
+     * and `/api/kv` serve this data (instead of empty). Pass Lunora `nodes` as
+     * `[]` for a full classic→Lunora import, or seed Lunora nodes + classic KV
+     * (and omit Lunora `kv`) to exercise the partial-migrate heal.
+     */
+    classicSource?: {
+      nodes?: SeedNode[];
+      kv?: Record<string, { key: string; value: unknown }[]>;
+    };
+    /**
      * Skip post-mutation `wholeOutline` WS pokes (RPC still mutates the mock
      * store). Reproduces a missed shape poke to pin Lunora's sticky optimistic
      * hold across its fallback window.
@@ -600,6 +610,13 @@ export async function seedOutlineLunora(
       userId,
     });
   }
+
+  /** Classic→Lunora migrate watermarks (ADR 0058 heal). */
+  let migrateState: { nodesAt: number | null; kvAt: number | null } | null =
+    null;
+
+  const classicNodes = (opts.classicSource?.nodes ?? []).map((n) => toNode(n));
+  const classicKv = opts.classicSource?.kv ?? {};
 
   let clientSeq = 0;
   let pokeN = 0;
@@ -720,19 +737,31 @@ export async function seedOutlineLunora(
       }),
   );
 
-  // Empty classic DO so auto-migrate no-ops (Lunora store is the seed).
+  // Classic DO: empty by default (auto-migrate no-ops). `classicSource` serves
+  // real classic nodes/kv so migrate / KV-heal can run against the mock.
   await page.route(
     (url) => url.pathname === "/api/nodes",
     (route) => {
-      if (route.request().method() === "GET") return reply(route, []);
+      if (route.request().method() === "GET") {
+        return reply(route, classicNodes);
+      }
       return route.fulfill({ status: 404, body: "{}" });
     },
   );
   await page.route(
     (url) => url.pathname === "/api/kv",
     (route) => {
-      if (route.request().method() === "GET") return reply(route, []);
-      return route.fulfill({ status: 404, body: "{}" });
+      if (route.request().method() !== "GET") {
+        return route.fulfill({ status: 404, body: "{}" });
+      }
+      const collection =
+        new URL(route.request().url()).searchParams.get("collection") ?? "";
+      const rows = classicKv[collection] ?? [];
+      // Classic Worker returns the stored values (key embedded in each object).
+      return reply(
+        route,
+        rows.map((r) => r.value),
+      );
     },
   );
 
@@ -913,6 +942,72 @@ export async function seedOutlineLunora(
         const imported = (args.nodes as OutlineNode[] | undefined) ?? [];
         commitOutlinePlan(store, planImportNodes(imported));
         result = { count: imported.length };
+      } else if (path === "mutators:importKvRows") {
+        const rows =
+          (args.rows as
+            | Array<{
+                kind: string;
+                tag?: string;
+                color?: string;
+                id?: string;
+                name?: string;
+                query?: string;
+                createdAt?: number;
+                key?: string;
+                nodeId?: string;
+                touchedAt?: number;
+              }>
+            | undefined) ?? [];
+        const poke = new Set<string>();
+        for (const row of rows) {
+          if (row.kind === "tagColor") {
+            const tag = String(row.tag ?? "");
+            tagColors.set(tag, {
+              _id: tag,
+              tag,
+              color: String(row.color ?? ""),
+              userId,
+            });
+            poke.add("userTagColors");
+          } else if (row.kind === "savedQuery") {
+            const sid = String(row.id ?? "");
+            savedQueries.set(sid, {
+              _id: sid,
+              name: String(row.name ?? ""),
+              query: String(row.query ?? ""),
+              createdAt: Number(row.createdAt ?? 0),
+              userId,
+            });
+            poke.add("userSavedQueries");
+          } else if (row.kind === "dailyIndex") {
+            const key = String(row.key ?? "");
+            dailyIndex.set(key, {
+              _id: key,
+              key,
+              nodeId: String(row.nodeId ?? ""),
+              touchedAt: Number(row.touchedAt ?? Date.now()),
+              userId,
+            });
+            poke.add("userDailyIndex");
+          }
+        }
+        result = { count: rows.length };
+        pokeShapes = poke;
+      } else if (path === "mutators:getMigrateState") {
+        result = migrateState ?? { nodesAt: null, kvAt: null };
+        pokeShapes = new Set();
+      } else if (path === "mutators:setMigrateState") {
+        const prev = migrateState ?? { nodesAt: null, kvAt: null };
+        migrateState = {
+          nodesAt:
+            args.nodesAt !== undefined
+              ? (args.nodesAt as number | null)
+              : prev.nodesAt,
+          kvAt:
+            args.kvAt !== undefined ? (args.kvAt as number | null) : prev.kvAt,
+        };
+        result = migrateState;
+        pokeShapes = new Set();
       } else if (path === "mutators:mirrorNode") {
         commitOutlinePlan(
           store,

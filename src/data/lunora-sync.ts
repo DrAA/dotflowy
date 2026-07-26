@@ -126,9 +126,9 @@ export function startLunoraOutlineSync(userId: string): void {
     .then(async () => {
       if (!ctx || ctx.store !== store) return;
       feedTreeFromCollection(store);
-      // One-shot classic DO → Lunora when shard empty (skip if already has rows).
-      // Shell stays gated until migrate settles — otherwise the user can edit/
-      // seed into an empty shard while import chunks land.
+      // Classic DO → Lunora migrate / KV heal (ADR 0058 watermarks). Shell stays
+      // gated until migrate settles — otherwise the user can edit/seed into an
+      // empty shard while import chunks land.
       const next = await maybeAutoMigrateToLunora(store, userId);
       if (!ctx || ctx.store !== store) return;
       feedTreeFromCollection(store);
