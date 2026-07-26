@@ -550,7 +550,7 @@ Screenshots **cannot capture view-transition overlays** (they show the settled D
 - Prefer deepening Effect TS and XState usage where they fit.
 - In Cursor, prefer Cursor Auto or Cursor Grok 4.5 for implementation subagents.
 - Lunora sync must stay opt-in (user-facing beta/settings flag); do not force a production cutover while Lunora is alpha.
-- User-facing Settings/beta copy must not name Lunora — frame it as an upgraded/experimental sync option users can try (helps improve Dotflowy; they still own their data).
+- User-facing Settings/beta copy must not name Lunora — frame it as an upgraded/experimental sync option users can try (helps improve Dotflowy; they still own their data); disclose that turning it off returns to the last classic snapshot (cutover is one-way; edits while on stay on that backend).
 
 ## Learned Workspace Facts
 
@@ -558,3 +558,5 @@ Screenshots **cannot capture view-transition overlays** (they show the settled D
 - Daily is a first-party always-on plugin (`src/plugins/daily/`). Core chrome (e.g. `backlinks.tsx` → `useScaffoldKey`) and one bounded plugin read (`node-links` `[[` picker → `getMappedId` to suppress the mapped day uuid row when a date suggestion wins, ADR 0038/0057) may depend on daily-index — deliberate exemptions, not a cross-plugin seam precedent.
 - Lunora (`anolilab/lunora`) is the experimental outline-sync path behind synced `account-prefs`/`lunora-beta` (mirrors localStorage `dotflowy:flag:lunora-sync`) and Worker `LUNORA_OUTLINE`; classic per-user DO remains the default.
 - Vite proxies for `/api` and `/_lunora` need explicit `ws: true` — string shorthand does not upgrade WebSockets and blocks Lunora dogfood on "Loading outline".
+- Upgraded-sync cutover is one-way: flag OFF reloads the classic DO (frozen at migrate); Lunora-era edits do not write back. Reverse Lunora→classic is a follow-up ADR, not current behavior.
+- Classic→Lunora migrate must finish KV independently of nodes — Daily identity is `daily-index` KV, so nodes-only / skip-on-nonempty leaves Daily empty. Completion is Lunora `migrateState` (`nodesAt` / `kvAt`); backfill all side-collections until `kvAt` is set.
