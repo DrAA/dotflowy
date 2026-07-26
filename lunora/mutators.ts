@@ -7,6 +7,7 @@ import {
   docToNode,
   nodeToInsertFields,
   planAppendChild,
+  planFromChangeOps,
   planIndent,
   planIndentMany,
   planInsertChildAtStart,
@@ -32,6 +33,7 @@ import {
   type OutlinePlan,
 } from "../src/data/outline-plans";
 import { resolveDailyClaim } from "../src/plugins/daily/claim-mapping";
+import { changeOpArg } from "./wire-args";
 
 type ShardTable =
   | "nodes"
@@ -515,6 +517,33 @@ const nodeSnapshotArg = v.object({
   updatedAt: tsArg,
   origin: v.string().nullable(),
   kind: v.literal("paragraph").nullable(),
+});
+
+/**
+ * Classic-style `{ops}` delta batch — one watermark for insert/update/delete
+ * without shipping the whole outline (markdown paste, structural batches).
+ * `restoreNodes` stays for undo/redo snapshots that already carry a full target.
+ */
+export const applyChangeOps = defineMutator({
+  args: {
+    userId: userIdArg,
+    ops: v.array(changeOpArg),
+  },
+  server: async (ctx, args) => {
+    const mctx = ctx as unknown as MutatorCtx;
+    assertOwner(mctx, args.userId);
+    if (args.ops.length === 0) {
+      return { count: 0, deletes: 0, inserts: 0, patches: 0 };
+    }
+    const plan = planFromChangeOps(args.userId, args.ops);
+    await commitPlan(mctx, plan);
+    return {
+      count: args.ops.length,
+      deletes: plan.deletes.length,
+      inserts: plan.inserts.length,
+      patches: plan.patches.length,
+    };
+  },
 });
 
 /**

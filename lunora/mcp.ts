@@ -20,6 +20,7 @@ import {
   type QueryCtx,
   v,
 } from "./_generated/server";
+import { changeOpArg } from "./wire-args";
 
 /** Wire node shape for MCP (no Lunora `userId`) — keeps codegen out of `src/`. */
 type McpNode = {
@@ -46,15 +47,15 @@ function assertOwner(ctx: QueryCtx | MutationCtx, userId: string): void {
 
 async function commitPlan(ctx: MutationCtx, plan: OutlinePlan): Promise<void> {
   for (const id of plan.deletes) {
-    // expectedTable avoids cross-table UNION ALL id lookup (Workerd SQLite
-    // compound-SELECT limit — same footgun as lunora/mutators.ts).
-    await ctx.db.delete(ctx.db.asId("nodes", id), "nodes");
+    // asId scopes the delete to `nodes` (avoids cross-table UNION ALL lookup —
+    // Workerd SQLite compound-SELECT limit). MutationCtx's typed delete/patch
+    // take no expectedTable arg; mutators pass it because MutatorCtx is looser.
+    await ctx.db.delete(ctx.db.asId("nodes", id));
   }
   for (const patch of plan.patches) {
     await ctx.db.patch(
       ctx.db.asId("nodes", patch.id),
       patch.fields as Record<string, unknown>,
-      "nodes",
     );
   }
   for (const node of plan.inserts) {
@@ -63,28 +64,6 @@ async function commitPlan(ctx: MutationCtx, plan: OutlinePlan): Promise<void> {
     });
   }
 }
-
-const wireNodeArg = v.object({
-  id: v.string(),
-  parentId: v.string().nullable(),
-  prevSiblingId: v.string().nullable(),
-  text: v.string(),
-  isTask: v.boolean(),
-  completed: v.boolean(),
-  collapsed: v.boolean(),
-  bookmarkedAt: v.number().nullable(),
-  mirrorOf: v.string().nullable(),
-  createdAt: v.number(),
-  updatedAt: v.number(),
-  origin: v.string().nullable(),
-  kind: v.literal("paragraph").nullable(),
-});
-
-const changeOpArg = v.union(
-  v.object({ op: v.literal("insert"), value: wireNodeArg }),
-  v.object({ op: v.literal("update"), value: wireNodeArg }),
-  v.object({ op: v.literal("delete"), key: v.string() }),
-);
 
 /** Full outline for MCP get_outline / search_nodes. */
 export const listNodes = internalQuery
@@ -153,14 +132,10 @@ export const claimDailyMapping = internalMutation
       existing && typeof existing.nodeId === "string" ? existing.nodeId : null;
     const { winner, won } = resolveDailyClaim(current, args.nodeId);
     if (existing) {
-      await ctx.db.patch(
-        ctx.db.asId("dailyIndex", existing._id),
-        {
-          nodeId: winner,
-          touchedAt: args.touchedAt,
-        },
-        "dailyIndex",
-      );
+      await ctx.db.patch(ctx.db.asId("dailyIndex", existing._id), {
+        nodeId: winner,
+        touchedAt: args.touchedAt,
+      });
     } else {
       await ctx.db.insert("dailyIndex", {
         key: args.key,
