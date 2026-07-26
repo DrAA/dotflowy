@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.10.2
+
+### Patch Changes
+
+- 7dafec3: Upgraded outline sync migrate no longer fails when healing daily-index/KV (unscoped Lunora patch UNION bug on Workerd SQLite).
+
 ## 1.10.1
 
 ### Patch Changes
