@@ -174,4 +174,101 @@ test.describe("date token (ADR 0038)", () => {
     await expect(chipIn(page, "n")).toHaveCount(0);
     await expect(text(page, "n")).toHaveText("x");
   });
+
+  test("NL picker inserts [[YYYY-MM-DD]]; bare month offers no date row; mapped day uuid suppressed", async ({
+    page,
+  }) => {
+    const DAY = "2026-04-22";
+    await seedOutline(
+      page,
+      [
+        {
+          id: "apr-day",
+          parentId: null,
+          prevSiblingId: null,
+          text: "Wednesday, April 22, 2026",
+        },
+        { id: "blank", parentId: null, prevSiblingId: "apr-day", text: "" },
+      ],
+      {
+        kv: {
+          "daily-index": [{ key: DAY, value: { key: DAY, nodeId: "apr-day" } }],
+        },
+      },
+    );
+    await page.goto("/");
+    await expect(text(page, "blank")).toBeVisible();
+
+    await text(page, "blank").click();
+    // Year-qualified so chrono is calendar-complete (day + year).
+    await page.keyboard.type("[[April 22 2026");
+
+    const listbox = page.locator('[role="listbox"]');
+    const option = listbox.getByRole("option", { name: /2026-04-22/ });
+    await expect(option).toBeVisible();
+    // Mapped day node's uuid row is suppressed (title would otherwise match).
+    await expect(listbox.getByRole("option")).toHaveCount(1);
+
+    await option.click();
+    await expect(listbox).toHaveCount(0);
+    const chip = chipIn(page, "blank");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("data-date-link", DAY);
+
+    // Bare month: no date row (the mapped day's title may still match as a node).
+    await page.keyboard.type("[[April");
+    const bare = page.locator('[role="listbox"]');
+    await expect(bare).toBeVisible();
+    await expect(
+      bare.getByRole("option", { name: /\d{4}-\d{2}-\d{2}/ }),
+    ).toHaveCount(0);
+  });
+
+  test("zoomed day unifies date-mention backlinks with node-link referrers", async ({
+    page,
+  }) => {
+    const DAY_KEY = "2026-04-22";
+    const DAY_ID = "11111111-2222-3333-4444-555555555555";
+    const MENTIONER = "22222222-3333-4444-5555-666666666666";
+    const LINKER = "33333333-4444-5555-6666-777777777777";
+    await seedOutline(
+      page,
+      [
+        {
+          id: DAY_ID,
+          parentId: null,
+          prevSiblingId: null,
+          text: "Wednesday, April 22, 2026",
+        },
+        {
+          id: MENTIONER,
+          parentId: null,
+          prevSiblingId: DAY_ID,
+          text: `plan [[${DAY_KEY}]] party`,
+        },
+        {
+          id: LINKER,
+          parentId: null,
+          prevSiblingId: MENTIONER,
+          text: `kickoff for [[${DAY_ID}]]`,
+        },
+      ],
+      {
+        kv: {
+          "daily-index": [
+            { key: DAY_KEY, value: { key: DAY_KEY, nodeId: DAY_ID } },
+          ],
+        },
+      },
+    );
+    await page.goto(`/${DAY_ID}`);
+    await expect(page.locator(".zoomed-title")).toContainText("April 22");
+
+    const line = page.getByRole("button", { name: /2 backlinks/ });
+    await expect(line).toBeVisible();
+    await line.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("plan");
+    await expect(dialog).toContainText("kickoff for");
+  });
 });

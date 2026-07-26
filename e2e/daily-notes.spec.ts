@@ -535,6 +535,73 @@ test.describe("daily notes", () => {
     );
   });
 
+  test("Cmd+K NL / ISO go-to-date creates a missing future day (ADR 0055)", async ({
+    page,
+  }) => {
+    await load(page);
+
+    // Far future ISO — no collision with "today" fixtures.
+    await openSwitcherAndType(page, "2031-08-12");
+    const go = page.getByRole("option", { name: /Go to .*2031/ });
+    await expect(go).toBeVisible();
+    await expect(go).toContainText("Creates this daily note");
+    await go.click();
+
+    await expect(page).toHaveURL(/\/[^/]+$/);
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "2031",
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "August",
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "12",
+    );
+
+    // Idempotent reopen: create action suppressed; real node via Fuse.
+    await goHome(page);
+    await openSwitcherAndType(page, "2031-08-12");
+    await expect(
+      page.getByRole("option", { name: /Creates this daily note/ }),
+    ).toHaveCount(0);
+    const existing = page.getByRole("option", { name: /2031/ });
+    await expect(existing).toBeVisible();
+    await existing.click();
+    await expect(page).toHaveURL(/\/[^/]+$/);
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "2031",
+    );
+  });
+
+  test("Cmd+K 'August 12th' prose creates that day's note (ADR 0055)", async ({
+    page,
+  }) => {
+    await load(page);
+    // Prose without year → chrono resolves against "now"; pin the year so the
+    // assertion stays stable (August 12 of the current year, or next if past).
+    const now = new Date();
+    const year =
+      now.getMonth() > 7 || (now.getMonth() === 7 && now.getDate() > 12)
+        ? now.getFullYear() + 1
+        : now.getFullYear();
+    await openSwitcherAndType(page, `August 12 ${year}`);
+    const go = page.getByRole("option", {
+      name: new RegExp(`Go to .*${year}`),
+    });
+    await expect(go).toBeVisible();
+    await go.click();
+    await expect(page).toHaveURL(/\/[^/]+$/);
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      String(year),
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "August",
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "12",
+    );
+  });
+
   test("a lost claim adopts the winner's note (no duplicate on a race)", async ({
     page,
   }) => {

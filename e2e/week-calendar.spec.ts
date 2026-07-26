@@ -312,4 +312,54 @@ test.describe("week calendar strip (ADR 0054)", () => {
     // ...while the empty (zoomed) day does not.
     await expect(pill(page, DAY).locator("[data-has-content]")).toHaveCount(0);
   });
+
+  test("month label opens a picker that jumps to a far day (ADR 0055)", async ({
+    page,
+  }) => {
+    // FAR is in the next month (July 2030); not in DAY's ISO week.
+    const FAR = "2030-07-15";
+    await load(
+      page,
+      [
+        ...STANDARD_TREE,
+        {
+          id: "the-day",
+          parentId: null,
+          prevSiblingId: "charlie",
+          text: "A day",
+        },
+        {
+          id: "far-day",
+          parentId: null,
+          prevSiblingId: "the-day",
+          text: "Far day",
+        },
+      ],
+      {
+        kv: dailyIndexKv([
+          { key: DAY, nodeId: "the-day" },
+          { key: FAR, nodeId: "far-day" },
+        ]),
+      },
+    );
+
+    await clientNavigate(page, "/the-day");
+    await expect(strip(page)).toBeVisible();
+
+    await page.getByTestId("week-calendar-month").click();
+    const picker = page.getByTestId("week-calendar-month-picker");
+    await expect(picker).toBeVisible();
+
+    // Page to July 2030, then pick the 15th.
+    await page.getByTestId("month-picker-next").click();
+    await expect(picker).toContainText("July");
+    await picker.locator(`[data-day-key="${FAR}"]`).click();
+
+    await expect(page).toHaveURL(/\/far-day$/);
+    await expect(strip(page)).toBeVisible();
+    await expect(pill(page, FAR)).toHaveAttribute("data-selected", "");
+    await expect(page.getByTestId("week-calendar-month")).toHaveText(
+      "July 2030",
+    );
+  });
 });

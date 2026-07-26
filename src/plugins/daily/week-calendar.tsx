@@ -6,10 +6,11 @@
 // a purpose-built rewrite, not a vendored copy: only the seven-pill week row, the
 // tween-animated selection pill, and chevron paging are kept -- the grabber
 // handle, the week->month morph/grid, drag/swipe gestures, and the blur dissolve
-// are deliberately cut (ADR 0054, decision 4). The chrome stays STATIONARY across
-// day switches: the pill (the sole mover) tweens with the house curve, the week
-// row has no entrance animation, and paging swaps instantly. Styled with dotflowy
-// theme tokens
+// are deliberately cut (ADR 0054, decision 4). ADR 0055 adds a compact month
+// picker on the month label (popover), not an in-strip month morph. The chrome
+// stays STATIONARY across day switches: the pill (the sole mover) tweens with
+// the house curve, the week row has no entrance animation, and paging swaps
+// instantly. Styled with dotflowy theme tokens
 // (bg-muted / text-muted-foreground / primary / border), never the upstream
 // palette. ISO (Monday-start) week truth stays in date-links.ts -- this file adds
 // no parallel week math.
@@ -50,6 +51,7 @@ import {
   useScaffoldKey,
 } from "./daily-index";
 import { goToDate } from "./get-or-create";
+import { MonthPickerButton } from "./month-picker";
 
 // Weekday initials, Monday-first (matches weekKeyToDays' Mon..Sun order).
 const WEEKDAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -175,12 +177,21 @@ export function WeekCalendar({ getCtx }: { getCtx: () => PluginContext }) {
           <ChevronLeft className="size-4" />
         </button>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <span
-            data-testid="week-calendar-month"
-            className="truncate text-xs font-medium text-foreground"
-          >
-            {monthYear}
-          </span>
+          {monthKey ? (
+            <MonthPickerButton
+              monthKey={monthKey}
+              selectedDayKey={dayKey}
+              getCtx={getCtx}
+              onPicked={() => setOffset(0)}
+            />
+          ) : (
+            <span
+              data-testid="week-calendar-month"
+              className="truncate text-xs font-medium text-foreground"
+            >
+              {monthYear}
+            </span>
+          )}
           <span
             data-testid="week-calendar-weeknum"
             className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.65rem] leading-none text-muted-foreground"

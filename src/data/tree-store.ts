@@ -4,7 +4,9 @@ import { useCallback, useRef, useSyncExternalStore } from "react";
 
 import type { QueryFilter } from "./filter-query";
 
+import { collectBacklinkReferrerIds } from "./backlinks";
 import { isSyncReady, nodesCollection, subscribeSyncReady } from "./collection";
+import { parseDateLinkKeys } from "./date-links";
 import { isMirrorsEnabled } from "./flags";
 import { parseNodeLinks } from "./node-links";
 import { parseTags } from "./tags";
@@ -53,6 +55,7 @@ let index: TreeIndex = {
   childrenByParent: new Map(),
   mirrorsBySource: new Map(),
   linksByTarget: new Map(),
+  dateMentionsByKey: new Map(),
   tagCorpus: new Map(),
 };
 const listeners = new Set<() => void>();
@@ -120,6 +123,10 @@ function applyChanges(changes: ReadonlyArray<ChangeMessage<Node>>) {
   // refreshes on a bare field edit; parseNodeLinks bails on link-free text, so
   // the keystroke hot path pays two `includes` scans of the edited node's text.
   let linksChanged = false;
+  // Date-mention transitions (ADR 0056): same discipline as linksChanged for
+  // `[[YYYY-MM-DD]]` tokens → dateMentionsByKey. parseDateLinkKeys bails on
+  // `[[`-free text (shared early-out with parseNodeLinks).
+  let dateMentionsChanged = false;
   // Tag-corpus transitions (the tags.ts split): a text edit that adds/removes a
   // `#tag`. Tracked the same way as linksChanged; parseTags bails on tag-free
   // text so a tag-free keystroke pays the same cheap `includes` scan.
@@ -139,6 +146,10 @@ function applyChanges(changes: ReadonlyArray<ChangeMessage<Node>>) {
       for (const target of parseNodeLinks(prev.text)) {
         removeLink(target, prev.id);
         linksChanged = true;
+      }
+      for (const dateKey of parseDateLinkKeys(prev.text)) {
+        removeDateMention(dateKey, prev.id);
+        dateMentionsChanged = true;
       }
       for (const tag of parseTags(prev.text)) {
         removeTagOccurrence(tag);
@@ -163,6 +174,22 @@ function applyChanges(changes: ReadonlyArray<ChangeMessage<Node>>) {
           if (!before.includes(t)) {
             addLink(t, next.id);
             linksChanged = true;
+          }
+        }
+      }
+      const datesBefore = prev ? parseDateLinkKeys(prev.text) : [];
+      const datesAfter = parseDateLinkKeys(next.text);
+      if (datesBefore.length > 0 || datesAfter.length > 0) {
+        for (const k of datesBefore) {
+          if (!datesAfter.includes(k)) {
+            removeDateMention(k, next.id);
+            dateMentionsChanged = true;
+          }
+        }
+        for (const k of datesAfter) {
+          if (!datesBefore.includes(k)) {
+            addDateMention(k, next.id);
+            dateMentionsChanged = true;
           }
         }
       }
@@ -256,6 +283,11 @@ function applyChanges(changes: ReadonlyArray<ChangeMessage<Node>>) {
       structural || linksChanged
         ? new Map(index.linksByTarget)
         : index.linksByTarget,
+    // Same discipline for date mentions (ADR 0056).
+    dateMentionsByKey:
+      structural || dateMentionsChanged
+        ? new Map(index.dateMentionsByKey)
+        : index.dateMentionsByKey,
     // Same discipline for the tag corpus: fresh on a structural change or when a
     // text edit added/removed a tag. A tag-free keystroke keeps the reference.
     tagCorpus:
@@ -328,6 +360,26 @@ function removeLink(targetId: string, referrerId: string) {
   const i = ids.indexOf(referrerId);
   if (i !== -1) ids.splice(i, 1);
   if (ids.length === 0) index.linksByTarget.delete(targetId);
+}
+
+/** Register a referring node under a date key in the date-mention reverse
+ *  index (ADR 0056). Guards against a duplicate from a redelivered change. */
+function addDateMention(dateKey: string, referrerId: string) {
+  const ids = index.dateMentionsByKey.get(dateKey);
+  if (ids) {
+    if (!ids.includes(referrerId)) ids.push(referrerId);
+  } else {
+    index.dateMentionsByKey.set(dateKey, [referrerId]);
+  }
+}
+
+/** Drop a referrer from a date key's mention bucket; prune when it empties. */
+function removeDateMention(dateKey: string, referrerId: string) {
+  const ids = index.dateMentionsByKey.get(dateKey);
+  if (!ids) return;
+  const i = ids.indexOf(referrerId);
+  if (i !== -1) ids.splice(i, 1);
+  if (ids.length === 0) index.dateMentionsByKey.delete(dateKey);
 }
 
 /** Register one occurrence of `tag` in the maintained corpus (the tags.ts
@@ -437,16 +489,19 @@ export function useMirrorCount(id: string, enabled = true): number {
 }
 
 /**
- * Subscribe to how many nodes LINK to `id` (ADR 0032) -- the number behind the
- * zoomed view's "{n} backlinks" line. Deduped by referring node (the reverse
- * index stores each referrer once regardless of how many times its text repeats
- * the token). A primitive snapshot, so the one mounted consumer (the zoomed
- * title's chrome) re-renders only when the count actually changes.
+ * Subscribe to how many nodes link/mention `id` (ADR 0032 + ADR 0056) -- the
+ * number behind the zoomed view's "{n} backlinks" line. When `dayKey` is a
+ * local `YYYY-MM-DD`, date-token mentions of that day join node-link referrers
+ * (deduped; self + mirror instances excluded). A primitive snapshot, so the
+ * one mounted consumer re-renders only when the count actually changes.
  */
-export function useBacklinkCount(id: string): number {
+export function useBacklinkCount(
+  id: string,
+  dayKey: string | null = null,
+): number {
   const getSnapshot = useCallback(
-    () => getTreeIndex().linksByTarget.get(id)?.length ?? 0,
-    [id],
+    () => collectBacklinkReferrerIds(getTreeIndex(), id, dayKey).length,
+    [id, dayKey],
   );
   return useSyncExternalStore(subscribeTree, getSnapshot, () => 0);
 }

@@ -1,5 +1,6 @@
 import type { Node } from "./schema";
 
+import { parseDateLinkKeys } from "./date-links";
 import { parseNodeLinks } from "./node-links";
 import { orderSiblings } from "./sibling-chain";
 import { parseTags, type TagEntry } from "./tags";
@@ -36,9 +37,18 @@ export interface TreeIndex {
    * TEXT links to it (`[[targetId]]` tokens, parsed by node-links.ts). Derived,
    * never stored on the target; deduped by referring node. Built here and
    * maintained incrementally in tree-store.ts. Powers the zoomed view's
-   * "{n} backlinks" chrome. Empty for a link-free outline.
+   * "{n} backlinks" chrome (unified with {@link dateMentionsByKey} on day
+   * pages — ADR 0056). Empty for a link-free outline.
    */
   linksByTarget: Map<string, string[]>;
+  /**
+   * Reverse DATE-MENTION index (ADR 0056): a local `YYYY-MM-DD` key -> ids of
+   * nodes whose TEXT mentions that day via `[[YYYY-MM-DD]]` tokens (parsed by
+   * date-links.ts). Mentions never mint day notes. Built here and maintained
+   * incrementally in tree-store.ts. Unified with {@link linksByTarget} on a
+   * zoomed day. Empty for a date-token-free outline.
+   */
+  dateMentionsByKey: Map<string, string[]>;
   /**
    * Maintained `#tag` corpus (the `src/data/tags.ts` split): a case-folded key
    * -> {@link TagEntry}, built here and maintained incrementally in
@@ -103,6 +113,17 @@ export function buildTreeIndex(nodes: Node[]): TreeIndex {
     }
   }
 
+  // Reverse date-mention index (ADR 0056): bucket each referrer under every
+  // day key its text mentions. parseDateLinkKeys bails on `[[`-free text.
+  const dateMentionsByKey = new Map<string, string[]>();
+  for (const node of nodes) {
+    for (const key of parseDateLinkKeys(node.text)) {
+      const list = dateMentionsByKey.get(key);
+      if (list) list.push(node.id);
+      else dateMentionsByKey.set(key, [node.id]);
+    }
+  }
+
   // Tag corpus (the tags.ts split): bucket each distinct tag under its
   // case-folded key, first-seen casing wins -- the same dedupe rule
   // `collectAllTags` applies in one pass, kept live instead of rebuilt.
@@ -117,7 +138,14 @@ export function buildTreeIndex(nodes: Node[]): TreeIndex {
     }
   }
 
-  return { childrenByParent, byId, mirrorsBySource, linksByTarget, tagCorpus };
+  return {
+    childrenByParent,
+    byId,
+    mirrorsBySource,
+    linksByTarget,
+    dateMentionsByKey,
+    tagCorpus,
+  };
 }
 
 export function childrenOf(index: TreeIndex, parentId: string | null): Node[] {
