@@ -55,14 +55,26 @@ type MutatorDb = {
   };
   get: (
     id: Id<ShardTable>,
+    expectedTable?: ShardTable,
   ) => Promise<(Record<string, unknown> & { _id: string }) | null>;
   insert: (
     table: ShardTable,
     document: Record<string, unknown>,
     options?: { clientId?: string },
   ) => Promise<string>;
-  patch: (id: Id<ShardTable>, fields: Record<string, unknown>) => Promise<void>;
-  delete: (id: Id<ShardTable>) => Promise<void>;
+  /**
+   * Always pass `expectedTable`. Unscoped patch/delete resolve the id via
+   * `UNION ALL` across every shard table; Workerd SQLite's compound-SELECT
+   * limit is low enough that a 5–6 table schema blows up with
+   * `too many terms in compound SELECT` (seen on first dailyIndex KV patch
+   * during classic→Lunora migrate).
+   */
+  patch: (
+    id: Id<ShardTable>,
+    fields: Record<string, unknown>,
+    expectedTable?: ShardTable,
+  ) => Promise<void>;
+  delete: (id: Id<ShardTable>, expectedTable?: ShardTable) => Promise<void>;
 };
 
 type MutatorCtx = {
@@ -110,13 +122,14 @@ async function commitPlan(ctx: MutatorCtx, plan: OutlinePlan): Promise<void> {
   // deletes → patches → inserts: restore-safe (a deleted id must be gone
   // before a same-batch insert could reclaim it) and fine for structural ops.
   for (const id of plan.deletes) {
-    await ctx.db.delete(id as Id<"nodes">);
+    await ctx.db.delete(id as Id<"nodes">, "nodes");
   }
 
   for (const patch of plan.patches) {
     await ctx.db.patch(
       patch.id as Id<"nodes">,
       patch.fields as Record<string, unknown>,
+      "nodes",
     );
   }
 
@@ -595,9 +608,11 @@ export const importKvRows = defineMutator({
       if (row.kind === "tagColor") {
         const existing = await getTagColorByTag(mctx, row.tag);
         if (existing) {
-          await mctx.db.patch(existing._id as Id<"tagColors">, {
-            color: row.color,
-          });
+          await mctx.db.patch(
+            existing._id as Id<"tagColors">,
+            { color: row.color },
+            "tagColors",
+          );
         } else {
           await mctx.db.insert("tagColors", {
             tag: row.tag,
@@ -607,13 +622,13 @@ export const importKvRows = defineMutator({
         }
       } else if (row.kind === "savedQuery") {
         const id = row.id as Id<"savedQueries">;
-        const existing = await mctx.db.get(id);
+        const existing = await mctx.db.get(id, "savedQueries");
         const fields = {
           name: row.name,
           query: row.query,
           createdAt: row.createdAt,
         };
-        if (existing) await mctx.db.patch(id, fields);
+        if (existing) await mctx.db.patch(id, fields, "savedQueries");
         else {
           await mctx.db.insert(
             "savedQueries",
@@ -628,7 +643,11 @@ export const importKvRows = defineMutator({
           touchedAt: row.touchedAt,
         };
         if (existing) {
-          await mctx.db.patch(existing._id as Id<"dailyIndex">, fields);
+          await mctx.db.patch(
+            existing._id as Id<"dailyIndex">,
+            fields,
+            "dailyIndex",
+          );
         } else {
           await mctx.db.insert("dailyIndex", {
             key: row.key,
@@ -791,9 +810,11 @@ export const upsertTagColor = defineMutator({
     assertOwner(mctx, args.userId);
     const existing = await getTagColorByTag(mctx, args.tag);
     if (existing) {
-      await mctx.db.patch(existing._id as Id<"tagColors">, {
-        color: args.color,
-      });
+      await mctx.db.patch(
+        existing._id as Id<"tagColors">,
+        { color: args.color },
+        "tagColors",
+      );
     } else {
       // No clientId: tag names aren't UUIDs (Lunora requires UUID clientIds).
       await mctx.db.insert("tagColors", {
@@ -811,7 +832,8 @@ export const deleteTagColor = defineMutator({
     const mctx = ctx as unknown as MutatorCtx;
     assertOwner(mctx, args.userId);
     const existing = await getTagColorByTag(mctx, args.tag);
-    if (existing) await mctx.db.delete(existing._id as Id<"tagColors">);
+    if (existing)
+      await mctx.db.delete(existing._id as Id<"tagColors">, "tagColors");
   },
 });
 
@@ -827,13 +849,20 @@ export const upsertSavedQuery = defineMutator({
   server: async (ctx, args) => {
     const mctx = ctx as unknown as MutatorCtx;
     assertOwner(mctx, args.userId);
-    const existing = await mctx.db.get(args.id as Id<"savedQueries">);
+    const existing = await mctx.db.get(
+      args.id as Id<"savedQueries">,
+      "savedQueries",
+    );
     if (existing) {
-      await mctx.db.patch(args.id as Id<"savedQueries">, {
-        name: args.name,
-        query: args.query,
-        createdAt: args.createdAt,
-      });
+      await mctx.db.patch(
+        args.id as Id<"savedQueries">,
+        {
+          name: args.name,
+          query: args.query,
+          createdAt: args.createdAt,
+        },
+        "savedQueries",
+      );
     } else {
       await mctx.db.insert(
         "savedQueries",
@@ -859,13 +888,16 @@ export const patchSavedQuery = defineMutator({
   server: async (ctx, args) => {
     const mctx = ctx as unknown as MutatorCtx;
     assertOwner(mctx, args.userId);
-    const existing = await mctx.db.get(args.id as Id<"savedQueries">);
+    const existing = await mctx.db.get(
+      args.id as Id<"savedQueries">,
+      "savedQueries",
+    );
     if (!existing) return;
     const fields: Record<string, unknown> = {};
     if (args.name !== undefined) fields.name = args.name;
     if (args.query !== undefined) fields.query = args.query;
     if (Object.keys(fields).length === 0) return;
-    await mctx.db.patch(args.id as Id<"savedQueries">, fields);
+    await mctx.db.patch(args.id as Id<"savedQueries">, fields, "savedQueries");
   },
 });
 
@@ -874,8 +906,12 @@ export const deleteSavedQuery = defineMutator({
   server: async (ctx, args) => {
     const mctx = ctx as unknown as MutatorCtx;
     assertOwner(mctx, args.userId);
-    const existing = await mctx.db.get(args.id as Id<"savedQueries">);
-    if (existing) await mctx.db.delete(args.id as Id<"savedQueries">);
+    const existing = await mctx.db.get(
+      args.id as Id<"savedQueries">,
+      "savedQueries",
+    );
+    if (existing)
+      await mctx.db.delete(args.id as Id<"savedQueries">, "savedQueries");
   },
 });
 
@@ -903,10 +939,14 @@ export const claimDailyMapping = defineMutator({
     const { winner, won } = resolveDailyClaim(existingNodeId, args.nodeId);
     if (existing) {
       // Always write (touchedAt) so the watermark poke fires even on a lost race.
-      await mctx.db.patch(existing._id as Id<"dailyIndex">, {
-        nodeId: winner,
-        touchedAt: args.touchedAt,
-      });
+      await mctx.db.patch(
+        existing._id as Id<"dailyIndex">,
+        {
+          nodeId: winner,
+          touchedAt: args.touchedAt,
+        },
+        "dailyIndex",
+      );
     } else {
       await mctx.db.insert("dailyIndex", {
         key: args.key,
@@ -932,10 +972,14 @@ export const upsertDailyMapping = defineMutator({
     assertOwner(mctx, args.userId);
     const existing = await getDailyByKey(mctx, args.key);
     if (existing) {
-      await mctx.db.patch(existing._id as Id<"dailyIndex">, {
-        nodeId: args.nodeId,
-        touchedAt: args.touchedAt,
-      });
+      await mctx.db.patch(
+        existing._id as Id<"dailyIndex">,
+        {
+          nodeId: args.nodeId,
+          touchedAt: args.touchedAt,
+        },
+        "dailyIndex",
+      );
     } else {
       await mctx.db.insert("dailyIndex", {
         key: args.key,
@@ -953,7 +997,8 @@ export const deleteDailyMapping = defineMutator({
     const mctx = ctx as unknown as MutatorCtx;
     assertOwner(mctx, args.userId);
     const existing = await getDailyByKey(mctx, args.key);
-    if (existing) await mctx.db.delete(existing._id as Id<"dailyIndex">);
+    if (existing)
+      await mctx.db.delete(existing._id as Id<"dailyIndex">, "dailyIndex");
   },
 });
 
@@ -1001,7 +1046,11 @@ export const setMigrateState = defineMutator({
       if (args.nodesAt !== undefined) patch.nodesAt = args.nodesAt;
       if (args.kvAt !== undefined) patch.kvAt = args.kvAt;
       if (Object.keys(patch).length > 0) {
-        await mctx.db.patch(existing._id as Id<"migrateState">, patch);
+        await mctx.db.patch(
+          existing._id as Id<"migrateState">,
+          patch,
+          "migrateState",
+        );
       }
       const next = await getMigrateStateRow(mctx);
       return {
