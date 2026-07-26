@@ -121,7 +121,7 @@ function BacklinksDialog({
             {referrers.length} backlink{referrers.length === 1 ? "" : "s"}
           </DialogTitle>
           <DialogDescription className="text-left">
-            Nodes whose text links here.
+            Nodes whose text links here or mentions this date.
           </DialogDescription>
         </DialogHeader>
         <ul className="max-h-[60vh] min-w-0 scroll-fade overflow-y-auto overscroll-contain px-2 pb-2">

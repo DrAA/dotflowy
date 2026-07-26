@@ -552,6 +552,9 @@ test.describe("daily notes", () => {
       "2031",
     );
     await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "August",
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
       "12",
     );
 
@@ -590,6 +593,9 @@ test.describe("daily notes", () => {
     await expect(page).toHaveURL(/\/[^/]+$/);
     await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
       String(year),
+    );
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      "August",
     );
     await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
       "12",
