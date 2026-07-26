@@ -154,7 +154,7 @@ export type CallerCtx = ActionCtx | MutationCtx | QueryCtx;
  */
 export interface Caller {
     mcp: {
-        applyChangeOps: (args: { userId: string; ops: Array<unknown> }) => Promise<{ count: number; deletes?: undefined; inserts?: undefined; patches?: undefined; } | { count: number; deletes: number; inserts: number; patches: number; }>;
+        applyChangeOps: (args: { userId: string; ops: Array<unknown> }) => Promise<{ count: number; deletes: number; inserts: number; patches: number; }>;
         listDailyIndex: (args: { userId: string }) => Promise<{ key: string; nodeId: string; }[]>;
         listNodes: (args: { userId: string }) => Promise<{ id: string; parentId: string | null; prevSiblingId: string | null; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number | null; mirrorOf: string | null; createdAt: number; updatedAt: number; origin: string | null; kind: "paragraph" | null }[]>;
         wipeUserShard: (args: { userId: string }) => Promise<{ deleted: number; }>;

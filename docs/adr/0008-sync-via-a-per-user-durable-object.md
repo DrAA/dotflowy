@@ -45,11 +45,11 @@ elsewhere) — off-goal for an all-Cloudflare deploy.
 engine that lands on this same design — "the DO _is_ the log" (an append-only changelog written in
 the write's own storage transaction), the DO is the WebSocket fan-out, hibernation makes idle
 sockets ~free, and the client runs the dataflow via TanStack DB while the DO ships row-ops rather
-than re-running queries. **Cutover decision:** [ADR 0055](./0055-lunora-replaces-custom-outline-sync.md)
+than re-running queries. **Cutover decision:** [ADR 0058](./0058-lunora-replaces-custom-outline-sync.md)
 adopts Lunora for outline sync and **supersedes divergence #1 below** (we no longer keep
 client-precomputed `{ops}` as the long-term write model). Historical note of the pre-cutover
 divergences: (1) ~~Lunora runs the write logic authoritatively in the DO; we shipped pre-computed
-`{ops}` from the client's `tree.ts`~~ → superseded by ADR 0055 (authoritative mutators + shared
+`{ops}` from the client's `tree.ts`~~ → superseded by ADR 0058 (authoritative mutators + shared
 `plan*`). (2) Lunora's **"shape = read-as-permission"** remains the pattern for **when subtree
 sharing lands** — still deferred; irrelevant while one user = one shard = the whole outline.
 
