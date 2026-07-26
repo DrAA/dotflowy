@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.10.4
+
+### Patch Changes
+
+- c9729c7: Reattach orphaned Daily days after upgraded-sync cutover (structure sync on force remigrate + calendar orphan heal)
+
 ## 1.10.3
 
 ### Patch Changes
