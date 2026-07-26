@@ -32,12 +32,35 @@ function installKvFetch(
   }) as unknown as typeof fetch;
 }
 
+function installClassicFetch(opts: {
+  nodes?: unknown;
+  kv?: Record<string, unknown>;
+}): void {
+  globalThis.fetch = ((url: string) => {
+    const u = String(url);
+    if (u.includes("/api/nodes")) {
+      return Promise.resolve(jsonOk(opts.nodes ?? []));
+    }
+    const collection = new URL(u, "http://local").searchParams.get(
+      "collection",
+    );
+    if (collection && opts.kv && collection in opts.kv) {
+      return Promise.resolve(jsonOk(opts.kv[collection]));
+    }
+    if (collection) return Promise.resolve(jsonOk([]));
+    return Promise.reject(new Error(`unexpected fetch ${u}`));
+  }) as unknown as typeof fetch;
+}
+
 function readyCollection(rows: unknown[]) {
   return {
     toArray: rows,
     toArrayWhenReady: () => Promise.resolve(rows),
   };
 }
+
+type MutatorCall = { ref: string; args: Record<string, unknown> };
+type ImportCall = { kind: "nodes" | "kv"; count: number };
 
 /** Minimal store stub for migrateClassicToLunora unit tests. */
 function stubStore(opts: {
@@ -46,27 +69,67 @@ function stubStore(opts: {
   savedQueries?: unknown[];
   dailyIndex?: unknown[];
   migrateState?: { nodesAt: number | null; kvAt: number | null } | null;
+  onMutator?: (call: MutatorCall) => void;
+  onImport?: (call: ImportCall) => void;
 }): OutlineStore {
-  const migrateState = opts.migrateState ?? null;
+  let migrateState = opts.migrateState ?? null;
   return {
     client: {
-      callMutator: async (ref: string) => {
+      callMutator: async (ref: string, args: Record<string, unknown>) => {
+        opts.onMutator?.({ ref, args });
         if (ref === "mutators:getMigrateState") {
           return { result: migrateState };
         }
         if (ref === "mutators:setMigrateState") {
-          return { result: null };
+          migrateState = {
+            nodesAt:
+              args.nodesAt === undefined
+                ? (migrateState?.nodesAt ?? null)
+                : (args.nodesAt as number | null),
+            kvAt:
+              args.kvAt === undefined
+                ? (migrateState?.kvAt ?? null)
+                : (args.kvAt as number | null),
+          };
+          return { result: migrateState };
         }
         throw new Error(`unexpected mutator ${ref}`);
       },
-      importRows: async () => ({ imported: 0 }),
+      importRows: async (
+        _ref: unknown,
+        rows: unknown[],
+        options: { toArgs: (chunk: unknown[]) => { nodes?: unknown[] } },
+      ) => {
+        const args = options.toArgs(rows);
+        const kind = Array.isArray(args.nodes) ? "nodes" : "kv";
+        opts.onImport?.({ kind, count: rows.length });
+        return { imported: rows.length };
+      },
     },
-    collection: readyCollection(opts.nodes ?? [{ id: "n1" }]),
+    collection: readyCollection(opts.nodes ?? [{ _id: "n1" }]),
     tagColors: readyCollection(opts.tagColors ?? []),
     savedQueries: readyCollection(opts.savedQueries ?? []),
     dailyIndex: readyCollection(opts.dailyIndex ?? []),
     mutators: {},
   } as unknown as OutlineStore;
+}
+
+function classicNode(id: string, prev: string | null = null) {
+  return {
+    id,
+    parentId: null,
+    prevSiblingId: prev,
+    text: id,
+    isTask: false,
+    completed: false,
+    collapsed: false,
+    bookmarkedAt: null,
+    mirrorOf: null,
+    createdAt: 1,
+    updatedAt: 1,
+    origin: null,
+    kind: null,
+  };
 }
 
 describe("fetchClassicKvBundles", () => {
@@ -105,6 +168,17 @@ describe("fetchClassicKvBundles", () => {
     });
     await expect(fetchClassicKvBundles()).rejects.toThrow("network down");
   });
+
+  test("rejects malformed 200 body (non-array) — never treats as empty", async () => {
+    installKvFetch({
+      "tag-colors": () => jsonOk([]),
+      "saved-queries": () => jsonOk({ not: "an-array" }),
+      "daily-index": () => jsonOk([]),
+    });
+    await expect(fetchClassicKvBundles()).rejects.toThrow(
+      /GET \/api\/kv saved-queries returned a non-array body/,
+    );
+  });
 });
 
 describe("migrateClassicToLunora", () => {
@@ -117,7 +191,7 @@ describe("migrateClassicToLunora", () => {
 
     const result = await migrateClassicToLunora(
       stubStore({
-        nodes: [{ id: "a" }, { id: "b" }],
+        nodes: [{ _id: "a" }, { _id: "b" }],
         migrateState: { nodesAt: 100, kvAt: 200 },
       }),
       "user-1",
@@ -125,5 +199,70 @@ describe("migrateClassicToLunora", () => {
 
     expect(result).toEqual({ status: "skipped-complete", nodes: 2 });
     expect(fetchCalls).toBe(0);
+  });
+
+  test("partial Lunora nodes + classic remainder → imports missing ids before nodesAt", async () => {
+    const imports: ImportCall[] = [];
+    const patches: MutatorCall[] = [];
+    installClassicFetch({
+      nodes: [classicNode("a"), classicNode("b", "a"), classicNode("c", "b")],
+      kv: {
+        "tag-colors": [],
+        "saved-queries": [],
+        "daily-index": [{ key: "container", nodeId: "daily" }],
+      },
+    });
+
+    const result = await migrateClassicToLunora(
+      stubStore({
+        // Partial prior import: only `a` landed.
+        nodes: [{ _id: "a" }],
+        migrateState: { nodesAt: null, kvAt: null },
+        onImport: (c) => imports.push(c),
+        onMutator: (c) => {
+          if (c.ref === "mutators:setMigrateState") patches.push(c);
+        },
+      }),
+      "user-1",
+    );
+
+    expect(result.status).toBe("migrated");
+    if (result.status !== "migrated") return;
+    expect(result.nodes).toBe(2); // b + c only
+    expect(imports.filter((i) => i.kind === "nodes")).toEqual([
+      { kind: "nodes", count: 2 },
+    ]);
+    // nodesAt stamped before/with kv — never skipped over a partial set.
+    expect(patches[0]?.args.nodesAt).toEqual(expect.any(Number));
+    expect(patches[0]?.args.kvAt).toBeUndefined();
+    expect(patches.some((p) => typeof p.args.kvAt === "number")).toBe(true);
+  });
+
+  test("malformed KV 200 → failed migrate, no kvAt stamp", async () => {
+    const patches: MutatorCall[] = [];
+    installClassicFetch({
+      nodes: [classicNode("a")],
+      kv: {
+        "tag-colors": [],
+        "saved-queries": { bad: true },
+        "daily-index": [],
+      },
+    });
+
+    const result = await migrateClassicToLunora(
+      stubStore({
+        nodes: [],
+        migrateState: null,
+        onMutator: (c) => {
+          if (c.ref === "mutators:setMigrateState") patches.push(c);
+        },
+      }),
+      "user-1",
+    );
+
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(String(result.error)).toMatch(/non-array body/);
+    expect(patches).toEqual([]);
   });
 });

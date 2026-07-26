@@ -18,7 +18,31 @@ describe("planMigrateSteps", () => {
     ).toBe("full");
   });
 
-  test("nodes present without kvAt → KV-only heal", () => {
+  test("nodesAt null + Lunora partial + classic nodes → full (not kv-only)", () => {
+    // Partial chunk import left some Lunora rows; remaining classic ids must
+    // still import before nodesAt can be stamped.
+    expect(
+      planMigrateSteps({
+        lunoraNodeCount: 5,
+        migrateState: { nodesAt: null, kvAt: null },
+        classicHasNodes: true,
+        classicKvCount: 3,
+        lunoraKvCount: 0,
+      }),
+    ).toBe("full");
+
+    expect(
+      planMigrateSteps({
+        lunoraNodeCount: 5,
+        migrateState: null,
+        classicHasNodes: true,
+        classicKvCount: 0,
+        lunoraKvCount: 0,
+      }),
+    ).toBe("full");
+  });
+
+  test("nodesAt set without kvAt → KV-only heal", () => {
     expect(
       planMigrateSteps({
         lunoraNodeCount: 10,
@@ -28,8 +52,9 @@ describe("planMigrateSteps", () => {
         lunoraKvCount: 0,
       }),
     ).toBe("kv-only");
+  });
 
-    // Prod bootstrap: no migrateState row, nodes already on Lunora.
+  test("prod bootstrap: no migrateState, Lunora nodes, no classic nodes → kv-only", () => {
     expect(
       planMigrateSteps({
         lunoraNodeCount: 10,
@@ -57,7 +82,7 @@ describe("planMigrateSteps", () => {
     expect(
       planMigrateSteps({
         lunoraNodeCount: 5,
-        migrateState: null,
+        migrateState: { nodesAt: 1, kvAt: null },
         classicHasNodes: false,
         classicKvCount: 0,
         lunoraKvCount: 2,
@@ -67,7 +92,7 @@ describe("planMigrateSteps", () => {
 
   // Intentional: successful empty classic GET + empty Lunora KV = nothing to
   // import; stamp kvAt so heal doesn't retry forever (ADR 0058).
-  test("nodes present, classic + Lunora KV both empty → mark-kv-complete", () => {
+  test("nodesAt set, classic + Lunora KV both empty → mark-kv-complete", () => {
     expect(
       planMigrateSteps({
         lunoraNodeCount: 5,

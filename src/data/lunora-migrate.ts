@@ -2,6 +2,8 @@
  * One-shot UserOutlineDO → Lunora shard migrate (ADR 0058).
  *
  * Completeness is tracked in Lunora `migrateState` (`nodesAt` / `kvAt`).
+ * `nodesAt` is stamped only after the classic node snapshot is fully
+ * imported (missing-id chunks when Lunora already has a partial set).
  * Nodes alone never skip KV — a partial migrate (nodes landed, daily-index
  * missing) heals on the next flag-ON / `__dotflowyMigrateToLunora` pass.
  *
@@ -12,7 +14,6 @@
 import type { FunctionReference } from "lunorash/client";
 
 import type { OutlineStore } from "./lunora-outline-store";
-import type { OutlineNode } from "./outline-plans";
 
 import { api } from "../../lunora/_generated/api";
 import {
@@ -22,6 +23,7 @@ import {
   type ImportKvRow,
   type MigrateStateSnapshot,
 } from "./lunora-migrate-plan";
+import { rowToNode, type OutlineNode } from "./outline-plans";
 import { notifySaveFailed } from "./save-failure";
 
 export type MigrateResult =
@@ -92,8 +94,10 @@ async function fetchKv(collection: string): Promise<ClassicKvRow[]> {
     { credentials: "include" },
   );
   if (!res.ok) throw new Error(`GET /api/kv ${collection} ${res.status}`);
-  const body = (await res.json()) as unknown[];
-  if (!Array.isArray(body)) return [];
+  const body = (await res.json()) as unknown;
+  if (!Array.isArray(body)) {
+    throw new Error(`GET /api/kv ${collection} returned a non-array body`);
+  }
   // /api/kv GET returns the stored values; daily-index/tag-colors/saved-queries
   // each embed their key inside the value object.
   return body.map((value) => {
@@ -143,6 +147,7 @@ async function importNodes(
   userId: string,
   nodes: OutlineNode[],
 ): Promise<void> {
+  if (nodes.length === 0) return;
   await store.client.importRows(migrationApi.mutators.importNodes, nodes, {
     importId: `classic-${userId}-nodes`,
     shardKey: userId,
@@ -209,16 +214,29 @@ async function importKv(
   return result.imported;
 }
 
+/** Classic ids not yet on the Lunora shard — importNodes is insert-only. */
+function missingClassicNodes(
+  store: OutlineStore,
+  classic: ClassicNode[],
+  userId: string,
+): OutlineNode[] {
+  const existing = new Set(
+    store.collection.toArray.map((n) => rowToNode(n).id),
+  );
+  return classic
+    .filter((n) => !existing.has(n.id))
+    .map((n) => asOutlineNode(n, userId));
+}
+
 /**
- * Import classic DO outline (+ kv) into Lunora, healing incomplete KV when
- * nodes already exist. Classic DO data is left untouched.
+ * Import classic DO outline (+ kv) into Lunora, healing incomplete node/KV
+ * halves independently. Classic DO data is left untouched. Existing Lunora
+ * rows are preserved (missing-id node import; KV upsert).
  */
 export async function migrateClassicToLunora(
   store: OutlineStore,
   userId: string,
-  opts: { force?: boolean } = {},
 ): Promise<MigrateResult> {
-  void opts.force;
   try {
     // Wait for side-collections so lunoraKvCount is accurate for mark-complete.
     await Promise.all([
@@ -255,26 +273,38 @@ export async function migrateClassicToLunora(
       case "empty-source":
         return { status: "skipped-empty-source" };
       case "mark-kv-complete": {
-        await writeMigrateState(store, userId, {
-          nodesAt: migrateState.nodesAt ?? now,
-          kvAt: now,
-        });
+        // Stamp nodesAt only when classic has nothing left to import for
+        // nodes — never invent completeness over a partial node import.
+        const patch: { nodesAt?: number; kvAt?: number } = {};
+        if (migrateState.nodesAt == null && classic.length === 0) {
+          patch.nodesAt = now;
+        }
+        if (migrateState.kvAt == null) patch.kvAt = now;
+        if (Object.keys(patch).length > 0) {
+          await writeMigrateState(store, userId, patch);
+        }
         return { status: "migrated", nodes: 0, kv: 0 };
       }
       case "kv-only": {
         const kv = await importKv(store, userId, classicKv);
-        await writeMigrateState(store, userId, {
-          nodesAt: migrateState.nodesAt ?? now,
-          kvAt: now,
-        });
+        const patch: { nodesAt?: number; kvAt: number } = { kvAt: now };
+        if (migrateState.nodesAt == null && classic.length === 0) {
+          patch.nodesAt = now;
+        }
+        await writeMigrateState(store, userId, patch);
         return { status: "migrated", nodes: 0, kv };
       }
       case "full": {
-        const nodes = classic.map((n) => asOutlineNode(n, userId));
+        // importNodes is insert-only — skip ids already on the shard so a
+        // partial prior import can top up without clobbering Lunora-era edits.
+        const nodes = missingClassicNodes(store, classic, userId);
         await importNodes(store, userId, nodes);
         await writeMigrateState(store, userId, { nodesAt: now });
-        const kv = await importKv(store, userId, classicKv);
-        await writeMigrateState(store, userId, { kvAt: Date.now() });
+        let kv = 0;
+        if (migrateState.kvAt == null) {
+          kv = await importKv(store, userId, classicKv);
+          await writeMigrateState(store, userId, { kvAt: Date.now() });
+        }
         return { status: "migrated", nodes: nodes.length, kv };
       }
     }

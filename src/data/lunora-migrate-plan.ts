@@ -26,7 +26,11 @@ export type PlanMigrateStepsInput = {
 
 /**
  * Decide migrate work from counts + watermarks.
- * Never skip solely because `lunoraNodeCount > 0` — KV may still be incomplete.
+ *
+ * - `nodesAt` means the entire classic node snapshot is imported — never
+ *   infer it from `lunoraNodeCount > 0` (a partial chunk import can leave
+ *   some rows durable while classic still has missing ids).
+ * - KV completion stays independent of nodes (Daily = `daily-index` KV).
  */
 export function planMigrateSteps(input: PlanMigrateStepsInput): MigrateStep {
   const nodesAt = input.migrateState?.nodesAt ?? null;
@@ -34,23 +38,29 @@ export function planMigrateSteps(input: PlanMigrateStepsInput): MigrateStep {
 
   if (nodesAt != null && kvAt != null) return "noop";
 
-  if (input.lunoraNodeCount === 0) {
-    if (input.classicHasNodes) return "full";
-    // No classic nodes — still heal orphan classic KV, else seed path.
-    if (kvAt == null) {
-      if (input.classicKvCount > 0) return "kv-only";
-      if (input.lunoraKvCount > 0) return "mark-kv-complete";
+  // Node watermark missing + classic still has the source → finish node
+  // import even when Lunora already has some rows (idempotent missing-id
+  // import in the runner). Never treat lunoraNodeCount > 0 as complete.
+  if (nodesAt == null && input.classicHasNodes) return "full";
+
+  // Node half done (watermark set, or nothing classic to import).
+  if (kvAt == null) {
+    if (input.classicKvCount > 0) return "kv-only";
+    // classicKvCount === 0 means a successful empty classic read (failed GETs
+    // must reject before reaching the planner). Stamp kvAt when Lunora already
+    // has rows / nodesAt is set, or when both sides are empty after a real
+    // outline landed — otherwise we'd retry forever.
+    if (
+      input.lunoraKvCount > 0 ||
+      input.lunoraNodeCount > 0 ||
+      nodesAt != null
+    ) {
+      return "mark-kv-complete";
     }
     return "empty-source";
   }
 
-  // Lunora already has nodes — never treat that as migrate-complete alone.
-  if (kvAt != null) return "noop";
-  if (input.classicKvCount > 0) return "kv-only";
-  // classicKvCount === 0 means a successful empty classic read (failed GETs
-  // must reject before reaching the planner). Stamp kvAt when Lunora already
-  // has side-collection rows, or when both sides are empty (nothing to
-  // import) — otherwise we'd retry forever.
+  // kvAt set, nodesAt null, !classicHasNodes — stamp nodesAt only.
   return "mark-kv-complete";
 }
 
