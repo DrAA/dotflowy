@@ -35,6 +35,7 @@ export interface RegisteredLunoraFunction {
  */
 export const LUNORA_FUNCTIONS: Record<string, RegisteredLunoraFunction> = {
     "mcp:applyChangeOps": lunora_mcp_0.applyChangeOps as unknown as RegisteredLunoraFunction,
+    "mcp:claimDailyMapping": lunora_mcp_0.claimDailyMapping as unknown as RegisteredLunoraFunction,
     "mcp:listDailyIndex": lunora_mcp_0.listDailyIndex as unknown as RegisteredLunoraFunction,
     "mcp:listNodes": lunora_mcp_0.listNodes as unknown as RegisteredLunoraFunction,
     "mcp:wipeUserShard": lunora_mcp_0.wipeUserShard as unknown as RegisteredLunoraFunction,
@@ -77,6 +78,14 @@ export const LUNORA_FUNCTIONS: Record<string, RegisteredLunoraFunction> = {
  * onto its function's live `.args` object and consulted by the interpreted
  * parser as a zero-allocation fast path; anything it can't model is deferred.
  */
+installCompiledValidatorMap(lunora_mcp_0.claimDailyMapping.args, (source) => {
+if (typeof source !== "object" || source === null || Array.isArray(source)) return DEFER;
+if (typeof source["userId"] !== "string") return DEFER;
+if (typeof source["key"] !== "string") return DEFER;
+if (typeof source["nodeId"] !== "string") return DEFER;
+if (typeof source["touchedAt"] !== "number" || !Number.isFinite(source["touchedAt"])) return DEFER;
+return { "userId": source["userId"], "key": source["key"], "nodeId": source["nodeId"], "touchedAt": source["touchedAt"] };
+});
 installCompiledValidatorMap(lunora_mcp_0.listDailyIndex.args, (source) => {
 if (typeof source !== "object" || source === null || Array.isArray(source)) return DEFER;
 if (typeof source["userId"] !== "string") return DEFER;
@@ -155,9 +164,10 @@ export type CallerCtx = ActionCtx | MutationCtx | QueryCtx;
 export interface Caller {
     mcp: {
         applyChangeOps: (args: { userId: string; ops: Array<unknown> }) => Promise<{ count: number; deletes: number; inserts: number; patches: number; }>;
+        claimDailyMapping: (args: { userId: string; key: string; nodeId: string; touchedAt: number }) => Promise<{ nodeId: string; won: boolean; }>;
         listDailyIndex: (args: { userId: string }) => Promise<{ key: string; nodeId: string; }[]>;
         listNodes: (args: { userId: string }) => Promise<{ id: string; parentId: string | null; prevSiblingId: string | null; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number | null; mirrorOf: string | null; createdAt: number; updatedAt: number; origin: string | null; kind: "paragraph" | null }[]>;
-        wipeUserShard: (args: { userId: string }) => Promise<{ deleted: number; }>;
+        wipeUserShard: (args: { userId: string }) => Promise<{ deleted: number; tables: Record<string, number>; }>;
     };
 }
 
@@ -175,6 +185,7 @@ const callRegistered = async <R>(context: CallerCtx, functionPath: string, args:
 export const createCaller = (context: CallerCtx): Caller => ({
     mcp: {
         applyChangeOps: (args) => callRegistered(context, "mcp:applyChangeOps", args),
+        claimDailyMapping: (args) => callRegistered(context, "mcp:claimDailyMapping", args),
         listDailyIndex: (args) => callRegistered(context, "mcp:listDailyIndex", args),
         listNodes: (args) => callRegistered(context, "mcp:listNodes", args),
         wipeUserShard: (args) => callRegistered(context, "mcp:wipeUserShard", args),

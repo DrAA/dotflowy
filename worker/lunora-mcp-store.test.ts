@@ -1,15 +1,18 @@
+import type { ShardNamespaceLike } from "lunorash/runtime";
+
 import { describe, expect, test } from "bun:test";
 
 import {
+  createLunoraOutlineStore,
   decodeClaimDailyResult,
   decodeDailyClaimValue,
   decodeDailyIndexRows,
   decodeMcpNodeList,
-  decodeShardRpcEnvelope,
   isLunoraOutlineEnabledForUser,
   isLunoraOutlineEnabledSync,
   parseLunoraBetaPref,
   resolveLunoraOutlineEnvForce,
+  wipeLunoraUserShard,
 } from "./lunora-mcp-store";
 
 describe("resolveLunoraOutlineEnvForce", () => {
@@ -101,18 +104,7 @@ describe("isLunoraOutlineEnabledForUser", () => {
   });
 });
 
-describe("shard RPC decode (Worker→Lunora trust boundary)", () => {
-  test("decodeShardRpcEnvelope accepts ok + error shapes", () => {
-    expect(decodeShardRpcEnvelope({ result: 1 })).toEqual({ result: 1 });
-    expect(decodeShardRpcEnvelope({ error: { message: "nope" } })).toEqual({
-      error: { message: "nope" },
-    });
-  });
-
-  test("decodeShardRpcEnvelope rejects garbage", () => {
-    expect(() => decodeShardRpcEnvelope("nope")).toThrow();
-  });
-
+describe("shard payload decode (Worker→Lunora trust boundary)", () => {
   test("decodeMcpNodeList validates wire nodes", () => {
     const node = {
       id: "n1",
@@ -137,8 +129,41 @@ describe("shard RPC decode (Worker→Lunora trust boundary)", () => {
     expect(decodeDailyIndexRows([{ key: "k", nodeId: "n" }])).toEqual([
       { key: "k", nodeId: "n" },
     ]);
-    expect(decodeClaimDailyResult({ nodeId: "n" })).toEqual({ nodeId: "n" });
+    expect(decodeClaimDailyResult({ nodeId: "n", won: true })).toEqual({
+      nodeId: "n",
+      won: true,
+    });
     expect(decodeDailyClaimValue({ nodeId: "n" })).toEqual({ nodeId: "n" });
     expect(() => decodeDailyClaimValue({})).toThrow();
+  });
+});
+
+describe("shard client identity", () => {
+  test("normal calls run user-as; wipe runs pure system", async () => {
+    const identities: Array<{ system: string | null; userId: string | null }> =
+      [];
+    const stub = {
+      fetch: async (request: Request) => {
+        identities.push({
+          system: request.headers.get("x-lunora-system"),
+          userId: request.headers.get("x-lunora-userid"),
+        });
+        const body = (await request.json()) as { functionPath: string };
+        return Response.json({
+          result: body.functionPath === "mcp:listNodes" ? [] : { deleted: 0 },
+        });
+      },
+    };
+    const shard: ShardNamespaceLike = {
+      get: () => stub,
+      getByName: () => stub,
+      idFromName: (name) => name,
+    };
+
+    await createLunoraOutlineStore({ SHARD: shard }, "u1").getNodes();
+    await wipeLunoraUserShard({ SHARD: shard }, "u1");
+
+    expect(identities[0]).toEqual({ system: "1", userId: "u1" });
+    expect(identities[1]).toEqual({ system: "1", userId: null });
   });
 });

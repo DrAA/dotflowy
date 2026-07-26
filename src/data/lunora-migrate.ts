@@ -1,5 +1,5 @@
 /**
- * One-shot UserOutlineDO → Lunora shard migrate (ADR 0055).
+ * One-shot UserOutlineDO → Lunora shard migrate (ADR 0058).
  *
  * Safe default: if Lunora already has nodes, skip (do not replace).
  * Classic DO data is left untouched.
@@ -8,9 +8,12 @@
  * Manual: `await window.__dotflowyMigrateToLunora()` or More menu.
  */
 
+import type { FunctionReference } from "lunorash/client";
+
 import type { OutlineStore } from "./lunora-outline-store";
 import type { OutlineNode } from "./outline-plans";
 
+import { api } from "../../lunora/_generated/api";
 import { notifySaveFailed } from "./save-failure";
 
 export type MigrateResult =
@@ -37,7 +40,39 @@ type ClassicNode = {
 
 type KvRow = { key: string; value: unknown };
 
-const IMPORT_CHUNK = 500;
+type ImportNodesArgs = { userId: string; nodes: ReadonlyArray<OutlineNode> };
+type ImportTagColorArgs = { userId: string; tag: string; color: string };
+type ImportSavedQueryArgs = {
+  userId: string;
+  id: string;
+  name: string;
+  query: string;
+  createdAt: number;
+};
+type ImportDailyMappingArgs = {
+  userId: string;
+  key: string;
+  nodeId: string;
+  touchedAt: number;
+};
+type MigrationApi = {
+  mutators: {
+    importNodes: FunctionReference<"mutation", ImportNodesArgs, unknown>;
+    upsertTagColor: FunctionReference<"mutation", ImportTagColorArgs, unknown>;
+    upsertSavedQuery: FunctionReference<
+      "mutation",
+      ImportSavedQueryArgs,
+      unknown
+    >;
+    upsertDailyMapping: FunctionReference<
+      "mutation",
+      ImportDailyMappingArgs,
+      unknown
+    >;
+  };
+};
+
+const migrationApi = api as unknown as MigrationApi;
 
 function asOutlineNode(n: ClassicNode, userId: string): OutlineNode {
   return {
@@ -89,71 +124,100 @@ async function fetchKv(collection: string): Promise<KvRow[]> {
   });
 }
 
-async function importNodeChunks(
+async function importNodes(
   store: OutlineStore,
   userId: string,
   nodes: OutlineNode[],
 ): Promise<void> {
-  for (let i = 0; i < nodes.length; i += IMPORT_CHUNK) {
-    const chunk = nodes.slice(i, i + IMPORT_CHUNK);
-    const tx = store.mutators.importNodes({ userId, nodes: chunk });
-    await tx.isPersisted.promise;
-  }
+  await store.client.importRows(migrationApi.mutators.importNodes, nodes, {
+    importId: `classic-${userId}-nodes`,
+    shardKey: userId,
+    toArgs: (chunk) => ({ userId, nodes: chunk }),
+  });
 }
 
 async function importKv(store: OutlineStore, userId: string): Promise<number> {
-  let count = 0;
   const t = Date.now();
 
   const tags = await fetchKv("tag-colors").catch(() => [] as KvRow[]);
-  for (const row of tags) {
-    const v = row.value as { tag?: string; color?: string };
-    const tag = String(v.tag ?? row.key);
-    const color = String(v.color ?? "");
-    if (!tag || !color) continue;
-    const tx = store.mutators.upsertTagColor({ userId, tag, color });
-    await tx.isPersisted.promise;
-    count += 1;
-  }
+  const tagRows = tags.flatMap((row) => {
+    const value = row.value as { tag?: string; color?: string };
+    const tag = String(value.tag ?? row.key);
+    const color = String(value.color ?? "");
+    return tag && color ? [{ tag, color }] : [];
+  });
+  const importedTags = await store.client.importRows(
+    migrationApi.mutators.upsertTagColor,
+    tagRows,
+    {
+      chunkSize: 1,
+      importId: `classic-${userId}-tag-colors`,
+      shardKey: userId,
+      toArgs: ([row]) => ({
+        userId,
+        ...(row as Omit<ImportTagColorArgs, "userId">),
+      }),
+    },
+  );
 
   const saved = await fetchKv("saved-queries").catch(() => [] as KvRow[]);
-  for (const row of saved) {
-    const v = row.value as {
+  const savedRows = saved.flatMap((row) => {
+    const value = row.value as {
       id?: string;
       name?: string;
       query?: string;
       createdAt?: number;
     };
-    const id = String(v.id ?? row.key);
-    if (!id) continue;
-    const tx = store.mutators.upsertSavedQuery({
-      userId,
-      id,
-      name: String(v.name ?? v.query ?? id),
-      query: String(v.query ?? ""),
-      createdAt: Number(v.createdAt ?? t),
-    });
-    await tx.isPersisted.promise;
-    count += 1;
-  }
+    const id = String(value.id ?? row.key);
+    return id
+      ? [
+          {
+            id,
+            name: String(value.name ?? value.query ?? id),
+            query: String(value.query ?? ""),
+            createdAt: Number(value.createdAt ?? t),
+          },
+        ]
+      : [];
+  });
+  const importedSaved = await store.client.importRows(
+    migrationApi.mutators.upsertSavedQuery,
+    savedRows,
+    {
+      chunkSize: 1,
+      importId: `classic-${userId}-saved-queries`,
+      shardKey: userId,
+      toArgs: ([row]) => ({
+        userId,
+        ...(row as Omit<ImportSavedQueryArgs, "userId">),
+      }),
+    },
+  );
 
   const daily = await fetchKv("daily-index").catch(() => [] as KvRow[]);
-  for (const row of daily) {
-    const v = row.value as { key?: string; nodeId?: string };
-    const key = String(v.key ?? row.key);
-    const nodeId = String(v.nodeId ?? "");
-    if (!key || !nodeId) continue;
-    const tx = store.mutators.upsertDailyMapping({
-      userId,
-      key,
-      nodeId,
-      touchedAt: t,
-    });
-    await tx.isPersisted.promise;
-    count += 1;
-  }
+  const dailyRows = daily.flatMap((row) => {
+    const value = row.value as { key?: string; nodeId?: string };
+    const key = String(value.key ?? row.key);
+    const nodeId = String(value.nodeId ?? "");
+    return key && nodeId ? [{ key, nodeId, touchedAt: t }] : [];
+  });
+  const importedDaily = await store.client.importRows(
+    migrationApi.mutators.upsertDailyMapping,
+    dailyRows,
+    {
+      chunkSize: 1,
+      importId: `classic-${userId}-daily-index`,
+      shardKey: userId,
+      toArgs: ([row]) => ({
+        userId,
+        ...(row as Omit<ImportDailyMappingArgs, "userId">),
+      }),
+    },
+  );
 
-  return count;
+  return (
+    importedTags.imported + importedSaved.imported + importedDaily.imported
+  );
 }
 
 /**
@@ -177,7 +241,7 @@ export async function migrateClassicToLunora(
       return { status: "skipped-empty-source" };
     }
     const nodes = classic.map((n) => asOutlineNode(n, userId));
-    await importNodeChunks(store, userId, nodes);
+    await importNodes(store, userId, nodes);
     const kv = await importKv(store, userId);
     return { status: "migrated", nodes: nodes.length, kv };
   } catch (error) {

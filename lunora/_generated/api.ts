@@ -12,9 +12,10 @@ export const api = anyApi as unknown as ApiTypes;
 export interface InternalApiTypes {
     mcp: {
         applyChangeOps: FunctionReference<"mutation", { userId: string; ops: Array<unknown> }, { count: number; deletes: number; inserts: number; patches: number; }>;
+        claimDailyMapping: FunctionReference<"mutation", { userId: string; key: string; nodeId: string; touchedAt: number }, { nodeId: string; won: boolean; }>;
         listDailyIndex: FunctionReference<"query", { userId: string }, { key: string; nodeId: string; }[]>;
         listNodes: FunctionReference<"query", { userId: string }, { id: string; parentId: string | null; prevSiblingId: string | null; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number | null; mirrorOf: string | null; createdAt: number; updatedAt: number; origin: string | null; kind: "paragraph" | null }[]>;
-        wipeUserShard: FunctionReference<"mutation", { userId: string }, { deleted: number; }>;
+        wipeUserShard: FunctionReference<"mutation", { userId: string }, { deleted: number; tables: Record<string, number>; }>;
     };
 }
 

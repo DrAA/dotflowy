@@ -79,6 +79,7 @@ function snapshotNodes(collection: Collection<NodeRow, string>): OutlineNode[] {
 }
 
 export type OutlineStore = {
+  client: LunoraClient;
   collection: Collection<NodeRow, string>;
   /** Phase 2b — Lunora tag colors (flag ON). */
   tagColors: Collection<TagColorRowDoc, string>;
@@ -648,5 +649,5 @@ export function createOutlineStore(
     dailyIndex,
     userId,
   );
-  return { collection, tagColors, savedQueries, dailyIndex, mutators };
+  return { client, collection, tagColors, savedQueries, dailyIndex, mutators };
 }

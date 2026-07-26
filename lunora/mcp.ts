@@ -6,15 +6,20 @@
  * editor keeps using fine-grained mutators; MCP keeps outline-ops planners.
  */
 
-import type { Id } from "./_generated/dataModel";
-
 import {
   docToNode,
   nodeToInsertFields,
   planFromChangeOps,
   type OutlinePlan,
 } from "../src/data/outline-plans";
-import { internalMutation, internalQuery, v } from "./_generated/server";
+import { resolveDailyClaim } from "../src/plugins/daily/claim-mapping";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+  v,
+} from "./_generated/server";
 
 /** Wire node shape for MCP (no Lunora `userId`) — keeps codegen out of `src/`. */
 type McpNode = {
@@ -33,47 +38,19 @@ type McpNode = {
   kind: "paragraph" | null;
 };
 
-type ShardTable =
-  | "nodes"
-  | "tagColors"
-  | "savedQueries"
-  | "dailyIndex"
-  | "ratelimit_buckets";
-
-type MutatorDb = {
-  query: (table: ShardTable) => {
-    collect: () => Promise<Array<Record<string, unknown> & { _id: string }>>;
-  };
-  get: (
-    id: Id<ShardTable>,
-  ) => Promise<(Record<string, unknown> & { _id: string }) | null>;
-  insert: (
-    table: ShardTable,
-    document: Record<string, unknown>,
-    options?: { clientId?: string },
-  ) => Promise<string>;
-  patch: (id: Id<ShardTable>, fields: Record<string, unknown>) => Promise<void>;
-  delete: (id: Id<ShardTable>) => Promise<void>;
-};
-
-type MutatorCtx = {
-  auth: { userId?: string | null };
-  db: MutatorDb;
-};
-
-function assertOwner(ctx: MutatorCtx, userId: string): void {
+function assertOwner(ctx: QueryCtx | MutationCtx, userId: string): void {
   if (ctx.auth.userId !== userId) {
     throw new Error("unauthorized: shard userId mismatch");
   }
 }
 
-async function commitPlan(ctx: MutatorCtx, plan: OutlinePlan): Promise<void> {
+async function commitPlan(ctx: MutationCtx, plan: OutlinePlan): Promise<void> {
   for (const id of plan.deletes) {
-    await ctx.db.delete(id as Id<"nodes">);
+    await ctx.db.delete(ctx.db.asId("nodes", id));
   }
   for (const patch of plan.patches) {
     await ctx.db.patch(
-      patch.id as Id<"nodes">,
+      ctx.db.asId("nodes", patch.id),
       patch.fields as Record<string, unknown>,
     );
   }
@@ -106,13 +83,12 @@ const changeOpArg = v.union(
   v.object({ op: v.literal("delete"), key: v.string() }),
 );
 
-/** Full outline for MCP get_outline / search_nodes. Worker-only (system RPC). */
+/** Full outline for MCP get_outline / search_nodes. */
 export const listNodes = internalQuery
   .input({ userId: v.string() })
   .query(async ({ ctx, args }): Promise<McpNode[]> => {
-    const mctx = ctx as unknown as MutatorCtx;
-    assertOwner(mctx, args.userId);
-    const rows = await mctx.db.query("nodes").collect();
+    assertOwner(ctx, args.userId);
+    const rows = await ctx.db.query("nodes").collect();
     return rows.map((row) => {
       const n = docToNode(row);
       const { userId: _u, ...wire } = n;
@@ -120,13 +96,12 @@ export const listNodes = internalQuery
     });
   });
 
-/** Daily-index rows for MCP claimDailyScaffold. Worker-only (system RPC). */
+/** Daily-index rows for MCP claimDailyScaffold. */
 export const listDailyIndex = internalQuery
   .input({ userId: v.string() })
   .query(async ({ ctx, args }) => {
-    const mctx = ctx as unknown as MutatorCtx;
-    assertOwner(mctx, args.userId);
-    const rows = await mctx.db.query("dailyIndex").collect();
+    assertOwner(ctx, args.userId);
+    const rows = await ctx.db.query("dailyIndex").collect();
     return rows.map((r) => ({
       key: String(r.key ?? r._id),
       nodeId: String(r.nodeId ?? ""),
@@ -144,13 +119,12 @@ export const applyChangeOps = internalMutation
     ops: v.array(changeOpArg),
   })
   .mutation(async ({ ctx, args }) => {
-    const mctx = ctx as unknown as MutatorCtx;
-    assertOwner(mctx, args.userId);
+    assertOwner(ctx, args.userId);
     if (args.ops.length === 0) {
       return { count: 0, deletes: 0, inserts: 0, patches: 0 };
     }
     const plan = planFromChangeOps(args.userId, args.ops);
-    await commitPlan(mctx, plan);
+    await commitPlan(ctx, plan);
     return {
       count: args.ops.length,
       deletes: plan.deletes.length,
@@ -159,36 +133,53 @@ export const applyChangeOps = internalMutation
     };
   });
 
-/**
- * Every table that holds this user's CONTENT. `ratelimit_buckets` is
- * deliberately absent: it's the `.externallyManaged()` extension table
- * (`key/value/ts/prev`, no `userId`, no `.shardBy("userId")`), so it isn't
- * user content under ADR 0051 and a per-user wipe has no business reaching it.
- */
-const WIPE_TABLES: ShardTable[] = [
+export const claimDailyMapping = internalMutation
+  .input({
+    userId: v.string(),
+    key: v.string(),
+    nodeId: v.string(),
+    touchedAt: v.number(),
+  })
+  .mutation(async ({ ctx, args }) => {
+    assertOwner(ctx, args.userId);
+    const existing = await ctx.db
+      .query("dailyIndex")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    const current =
+      existing && typeof existing.nodeId === "string" ? existing.nodeId : null;
+    const { winner, won } = resolveDailyClaim(current, args.nodeId);
+    if (existing) {
+      await ctx.db.patch(ctx.db.asId("dailyIndex", existing._id), {
+        nodeId: winner,
+        touchedAt: args.touchedAt,
+      });
+    } else {
+      await ctx.db.insert("dailyIndex", {
+        key: args.key,
+        nodeId: winner,
+        touchedAt: args.touchedAt,
+        userId: ctx.auth.userId!,
+      });
+    }
+    return { nodeId: winner, won };
+  });
+
+const CONTENT_TABLES = [
   "nodes",
   "tagColors",
   "savedQueries",
   "dailyIndex",
-];
+] as const;
 
 /**
  * Erase every row in this user's shard (outline + side-collections). Worker-only
- * via `x-lunora-system` — self-serve account deletion (ADR 0051 + ADR 0055).
+ * via system RPC — self-serve account deletion (ADR 0051 + ADR 0058).
  * Keyed by Better Auth `user.id` (same shard the browser/MCP mutators use).
  */
 export const wipeUserShard = internalMutation
   .input({ userId: v.string() })
   .mutation(async ({ ctx, args }) => {
-    const mctx = ctx as unknown as MutatorCtx;
-    assertOwner(mctx, args.userId);
-    let deleted = 0;
-    for (const table of WIPE_TABLES) {
-      const rows = await mctx.db.query(table).collect();
-      for (const row of rows) {
-        await mctx.db.delete(row._id as Id<ShardTable>);
-        deleted += 1;
-      }
-    }
-    return { deleted };
+    void args.userId;
+    return ctx.db.wipeShard({ tables: CONTENT_TABLES });
   });

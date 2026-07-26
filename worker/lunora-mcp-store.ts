@@ -1,36 +1,27 @@
 /// <reference types="@cloudflare/workers-types" />
 
 /**
- * MCP OutlineStore backed by the Lunora SHARD (ADR 0055).
+ * MCP OutlineStore backed by the Lunora SHARD (ADR 0058).
  *
  * When `LUNORA_OUTLINE=1`, Worker MCP tools keep planning via outline-ops
  * (`ChangeOp[]`) but commit through `mutators:applyChangeOps` on the same
  * user shard the browser mutators use — not classic UserOutlineDO.applyBatch.
  *
- * Identity is Worker-trusted: the MCP bearer was already validated; we forward
- * `x-lunora-userid` (+ system) to the shard the same way Lunora's compose
- * forwards authenticated RPCs.
+ * Identity is Worker-trusted: the MCP bearer was already validated, so normal
+ * calls run as that user. Only account deletion uses a pure system client.
  */
 
 import { Schema } from "effect";
-import { resolveShard, type ShardNamespaceLike } from "lunorash/runtime";
+import { createShardClient, type ShardNamespaceLike } from "lunorash/runtime";
 
 import type { OutlineStore } from "./mcp-tools";
 
+import { internal } from "../lunora/_generated/api";
 import { NodeSchema, type ChangeOp, type Node } from "../src/data/wire-schema";
 
 type LunoraRpcEnv = {
   SHARD: ShardNamespaceLike;
 };
-
-const RpcEnvelopeSchema = Schema.Struct({
-  result: Schema.optional(Schema.Unknown),
-  error: Schema.optional(
-    Schema.Struct({
-      message: Schema.optional(Schema.String),
-    }),
-  ),
-});
 
 const DailyIndexRowSchema = Schema.Struct({
   key: Schema.String,
@@ -39,19 +30,12 @@ const DailyIndexRowSchema = Schema.Struct({
 
 const ClaimDailyResultSchema = Schema.Struct({
   nodeId: Schema.String,
+  won: Schema.Boolean,
 });
 
 const DailyClaimValueSchema = Schema.Struct({
   nodeId: Schema.String,
 });
-
-/** Decode unknown JSON at the Worker→shard trust boundary (ADR 0014 twin). */
-export function decodeShardRpcEnvelope(raw: unknown): {
-  result?: unknown;
-  error?: { message?: string };
-} {
-  return Schema.decodeUnknownSync(RpcEnvelopeSchema)(raw);
-}
 
 export function decodeMcpNodeList(raw: unknown): Node[] {
   return [...Schema.decodeUnknownSync(Schema.Array(NodeSchema))(raw ?? [])];
@@ -65,7 +49,10 @@ export function decodeDailyIndexRows(
   ];
 }
 
-export function decodeClaimDailyResult(raw: unknown): { nodeId: string } {
+export function decodeClaimDailyResult(raw: unknown): {
+  nodeId: string;
+  won: boolean;
+} {
   return Schema.decodeUnknownSync(ClaimDailyResultSchema)(raw);
 }
 
@@ -73,54 +60,12 @@ export function decodeDailyClaimValue(raw: unknown): { nodeId: string } {
   return Schema.decodeUnknownSync(DailyClaimValueSchema)(raw);
 }
 
-async function shardRpc(
-  env: LunoraRpcEnv,
-  userId: string,
-  functionPath: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  const stub = resolveShard(env.SHARD, userId);
-  const res = await stub.fetch(
-    new Request("https://shard.internal/rpc", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-lunora-userid": userId,
-        // Trusted Worker→shard dispatch (same as compose cron/forward).
-        "x-lunora-system": "1",
-      },
-      body: JSON.stringify({ functionPath, args }),
-    }),
-  );
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    throw new Error(
-      `lunora shard rpc ${functionPath}: non-JSON response (${res.status})`,
-    );
-  }
-  let envelope: { result?: unknown; error?: { message?: string } };
-  try {
-    envelope = decodeShardRpcEnvelope(json);
-  } catch (err) {
-    // Failed HTTP with a non-envelope body → status error, not a Schema dump.
-    if (!res.ok) {
-      throw new Error(
-        `lunora shard rpc ${functionPath} failed (${res.status})`,
-      );
-    }
-    throw err instanceof Error
-      ? err
-      : new Error(`lunora shard rpc ${functionPath}: invalid response`);
-  }
-  if (!res.ok || envelope.error) {
-    throw new Error(
-      envelope.error?.message ??
-        `lunora shard rpc ${functionPath} failed (${res.status})`,
-    );
-  }
-  return envelope.result;
+function userShardClient(env: LunoraRpcEnv, userId: string) {
+  return createShardClient(env.SHARD).as({ userId }).forShard(userId);
+}
+
+function systemShardClient(env: LunoraRpcEnv, userId: string) {
+  return createShardClient(env.SHARD).asSystem().forShard(userId);
 }
 
 /**
@@ -131,17 +76,20 @@ export function createLunoraOutlineStore(
   env: LunoraRpcEnv,
   userId: string,
 ): OutlineStore {
+  const client = userShardClient(env, userId);
+
   return {
     async getNodes() {
-      const raw = await shardRpc(env, userId, "mcp:listNodes", { userId });
-      return decodeMcpNodeList(raw);
+      return decodeMcpNodeList(
+        await client.call(internal.mcp.listNodes, { userId }),
+      );
     },
 
     async applyBatch(ops: readonly ChangeOp[]) {
       if (ops.length === 0) return 0;
-      await shardRpc(env, userId, "mcp:applyChangeOps", {
+      await client.call(internal.mcp.applyChangeOps, {
         userId,
-        ops,
+        ops: [...ops],
       });
       // Classic DO returns a seq; Lunora watermarks are internal. Tools ignore
       // the numeric return (commit() awaits applyBatch for side effects only).
@@ -150,10 +98,9 @@ export function createLunoraOutlineStore(
 
     async getKv(collection: string) {
       if (collection !== "daily-index") return [];
-      const raw = await shardRpc(env, userId, "mcp:listDailyIndex", {
-        userId,
-      });
-      return decodeDailyIndexRows(raw);
+      return decodeDailyIndexRows(
+        await client.call(internal.mcp.listDailyIndex, { userId }),
+      );
     },
 
     async getOrCreateKv(collection: string, key: string, value: unknown) {
@@ -168,13 +115,14 @@ export function createLunoraOutlineStore(
       } catch {
         throw new Error("lunora mcp store: daily claim needs { nodeId }");
       }
-      const raw = await shardRpc(env, userId, "mutators:claimDailyMapping", {
-        userId,
-        key,
-        nodeId: candidate,
-        touchedAt: Date.now(),
-      });
-      const result = decodeClaimDailyResult(raw);
+      const result = decodeClaimDailyResult(
+        await client.call(internal.mcp.claimDailyMapping, {
+          userId,
+          key,
+          nodeId: candidate,
+          touchedAt: Date.now(),
+        }),
+      );
       return { key, nodeId: result.nodeId };
     },
   };
@@ -219,7 +167,7 @@ export function isLunoraOutlineEnabledSync(env: LunoraOutlineEnv): boolean {
 /**
  * Whether Worker MCP should use the Lunora shard for this user.
  *
- * Kill-switch pairing (ADR 0055): env force first; else synced
+ * Kill-switch pairing (ADR 0058): env force first; else synced
  * `account-prefs` on classic DO; browser reads mirrored localStorage after
  * {@link AccountPrefsController} sync.
  *
@@ -248,5 +196,7 @@ export async function wipeLunoraUserShard(
   env: LunoraRpcEnv,
   userId: string,
 ): Promise<void> {
-  await shardRpc(env, userId, "mcp:wipeUserShard", { userId });
+  await systemShardClient(env, userId).call(internal.mcp.wipeUserShard, {
+    userId,
+  });
 }
