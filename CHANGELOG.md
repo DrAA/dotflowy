@@ -1,5 +1,13 @@
 # dotflowy
 
+## 1.9.0
+
+### Minor Changes
+
+- 3c5115d: `[[` picker accepts calendar-complete natural-language dates; zoomed days show date-mention backlinks
+- fa31f7b: Public What's new on dotflowy.com — homepage teaser plus a full /changelog page, no sign-in required.
+- 3c5115d: Go to any date: Cmd+K natural-language date jump (chrono) and a week-strip month calendar picker
+
 ## 1.8.0
 
 ### Minor Changes
