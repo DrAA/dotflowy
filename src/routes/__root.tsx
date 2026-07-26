@@ -148,7 +148,7 @@ function RootComponent() {
           <TextSizeProvider>
             <AuthGate>
               <AccountPrefsController />
-              {/* ADR 0055: no-op when lunora-sync flag OFF (default). */}
+              {/* ADR 0058: no-op when lunora-sync flag OFF (default). */}
               <LunoraSyncHost>
                 <ShowCompletedProvider>
                   <Outlet />

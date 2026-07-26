@@ -42,7 +42,7 @@ import {
  * The commit is the client write path, not a new endpoint: one history
  * `capture` (a single Cmd+Z removes the whole import), then — flag OFF — ONE
  * `runStructuralSliced` transaction (every insert lands as one `POST
- * /api/nodes {ops}` → DO `applyBatch`). Flag ON (ADR 0055): chunked Lunora
+ * /api/nodes {ops}` → DO `applyBatch`). Flag ON (ADR 0058): chunked Lunora
  * `importNodes` mutators (clientSeq FIFO, ~500 nodes/watermark). A mid-import
  * failure on the Lunora path can leave earlier chunks durable; the dialog still
  * reports failure and does not claim success. Flag-OFF faults reject the

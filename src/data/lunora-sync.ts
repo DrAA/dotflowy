@@ -1,5 +1,5 @@
 /**
- * Lunora outline sync lifecycle for the ADR 0055 flag-swap (default OFF).
+ * Lunora outline sync lifecycle for the ADR 0058 flag-swap (default OFF).
  *
  * When `isLunoraSyncEnabled()`:
  * - creates `@lunora/db` `wholeOutline` collection + bound mutators

@@ -325,15 +325,8 @@ function RowChrome({
     const el = textRef.current;
     if (!el || composingRef.current) return;
     if (syncedRef.current === content.text) return;
-    // Lunora needs no second suppression rule here, and must not grow one:
-    // holding typed text across a missed shape poke is
-    // `withDirectOptimisticMetadata`'s job (it stamps `__tanstack_db_direct` so
-    // the overlay isn't dropped as stale when the checkpoint fallback fires --
-    // lunora-checkpoints.ts). A DOM-ahead-of-store prefix test was tried here
-    // and measured: zero hits across the whole suite on the Lunora path,
-    // including a probe of the exact missed-poke scenario it was written for,
-    // while it silently swallowed legitimate SHRINKS -- an undo that empties or
-    // truncates a focused bullet is a prefix of whatever is still on screen.
+    // Lunora owns the sticky optimistic hold across a missed shape poke. A DOM
+    // prefix guard here swallowed legitimate shrinks such as undo-to-empty.
     if (
       document.activeElement === el &&
       echoedTextFor(content.id) === content.text

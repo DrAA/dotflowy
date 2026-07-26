@@ -77,7 +77,7 @@ export interface AuthEnv {
    *  /api/nodes through, resolved here from the authenticated session's user.id
    *  (never a client-supplied id; the DO trust boundary, ADR 0014). */
   USER_OUTLINE: DurableObjectNamespace<UserOutlineDO>;
-  /** Lunora shard DO namespace (ADR 0055). Self-serve deletion wipes this
+  /** Lunora shard DO namespace (ADR 0058). Self-serve deletion wipes this
    *  alongside USER_OUTLINE — keyed by `user.id`, not resolveUserId. */
   SHARD: ShardNamespaceLike;
   /** The owner's Better Auth `user.id`. When set, that one account routes to the
@@ -249,7 +249,7 @@ export function createAuth(
             env.USER_OUTLINE.idFromName(user.id),
           );
           await stub.wipe();
-          // Lunora shard (ADR 0055): same Better Auth user.id the browser/MCP
+          // Lunora shard (ADR 0058): same Better Auth user.id the browser/MCP
           // mutators use — NOT resolveUserId / 'default'. Throws on RPC failure
           // so deletion aborts before identity rows vanish (ADR 0051 posture).
           await wipeLunoraUserShard(env, user.id);

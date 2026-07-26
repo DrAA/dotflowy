@@ -49,7 +49,7 @@ export async function bootstrapOutline(): Promise<BootstrapError | void> {
   if (bootstrapped) return;
   bootstrapped = true;
 
-  // ADR 0055: Lunora path seeds via `seedIfEmpty` mutator in lunora-sync.
+  // ADR 0058: Lunora path seeds via `seedIfEmpty` mutator in lunora-sync.
   // Just wait for wholeOutline ready so the editor doesn't race an empty feed.
   if (isLunoraSyncEnabled()) {
     return Effect.runPromise(

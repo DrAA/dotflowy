@@ -7,7 +7,7 @@
  * `/` prerender, and Settings shares the same bundle).
  *
  * Count comes from `getTreeIndex().byId.size` so both sync backends agree:
- * classic DO feeds the tree via `nodesCollection`, Lunora (ADR 0055) via
+ * classic DO feeds the tree via `nodesCollection`, Lunora (ADR 0058) via
  * `resetTreeFromNodes`. Reading classic `nodesCollection` alone shows 0 when
  * the Lunora flag is ON (that collection stays idle + empty).
  *

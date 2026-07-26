@@ -409,7 +409,7 @@ function removeTagOccurrence(tag: string) {
  * index incrementally and notifies. Skipped on the server (SPA + prerender, no
  * socket) -- see ADR 0004.
  *
- * Lunora flag-swap (ADR 0055): `lunora-sync.ts` owns the subscription and calls
+ * Lunora flag-swap (ADR 0058): `lunora-sync.ts` owns the subscription and calls
  * {@link resetTreeFromNodes} — do not also subscribe to the idle `nodesCollection`.
  */
 function ensureStarted() {

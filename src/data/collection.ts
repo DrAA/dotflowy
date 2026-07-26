@@ -428,7 +428,7 @@ export const nodesCollection = createCollection({
         return () => {};
       }
 
-      // ADR 0055 flag-swap: Lunora owns outline sync. Keep this collection idle
+      // ADR 0058 flag-swap: Lunora owns outline sync. Keep this collection idle
       // (ready+empty) so e2e / default OFF path is unchanged; tree-store feeds
       // from the Lunora collection instead. Don't markSyncReady here — Lunora
       // bootstrap does once `wholeOutline` lands.

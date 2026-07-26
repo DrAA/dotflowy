@@ -1,5 +1,5 @@
 /**
- * Singleton LunoraClient for the ADR 0055 flag-swap path.
+ * Singleton LunoraClient for the ADR 0058 flag-swap path.
  * Same-origin `/_lunora/*` (Vite proxies to wrangler in `bun run dev`).
  * SPA/no-SSR: never construct during prerender.
  */

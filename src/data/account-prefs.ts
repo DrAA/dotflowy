@@ -1,5 +1,5 @@
 /**
- * Account-scoped preferences synced via classic DO `/api/kv` (ADR 0055 opt-in).
+ * Account-scoped preferences synced via classic DO `/api/kv` (ADR 0058 opt-in).
  *
  * Lunora beta opt-in lives here — not localStorage alone — so enabling on one
  * device can converge others on next load. The runtime flag still mirrors to

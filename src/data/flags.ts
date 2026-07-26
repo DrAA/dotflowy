@@ -31,7 +31,7 @@ export function isMirrorsEnabled(): boolean {
   return MIRRORS_DEFAULT;
 }
 
-/** ADR 0055 Phase-2: outline sync via Lunora shapes/mutators instead of custom DO. */
+/** ADR 0058 Phase-2: outline sync via Lunora shapes/mutators instead of custom DO. */
 export const LUNORA_SYNC_FLAG_KEY = "dotflowy:flag:lunora-sync";
 
 // Default OFF — Lunora is alpha; classic DO is production. Opt in via Settings
@@ -40,9 +40,9 @@ const LUNORA_SYNC_DEFAULT = false;
 
 /**
  * Whether outline sync rides Lunora (`/_lunora` + `@lunora/db`) instead of the
- * custom `/api/sync` + `nodesCollection` path (ADR 0055). Default OFF.
+ * custom `/api/sync` + `nodesCollection` path (ADR 0058). Default OFF.
  *
- * Kill-switch pairing (ADR 0055): the browser reads this flag (mirrored from
+ * Kill-switch pairing (ADR 0058): the browser reads this flag (mirrored from
  * synced `account-prefs` on load); Worker MCP reads env force then the same
  * preference on classic DO. Flip env + client together when debugging divergence.
  *

@@ -1,5 +1,5 @@
 /**
- * Starts Lunora outline sync when `dotflowy:flag:lunora-sync` is ON (ADR 0055).
+ * Starts Lunora outline sync when `dotflowy:flag:lunora-sync` is ON (ADR 0058).
  * Mounted inside AuthGate so a session userId is available. Flag OFF = pass-
  * through (custom `/api/sync` path unchanged).
  *
@@ -7,8 +7,9 @@
  * client hydration agree on the first paint.
  */
 
-import { LunoraProvider } from "@lunora/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { LunoraProvider, useConnectionStatus } from "@lunora/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { isLunoraSyncEnabled } from "../data/flags";
 import { getLunoraClient } from "../data/lunora-client";
@@ -17,6 +18,25 @@ import {
   stopLunoraOutlineSync,
 } from "../data/lunora-sync";
 import { useSession } from "../lib/auth-client";
+
+function LunoraConnectionFeedback() {
+  const status = useConnectionStatus();
+  const wasOffline = useRef(false);
+
+  useEffect(() => {
+    if (status === "offline") {
+      wasOffline.current = true;
+      toast.warning("Sync paused — changes will send when reconnected", {
+        id: "lunora-connection",
+      });
+    } else if (status === "connected" && wasOffline.current) {
+      wasOffline.current = false;
+      toast.success("Sync reconnected", { id: "lunora-connection" });
+    }
+  }, [status]);
+
+  return null;
+}
 
 function LunoraOutlineBootstrap({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
@@ -30,7 +50,12 @@ function LunoraOutlineBootstrap({ children }: { children: ReactNode }) {
     };
   }, [userId]);
 
-  return <>{children}</>;
+  return (
+    <>
+      <LunoraConnectionFeedback />
+      {children}
+    </>
+  );
 }
 
 /**

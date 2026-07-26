@@ -462,7 +462,7 @@ export const STANDARD_TREE: SeedNode[] = [
   },
 ];
 
-// --- Lunora flag-ON fixture (ADR 0055) --------------------------------------
+// --- Lunora flag-ON fixture (ADR 0058) --------------------------------------
 
 type LunoraRow = ApiNode & { userId: string; _id: string };
 
@@ -526,14 +526,13 @@ export async function seedOutlineLunora(
   page: Page,
   nodes: SeedNode[],
   opts: {
-    userId?: string;
     /** Pre-seed Lunora kv shapes from classic kv collection names
      *  (`daily-index` / `tag-colors` / `saved-queries`). */
     kv?: Record<string, { key: string; value: unknown }[]>;
     /**
      * Skip post-mutation `wholeOutline` WS pokes (RPC still mutates the mock
-     * store). Reproduces a missed shape poke so the client hits the ~3s
-     * checkpoint fallback — pins the sticky-optimistic typing fix.
+     * store). Reproduces a missed shape poke to pin Lunora's sticky optimistic
+     * hold across its fallback window.
      */
     suppressWholeOutlinePoke?: boolean;
     /**
@@ -554,7 +553,7 @@ export async function seedOutlineLunora(
   // is best-effort. One `seedOutlineLunora` per `page` is the supported use.
   await page.unrouteAll({ behavior: "ignoreErrors" });
 
-  const userId = opts.userId ?? "test-user";
+  const userId = "test-user";
   const store = new Map<string, LunoraRow>();
   for (const n of nodes) store.set(n.id, toLunoraRow(n, userId));
 

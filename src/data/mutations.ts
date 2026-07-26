@@ -64,7 +64,7 @@ export function insertSibling(
   kind: NodeKind = null,
   id = createId(),
 ): string {
-  // ADR 0055: Lunora mutator owns optimistic plan + watermark (dogfood surface).
+  // ADR 0058: Lunora mutator owns optimistic plan + watermark (dogfood surface).
   if (isLunoraSyncEnabled()) {
     const lunora = getLunoraOutlineContext();
     if (lunora) {

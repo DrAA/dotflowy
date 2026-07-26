@@ -3,9 +3,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { seedOutlineLunora, type SeedNode } from "./fixtures";
 
 /**
- * Pins the Lunora sticky-optimistic typing fix: when a `wholeOutline` shape
- * poke is missed, the ~3s checkpoint fallback must NOT drop typed text
- * (Settings → back used to look empty until hard refresh).
+ * Pins Lunora's sticky optimistic hold: when a `wholeOutline` shape poke is
+ * missed, its fallback window must NOT drop typed text (Settings → back used
+ * to look empty until hard refresh).
  *
  * Run: `bunx playwright test e2e/lunora-optimistic-hold.spec.ts`
  */
@@ -30,8 +30,7 @@ test.describe("Lunora optimistic hold (missed shape poke)", () => {
     await page.keyboard.type("X");
     await expect(text(page, "hold")).toHaveText("HoldBaseX");
 
-    // Past SHAPE_CHECKPOINT_FALLBACK_MS — without sticky-direct the overlay
-    // would revert to HoldBase here.
+    // Past the fallback window, the optimistic row must still survive.
     await expect(text(page, "hold")).toHaveText("HoldBaseX", {
       timeout: 5_000,
     });

@@ -209,7 +209,7 @@ async function materializeNewDay(
 
   const parentId = chain && week ? week.id : container.id;
 
-  // ADR 0055: flag ON → one Lunora mutator for all node writes (kv claims
+  // ADR 0058: flag ON → one Lunora mutator for all node writes (kv claims
   // already done above). Classic path keeps runStructuralTracked + applyBatch.
   if (isLunoraSyncEnabled()) {
     return materializeNewDayLunora({

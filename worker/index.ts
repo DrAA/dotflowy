@@ -98,7 +98,7 @@ export const UserOutlineDO = Sentry.instrumentDurableObjectWithSentry(
 );
 type UserOutlineDO = BaseUserOutlineDO;
 
-// Lunora ShardDO (ADR 0055) — re-export for wrangler `SHARD` binding.
+// Lunora ShardDO (ADR 0058) — re-export for wrangler `SHARD` binding.
 // TEMP: not Sentry-wrapped — Lunora's ShardDOState.sql typing doesn't satisfy
 // Sentry's DurableObjectState constraint (document in HANDOFF).
 export { ShardDO };
@@ -1144,7 +1144,7 @@ const handler = {
       );
     }
 
-    // Lunora reserved paths (ADR 0055 Phase-2 compose). Product Better Auth
+    // Lunora reserved paths (ADR 0058 Phase-2 compose). Product Better Auth
     // stays on `/api/auth/*`; Lunora has no dual signup here — identity is
     // bridged from the product session inside `worker/lunora-app.ts`.
     if (url.pathname === "/_lunora" || url.pathname.startsWith("/_lunora/")) {

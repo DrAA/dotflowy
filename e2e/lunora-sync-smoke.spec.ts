@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { seedOutlineLunora, type SeedNode } from "./fixtures";
 
 /**
- * Foundation smoke for ADR 0055 Lunora flag-ON path.
+ * Foundation smoke for ADR 0058 Lunora flag-ON path.
  * Uses `seedOutlineLunora` (mocks `/_lunora/*`). Classic suite stays on
  * `seedOutline` with the flag default OFF.
  *

@@ -108,7 +108,7 @@ export function runStructuralTracked<T>(body: () => T): {
   if (getActiveTransaction())
     return { result: body(), persisted: Promise.resolve() };
 
-  // ADR 0055 Lunora flag-swap: mutators own optimistic apply + watermark hold
+  // ADR 0058 Lunora flag-swap: mutators own optimistic apply + watermark hold
   // (checkpoints). Body calls Lunora-aware mutations which fire `bindMutators`
   // handles — no custom `{ops}` batch / `waitForSeq`.
   if (isLunoraSyncEnabled()) {

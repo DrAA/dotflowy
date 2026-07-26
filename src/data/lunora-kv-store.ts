@@ -1,5 +1,5 @@
 /**
- * Lunora row types for kv side-collections (ADR 0055 phase 2b).
+ * Lunora row types for kv side-collections (ADR 0058 phase 2b).
  * Collections + mutators are wired in `lunora-outline-store.ts` (one
  * `bindMutators` / clientSeq FIFO with outline writes).
  */
