@@ -325,6 +325,8 @@ function RowChrome({
     const el = textRef.current;
     if (!el || composingRef.current) return;
     if (syncedRef.current === content.text) return;
+    // Lunora owns the sticky optimistic hold across a missed shape poke. A DOM
+    // prefix guard here swallowed legitimate shrinks such as undo-to-empty.
     if (
       document.activeElement === el &&
       echoedTextFor(content.id) === content.text

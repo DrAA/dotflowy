@@ -191,10 +191,15 @@ test.describe("Settings page", () => {
     await expect(
       page.getByRole("menuitem", { name: "Sign out" }),
     ).toBeVisible();
+    // Deliberately walked back: Copy as Markdown is a per-view ACTION, not a
+    // setting, so it lives with the other actions at the top of this menu
+    // rather than on /settings.
+    await expect(
+      page.getByRole("menuitem", { name: /Copy as Markdown/ }),
+    ).toBeVisible();
 
     // Moved to /settings — gone from the menu.
     for (const gone of [
-      /Copy as Markdown/,
       /Import OPML/,
       /Export OPML/,
       /Connect apps/,
