@@ -1,5 +1,15 @@
 # dotflowy
 
+## 1.11.0
+
+### Minor Changes
+
+- 58870b7: Backspace at the start of a bullet now joins it into the row above, the inverse of the Enter split — the two texts merge, the caret lands at the seam, and one undo puts both back. If the row above is blank, the blank is simply removed — so pressing Enter at the start of a bullet and then Backspace puts you back exactly where you were. A merge that can't happen says so instead of doing nothing: the row shakes, and where the reason is invisible (a bullet hidden by a filter or by "Show completed" sitting between the two rows, or a mirrored row) it also explains itself. Bullets with children, and the empty-bullet and to-do Backspace behavior, are unchanged.
+
+### Patch Changes
+
+- 026a157: Fix Enter at the start of a bullet: it now inserts a blank bullet above and leaves the bullet you were on completely alone — same text, same children, same id — instead of blanking it and handing its text to a new bullet below (which detached children onto the blank line and silently moved node identity out from under bookmarks, links, mirrors, and daily mappings). The caret stays where you were typing.
+
 ## 1.10.5
 
 ### Patch Changes
