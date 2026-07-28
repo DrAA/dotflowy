@@ -27,3 +27,6 @@ test-results/
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+# Riptide workspace machine-local overrides
+.humanlayer/workspace.local.json
