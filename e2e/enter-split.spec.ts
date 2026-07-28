@@ -27,8 +27,25 @@ const focused = (page: Page) => page.locator(".node-text:focus");
 const orderedTexts = (page: Page) =>
   page.locator(".outline-row .node-text").allTextContents();
 
-async function load(page: Page, tree: SeedNode[]) {
+// The shaking element for a refused action -- NOT the same node as `row` above:
+// `rowOf` resolves the span's enclosing `.outline-row`, and `rejectRow` puts the
+// one-shot class there, one level inside the `li`.
+const outlineRow = (page: Page, id: string) =>
+  page.locator(`li[data-node-id="${id}"] > .outline-row`);
+
+async function load(
+  page: Page,
+  tree: SeedNode[],
+  opts?: { hideCompleted?: boolean },
+) {
   await seedOutline(page, tree);
+  if (opts?.hideCompleted) {
+    // Must be set before goto: the provider reads the persisted value on first
+    // render, so flipping it afterwards wouldn't take until a reload.
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:show-completed", "false");
+    });
+  }
   await page.goto("/");
   await expect(text(page, tree[0]!.id)).toBeVisible();
 }
@@ -251,6 +268,170 @@ test.describe("Enter splits the bullet at the caret", () => {
     // One undo collapses the split back to the original single bullet.
     await expect(text(page, "n")).toHaveText("alphabravo");
     expect(await orderedTexts(page)).toEqual(["alphabravo"]);
+  });
+});
+
+test.describe("Backspace joins the bullet into the one above", () => {
+  test("Enter mid-text then Backspace returns the line to its pre-Enter state", async ({
+    page,
+  }) => {
+    // The round trip no test drove before: BOTH presses go through the real
+    // keyboard with no `evaluate` in between, so the caret state a second
+    // keystroke actually finds is the one under test.
+    await load(page, [
+      { id: "n", parentId: null, prevSiblingId: null, text: "alphabravo" },
+    ]);
+
+    await caretAt(page, "n", 5); // between "alpha" and "bravo"
+    await page.keyboard.press("Enter");
+    await expect(focused(page)).toHaveText("bravo");
+
+    await page.keyboard.press("Backspace");
+
+    await expect(text(page, "n")).toHaveText("alphabravo");
+    expect(await orderedTexts(page)).toEqual(["alphabravo"]);
+    // The caret sits at the SEAM, not at either end: typing lands between the
+    // two halves.
+    await expect(text(page, "n")).toBeFocused();
+    await page.keyboard.type("X");
+    await expect(text(page, "n")).toHaveText("alphaXbravo");
+  });
+
+  test("Enter at the START then Backspace is a true round trip — same node id", async ({
+    page,
+  }) => {
+    // Enter at offset 0 inserts a blank ABOVE and leaves focus put (#326), so
+    // this pair reads as an undo. Appending onto the blank would restore the
+    // TEXT while quietly moving it onto the blank's id -- the identity move that
+    // Enter arm exists to prevent. Asserting on the id, not just the text, is
+    // the whole point of this test.
+    await load(page, [
+      { id: "keepme", parentId: null, prevSiblingId: null, text: "alpha" },
+    ]);
+
+    await caretAt(page, "keepme", 0);
+    await page.keyboard.press("Enter");
+    expect(await orderedTexts(page)).toEqual(["", "alpha"]);
+
+    await page.keyboard.press("Backspace");
+
+    expect(await orderedTexts(page)).toEqual(["alpha"]);
+    // The ORIGINAL node is the survivor, not a look-alike carrying its text.
+    await expect(text(page, "keepme")).toHaveText("alpha");
+    await expect(rows(page)).toHaveCount(1);
+    // Caret is back at the start, where the user left it.
+    await expect(text(page, "keepme")).toBeFocused();
+    await page.keyboard.type("X");
+    await expect(text(page, "keepme")).toHaveText("Xalpha");
+  });
+
+  test("a seeded bullet joins into its previous sibling, caret at the seam", async ({
+    page,
+  }) => {
+    await load(page, [
+      { id: "one", parentId: null, prevSiblingId: null, text: "alpha" },
+      { id: "two", parentId: null, prevSiblingId: "one", text: "bravo" },
+    ]);
+
+    await caretAt(page, "two", 0);
+    await page.keyboard.press("Backspace");
+
+    await expect(text(page, "one")).toHaveText("alphabravo");
+    await expect(page.locator('li[data-node-id="two"]')).toHaveCount(0);
+    expect(await orderedTexts(page)).toEqual(["alphabravo"]);
+    await page.keyboard.type("X");
+    await expect(text(page, "one")).toHaveText("alphaXbravo");
+  });
+
+  test("the join is a single undo step that restores both the text and the node", async ({
+    page,
+  }) => {
+    await load(page, [
+      { id: "n", parentId: null, prevSiblingId: null, text: "alphabravo" },
+    ]);
+
+    await caretAt(page, "n", 5);
+    await page.keyboard.press("Enter");
+    await expect(focused(page)).toHaveText("bravo");
+    await page.keyboard.press("Backspace");
+    await expect(text(page, "n")).toHaveText("alphabravo");
+
+    await page.keyboard.press(`${modifier()}+z`);
+
+    // One undo puts back the split: the source node's text AND the row that was
+    // merged away. (The Enter remains its own separate undo step.)
+    await expect(text(page, "n")).toHaveText("alpha");
+    expect(await orderedTexts(page)).toEqual(["alpha", "bravo"]);
+  });
+
+  test("a bullet with children refuses with a bare shake; its own first child still joins in", async ({
+    page,
+  }) => {
+    // The children are on screen, so the reason is self-evident: shake, and
+    // deliberately NO toast (the one place in the app where rejectRow travels
+    // alone). Nothing is reparented.
+    await load(page, [
+      { id: "top", parentId: null, prevSiblingId: null, text: "alpha" },
+      { id: "par", parentId: null, prevSiblingId: "top", text: "parent" },
+      { id: "kid", parentId: "par", prevSiblingId: null, text: "kid" },
+    ]);
+
+    await caretAt(page, "par", 0);
+    await page.keyboard.press("Backspace");
+    await expect(outlineRow(page, "par")).toHaveClass(/node-rejected/);
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
+    await expect(text(page, "top")).toHaveText("alpha");
+    expect(await orderedTexts(page)).toEqual(["alpha", "parent", "kid"]);
+
+    // The class clears itself on animationend, so a repeat can re-trigger it.
+    await expect(outlineRow(page, "par")).not.toHaveClass(/node-rejected/, {
+      timeout: 4000,
+    });
+
+    // ...and the first child DOES merge into its parent (a different depth), so
+    // the refusal above isn't just a dead keymap.
+    await caretAt(page, "kid", 0);
+    await page.keyboard.press("Backspace");
+    await expect(text(page, "par")).toHaveText("parentkid");
+    expect(await orderedTexts(page)).toEqual(["alpha", "parentkid"]);
+  });
+
+  test("a bullet hidden between the two rows refuses with a shake AND a toast", async ({
+    page,
+  }) => {
+    // With 'Show completed' off, the completed bullet between alpha and bravo
+    // isn't rendered at all -- so the row visually above bravo is alpha, and
+    // merging there would relocate bravo's text past a node the user can't see.
+    // The blocker is invisible by definition, so this refusal has to say so.
+    await load(
+      page,
+      [
+        { id: "one", parentId: null, prevSiblingId: null, text: "alpha" },
+        {
+          id: "mid",
+          parentId: null,
+          prevSiblingId: "one",
+          text: "done",
+          isTask: true,
+          completed: true,
+        },
+        { id: "two", parentId: null, prevSiblingId: "mid", text: "bravo" },
+      ],
+      { hideCompleted: true },
+    );
+
+    // Sanity: the completed bullet really is out of the DOM.
+    await expect(text(page, "mid")).toHaveCount(0);
+
+    await caretAt(page, "two", 0);
+    await page.keyboard.press("Backspace");
+
+    await expect(outlineRow(page, "two")).toHaveClass(/node-rejected/);
+    await expect(page.getByText(/hidden bullet/i)).toBeVisible();
+    // Nothing moved: both visible rows are exactly as they were.
+    await expect(text(page, "one")).toHaveText("alpha");
+    await expect(text(page, "two")).toHaveText("bravo");
+    expect(await orderedTexts(page)).toEqual(["alpha", "bravo"]);
   });
 });
 
