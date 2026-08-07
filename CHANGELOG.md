@@ -1,5 +1,12 @@
 # dotflowy
 
+## 1.11.1
+
+### Patch Changes
+
+- 099483e: The first daily command of a new day now works with the Lunora sync beta on. Creating the day note reported "Couldn't open today's daily note" even though it had been written. The /today route now waits for the outline to load before it opens the note.
+- 099483e: Mirror to Today now works with the Lunora sync beta on, and undo after a daily command no longer deletes unrelated nodes
+
 ## 1.11.0
 
 ### Minor Changes
