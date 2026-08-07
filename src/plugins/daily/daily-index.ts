@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/react";
 import { queryCollectionOptions } from "@tanstack/query-db-collection";
 import { createCollection } from "@tanstack/react-db";
 import { Effect, Schema } from "effect";
@@ -270,21 +271,53 @@ function rebuild() {
   rebuildFrom(dailyIndexCollection.toArray);
 }
 
+/** The slice of a TanStack DB collection this module reads. */
+interface DailyIndexCollectionLike {
+  has: (key: string) => boolean;
+  get: (key: string) => DailyIndexRowDocLike | undefined;
+  toArray: DailyIndexRowDocLike[];
+  subscribeChanges: (
+    cb: () => void,
+    opts?: { includeInitialState?: boolean },
+  ) => { unsubscribe: () => void };
+}
+
+/** Resolve once `key` is readable, or undefined on timeout. See the call site
+ *  for why an immediate read after `isPersisted` is not safe. */
+function waitForRow(
+  collection: DailyIndexCollectionLike,
+  key: string,
+  timeoutMs = 3000,
+): Promise<DailyIndexRowDocLike | undefined> {
+  const now = collection.get(key);
+  if (now) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (row: DailyIndexRowDocLike | undefined) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      sub.unsubscribe();
+      resolve(row);
+    };
+    const timer = setTimeout(() => finish(collection.get(key)), timeoutMs);
+    const sub = collection.subscribeChanges(() => {
+      const row = collection.get(key);
+      if (row) finish(row);
+    });
+    // Guard the registration gap (a delta applied between the check and subscribe).
+    const raced = collection.get(key);
+    if (raced) finish(raced);
+  });
+}
+
 /**
  * Called from `lunora-sync` when flag ON — subscribe to the Lunora shape and
  * skip `/api/kv` for this collection. `claim` must await the watermark so the
  * authoritative winner is readable from the local collection afterward.
  */
 export function bindLunoraDailyIndex(
-  collection: {
-    has: (key: string) => boolean;
-    get: (key: string) => DailyIndexRowDocLike | undefined;
-    toArray: DailyIndexRowDocLike[];
-    subscribeChanges: (
-      cb: () => void,
-      opts?: { includeInitialState?: boolean },
-    ) => { unsubscribe: () => void };
-  },
+  collection: DailyIndexCollectionLike,
   writes: {
     upsert: (key: string, nodeId: string) => void;
     claimTx: (
@@ -311,7 +344,39 @@ export function bindLunoraDailyIndex(
       }
       const tx = writes.claimTx(key, candidate);
       await tx.isPersisted.promise;
-      const row = collection.get(key);
+      // NOT a plain `collection.get(key)` here. TanStack DB drops the mutator's
+      // optimistic overlay as soon as the server confirms, and the confirmed row
+      // arrives from the sync stream on a LATER tick -- so for one macrotask the
+      // row is in neither the overlay nor the synced base. Reading through that
+      // window returns undefined, and the fallback below then reports a WIN to a
+      // caller that actually lost the claim. Same trap as `waitForLunoraNode` in
+      // get-or-create.ts (ADR 0058).
+      //
+      // This NARROWS that window; it does not close it. On a stall past the
+      // timeout (backgrounded tab, reconnect, slow socket) `waitForRow` still
+      // returns undefined and the false WIN still happens -- and `claimScaffoldNode`
+      // then calls `setMapping(key, winner)` unconditionally, which under Lunora
+      // patches `nodeId` blindly, so the overwrite reaches every other device.
+      // Rare now rather than routine, which is exactly why it needs to be
+      // observable -- and observable in PROD, since every trigger listed above
+      // is a production condition. So this reports, it does not just DEV-warn.
+      //
+      // `captureException` and not `captureMessage`: the errors-only Sentry
+      // posture (#227, decided in #156) is deliberate, and an unresolvable claim
+      // IS an error. The payload stays inside the #227 privacy rule on its own —
+      // `key` is a `localDateKey()` day string and both ids are opaque, so no
+      // user-authored outline text rides along. `captureException` is a no-op
+      // until `Sentry.init` has run (PROD only), so this is safe unconditionally.
+      const row = await waitForRow(collection, key);
+      if (!row) {
+        const err = new Error(
+          `[daily-index] claim row for "${key}" never became readable; ` +
+            "assuming this caller won. A concurrent winner's mapping may be " +
+            "overwritten. See ADR 0058.",
+        );
+        Sentry.captureException(err, { extra: { key, candidate } });
+        if (import.meta.env.DEV) console.warn(err.message);
+      }
       const winner = row ? String(row.nodeId) : candidate;
       return resolveDailyClaim(winner, candidate);
     },

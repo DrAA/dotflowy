@@ -27,6 +27,28 @@ Dotflowy’s hand-rolled per-user DO sync (`/api/sync` + client-planned `{ops}` 
 | Big-bang rewrite in one commit                                               | Editor + e2e + MCP + backups all break together; no incremental proof.     |
 | Replace Better Auth / Stripe / unfurl with Lunora primitives in the same cut | Out of scope — remount HTTP; don’t re-litigate identity/billing.           |
 
+## Reading live nodes (locked)
+
+**With the flag ON, `nodesCollection` is ready and empty.** Its sync adapter calls `markReady()` and returns before it opens a socket, so `nodesCollection.toArray` is `[]` for the whole session. The collection never enters `loading` and never errors, so a direct read looks like a legitimately empty outline. `buildTreeIndex([])` does not throw either. It returns an index whose `byId.has(anything)` is `false`.
+
+- **Every live-node read goes through `getLiveNodes()`** (`src/data/live-nodes.ts`). It branches on the flag and maps Lunora `wholeOutline` rows into wire-shaped `Node[]`. The tree store is fed the same way, so `getTreeIndex()` is correct on both paths.
+- **Two failures follow from reading the starved collection.** An empty index handed to `mirrorNode` misses its source and returns `null`, which surfaced as "Can't mirror that into Today." An empty index handed to `capture()` stores a zero-node undo point, and the next undo classifies every live node as a delete.
+- **oxlint enforces the rule.** `no-restricted-imports` bans the `nodesCollection` import name in `src/plugins/**`, `src/components/**`, and `src/routes/**`. An oxlint override replaces a rule's config rather than merging it, so the plugin ban shares one block with the ADR 0031 kit ban. The other two globs get their own blocks, because all three globs are disjoint.
+- **Readiness is a second, separate trap.** `nodesCollection.toArrayWhenReady()` waits on the COLLECTION's own readiness, which the flag-ON adapter satisfies immediately. The wait therefore resolves instantly and gates nothing. Await `whenNodesSyncReady()` (`src/data/collection.ts`) instead. It rides the module-level `syncReady` signal, which the classic socket fires on its first frame and the Lunora bootstrap fires once `wholeOutline` has landed. That signal also fires on the initial-load error path, so the wait cannot hang. `src/routes/today.tsx` shipped with the broken wait, and ran `getOrCreateDay` against an outline that had not loaded.
+- **Three component files are excluded, because they write.** `delete-confirm-dialog.tsx`, `opml-import-dialog.tsx`, and `markdown-paste.ts` call `.insert()`, `.update()`, or `.delete()` behind an `isLunoraSyncEnabled()` gate. The rule cannot tell a read from a write, so the exclusion list carries that distinction.
+- **`capture()` refuses an empty index** (`src/data/history.ts`) and logs in DEV. A refusal leaves `redoStack` intact, and the matching `drop()` no-ops instead of popping an unrelated entry.
+
+## Reading a row back after `isPersisted` (locked)
+
+**`await tx.isPersisted.promise` does not make the mutator's own rows readable.** TanStack DB drops a mutator's optimistic overlay the moment the server confirms the write, and the confirmed rows arrive from the sync stream on a LATER tick. That leaves a window, one macrotask wide, in which the just-written row sits in neither the overlay nor the synced base. Measured on the day-creation path: `hasNode(dayId)` reads true before the await, false immediately after it, and true again one macrotask later.
+
+A read straight through the await therefore reports a failure for a write that landed. On the daily path that surfaced as "Couldn't open today's daily note" for every user whose day note did not already exist, which is every user, once a day.
+
+- **Wait for visibility, never read straight through.** `waitForLunoraNode` in `src/plugins/daily/get-or-create.ts` and `waitForRow` in `src/plugins/daily/daily-index.ts` both subscribe to the collection and resolve when the row appears, bounded at 3s. They mirror `waitForNode` in `src/data/collection.ts`, which does the same job on the classic path; they are local because that one reads the starved `nodesCollection`.
+- **Both re-check after subscribing.** A delta applied between the first check and the subscribe would otherwise wait out the whole timeout.
+- **The claim path fails DANGEROUSLY, not merely loudly.** `claimTx` falls back to the local candidate id when the row reads as missing, so a read inside the window reports a WIN to a caller that lost the claim. `claimScaffoldNode` then calls `setMapping(key, winner)` unconditionally, which under Lunora patches `nodeId` blindly — so the false win overwrites the real winner's mapping on every other device.
+- **The wait NARROWS that window; it does not close it.** A stall past the timeout (backgrounded tab, reconnect, slow socket) still produces the false win. Closing it needs a server-authoritative read, which is follow-up work. Until then the timeout path reports to Sentry, because a rare silent corruption is harder to find than a routine one. It reports in PROD, not just DEV: every trigger is a production condition, so a DEV-only warn would be silent exactly where the hazard lives. `captureException` and not `captureMessage`, since the errors-only posture (#227) is deliberate and an unresolvable claim is an error. The payload carries a day key and two opaque ids, so no outline text rides along.
+
 ## Identity / e2e / kv (locked)
 
 - **Identity:** product Better Auth stays the session authority (MCP OAuth, Stripe, invite/Turnstile). Lunora `resolveIdentity` reads that session — do **not** run a second `@lunora/auth` signup stack in the main app.
