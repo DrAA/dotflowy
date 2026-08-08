@@ -115,9 +115,15 @@ const loadIndex = (store: OutlineStore): Effect.Effect<TreeIndex> =>
 const commit = (
   store: OutlineStore,
   ops: ReadonlyArray<ChangeOp>,
-): Effect.Effect<void> =>
-  Effect.promise(async () => {
-    if (ops.length) await store.applyBatch(ops);
+): Effect.Effect<void, ToolError> =>
+  Effect.tryPromise({
+    try: async () => {
+      if (ops.length) await store.applyBatch(ops);
+    },
+    catch: (error) =>
+      new ToolError({
+        reason: error instanceof Error ? error.message : String(error),
+      }),
   });
 
 /** Lift a planner's value-shaped failure into the tool error channel,
@@ -919,27 +925,17 @@ export const tools: ReadonlyArray<ToolDef> = [
         // since, so a reload would rebuild the identical tree (finding 6).
         const index = scaffold.index;
         const timestamp = yield* clock;
-        const plan = yield* Effect.try({
-          try: () => planAddToDaily(index, {
-            dateKey,
-            ...scaffold,
-            newNodeId: createId(),
-            text: input.text,
-            isTask: input.isTask ?? false,
-            kind: input.kind ?? null,
-            origin,
-            timestamp,
-          }),
-          catch: (error) => new ToolError({
-            reason: error instanceof Error ? error.message : String(error),
-          }),
+        const plan = planAddToDaily(index, {
+          dateKey,
+          ...scaffold,
+          newNodeId: createId(),
+          text: input.text,
+          isTask: input.isTask ?? false,
+          kind: input.kind ?? null,
+          origin,
+          timestamp,
         });
-        yield* Effect.tryPromise({
-          try: () => Promise.resolve(store.applyBatch(plan.ops)),
-          catch: (error) => new ToolError({
-            reason: error instanceof Error ? error.message : String(error),
-          }),
-        });
+        yield* commit(store, plan.ops);
         return `Added "${input.text}" to ${formatDayText(dateKey)} (node id: ${plan.nodeId}, daily note id: ${scaffold.dayId}).`;
       }),
   },
