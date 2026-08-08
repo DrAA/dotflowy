@@ -115,9 +115,15 @@ const loadIndex = (store: OutlineStore): Effect.Effect<TreeIndex> =>
 const commit = (
   store: OutlineStore,
   ops: ReadonlyArray<ChangeOp>,
-): Effect.Effect<void> =>
-  Effect.promise(async () => {
-    if (ops.length) await store.applyBatch(ops);
+): Effect.Effect<void, ToolError> =>
+  Effect.tryPromise({
+    try: async () => {
+      if (ops.length) await store.applyBatch(ops);
+    },
+    catch: (error) =>
+      new ToolError({
+        reason: error instanceof Error ? error.message : String(error),
+      }),
   });
 
 /** Lift a planner's value-shaped failure into the tool error channel,

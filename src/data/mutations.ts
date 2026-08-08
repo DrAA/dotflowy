@@ -916,15 +916,12 @@ export function moveManyNodes(targetId: string | null, ids: string[]): number {
   let moved = 0;
   // `after` walks forward: start at the target's current last child, then each
   // successful move becomes the predecessor of the next.
-  const firstSiblings = childrenOf(
-    buildTreeIndex(nodesCollection.toArray),
-    targetId,
-  );
+  const firstSiblings = childrenOf(buildTreeIndex(getLiveNodes()), targetId);
   let after: string | null = firstSiblings.length
     ? firstSiblings[firstSiblings.length - 1]!.id
     : null;
   for (const id of ids) {
-    const index = buildTreeIndex(nodesCollection.toArray);
+    const index = buildTreeIndex(getLiveNodes());
     if (moveNode(index, id, targetId, after)) {
       moved++;
       after = id;
@@ -967,7 +964,7 @@ export function indentManyNodes(
     }
   }
 
-  const index = buildTreeIndex(nodesCollection.toArray);
+  const index = buildTreeIndex(getLiveNodes());
   // The run is contiguous, so the first root's prev sibling sits OUTSIDE it --
   // the node everything indents under. Absent => first child => can't indent.
   const targetId = index.byId.get(rootIds[0]!)?.prevSiblingId;
@@ -1025,7 +1022,7 @@ export function outdentManyNodes(rootIds: string[]): number {
     }
   }
 
-  const start = buildTreeIndex(nodesCollection.toArray);
+  const start = buildTreeIndex(getLiveNodes());
   const oldParentId = start.byId.get(rootIds[0]!)?.parentId;
   if (!oldParentId) return 0; // already top-level -> can't outdent
   const newParentId = start.byId.get(oldParentId)?.parentId ?? null;
@@ -1034,7 +1031,7 @@ export function outdentManyNodes(rootIds: string[]): number {
   // previously-moved one, so the run keeps its order at the new level.
   let after: string = oldParentId;
   for (const id of rootIds) {
-    const index = buildTreeIndex(nodesCollection.toArray);
+    const index = buildTreeIndex(getLiveNodes());
     if (moveNode(index, id, newParentId, after)) {
       moved++;
       after = id;
@@ -1130,7 +1127,7 @@ export function removeManyNodes(ids: string[]): void {
   }
 
   for (const id of ids) {
-    removeNode(buildTreeIndex(nodesCollection.toArray), id);
+    removeNode(buildTreeIndex(getLiveNodes()), id);
   }
 }
 
