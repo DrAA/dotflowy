@@ -916,10 +916,7 @@ export function moveManyNodes(targetId: string | null, ids: string[]): number {
   let moved = 0;
   // `after` walks forward: start at the target's current last child, then each
   // successful move becomes the predecessor of the next.
-  const firstSiblings = childrenOf(
-    buildTreeIndex(getLiveNodes()),
-    targetId,
-  );
+  const firstSiblings = childrenOf(buildTreeIndex(getLiveNodes()), targetId);
   let after: string | null = firstSiblings.length
     ? firstSiblings[firstSiblings.length - 1]!.id
     : null;
