@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.11.2
+
+### Patch Changes
+
+- f9531e7: Handle MCP persistence failures as ToolError results and keep live-node index reads formatted.
+
 ## 1.11.1
 
 ### Patch Changes
