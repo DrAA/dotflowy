@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.12.0
+
+### Minor Changes
+
+- 9bce616: MCP daily-note tools now accept an optional `timeZone` so an omitted `date` resolves to the user's own today instead of UTC.
+
 ## 1.11.3
 
 ### Patch Changes
