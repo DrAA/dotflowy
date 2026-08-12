@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.12.1
+
+### Patch Changes
+
+- 216969c: Bump Lunora alpha packages (db, ratelimit, react, lunorash) and regenerate codegen. Worker MCP applyChangeOps keeps a typed cast for a nullable FunctionReference codegen quirk.
+
 ## 1.12.0
 
 ### Minor Changes
