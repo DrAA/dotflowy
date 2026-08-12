@@ -11,6 +11,8 @@
  * calls run as that user. Only account deletion uses a pure system client.
  */
 
+import type { ArgsOf } from "lunorash/client";
+
 import { Schema } from "effect";
 import { createShardClient, type ShardNamespaceLike } from "lunorash/runtime";
 
@@ -18,6 +20,11 @@ import type { OutlineStore } from "./mcp-tools";
 
 import { internal } from "../lunora/_generated/api";
 import { NodeSchema, type ChangeOp, type Node } from "../src/data/wire-schema";
+
+/** Generated applyChangeOps ops input — codegen drops .nullable() to non-null. */
+type GeneratedApplyChangeOps = ArgsOf<
+  typeof internal.mcp.applyChangeOps
+>["ops"];
 
 type LunoraRpcEnv = {
   SHARD: ShardNamespaceLike;
@@ -91,45 +98,7 @@ export function createLunoraOutlineStore(
         userId,
         // lunorash alpha.166 codegen collapses v.string().nullable() to string on
         // FunctionReference inputs; wire validators still accept null at runtime.
-        ops: [...ops] as unknown as Array<
-          | {
-              op: "insert";
-              value: {
-                id: string;
-                parentId: string;
-                prevSiblingId: string;
-                text: string;
-                isTask: boolean;
-                completed: boolean;
-                collapsed: boolean;
-                bookmarkedAt: number;
-                mirrorOf: string;
-                createdAt: number;
-                updatedAt: number;
-                origin: string;
-                kind: "paragraph";
-              };
-            }
-          | {
-              op: "update";
-              value: {
-                id: string;
-                parentId: string;
-                prevSiblingId: string;
-                text: string;
-                isTask: boolean;
-                completed: boolean;
-                collapsed: boolean;
-                bookmarkedAt: number;
-                mirrorOf: string;
-                createdAt: number;
-                updatedAt: number;
-                origin: string;
-                kind: "paragraph";
-              };
-            }
-          | { op: "delete"; key: string }
-        >,
+        ops: [...ops] as unknown as GeneratedApplyChangeOps,
       });
       // Classic DO returns a seq; Lunora watermarks are internal. Tools ignore
       // the numeric return (commit() awaits applyBatch for side effects only).
