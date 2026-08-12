@@ -20,6 +20,12 @@ export interface RegisteredLunoraFunction {
     kind: "action" | "mutation" | "query" | "stream";
     args: Record<string, unknown>;
     /**
+     * Present on a `"stream"` declared `durable`: its run is persisted and
+     * survives the socket that opened it. Absent on every other kind, and on an
+     * ephemeral stream.
+     */
+    durable?: { ttlMs?: number };
+    /**
      * For `"action" | "mutation" | "query"` the handler is awaited and its result returned.
      * For `"stream"` the handler returns an `AsyncIterable` synchronously and takes an
      * `AbortSignal` as a third argument — the runtime drives it frame-by-frame.
@@ -167,7 +173,7 @@ export type CallerCtx = ActionCtx | MutationCtx | QueryCtx;
  */
 export interface Caller {
     mcp: {
-        applyChangeOps: (args: { userId: string; ops: Array<unknown> }) => Promise<{ count: number; deletes: number; inserts: number; patches: number; }>;
+        applyChangeOps: (args: { userId: string; ops: Array<{ op: "insert"; value: { id: string; parentId: string; prevSiblingId: string; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number; mirrorOf: string; createdAt: number; updatedAt: number; origin: string; kind: "paragraph" } } | { op: "update"; value: { id: string; parentId: string; prevSiblingId: string; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number; mirrorOf: string; createdAt: number; updatedAt: number; origin: string; kind: "paragraph" } } | { op: "delete"; key: string }> }) => Promise<{ count: number; deletes: number; inserts: number; patches: number; }>;
         claimDailyMapping: (args: { userId: string; key: string; nodeId: string; touchedAt: number }) => Promise<{ nodeId: string; won: boolean; }>;
         listDailyIndex: (args: { userId: string }) => Promise<{ key: string; nodeId: string; }[]>;
         listNodes: (args: { userId: string }) => Promise<{ id: string; parentId: string | null; prevSiblingId: string | null; text: string; isTask: boolean; completed: boolean; collapsed: boolean; bookmarkedAt: number | null; mirrorOf: string | null; createdAt: number; updatedAt: number; origin: string | null; kind: "paragraph" | null }[]>;
