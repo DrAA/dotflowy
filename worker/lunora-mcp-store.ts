@@ -89,7 +89,47 @@ export function createLunoraOutlineStore(
       if (ops.length === 0) return 0;
       await client.call(internal.mcp.applyChangeOps, {
         userId,
-        ops: [...ops],
+        // lunorash alpha.166 codegen collapses v.string().nullable() to string on
+        // FunctionReference inputs; wire validators still accept null at runtime.
+        ops: [...ops] as unknown as Array<
+          | {
+              op: "insert";
+              value: {
+                id: string;
+                parentId: string;
+                prevSiblingId: string;
+                text: string;
+                isTask: boolean;
+                completed: boolean;
+                collapsed: boolean;
+                bookmarkedAt: number;
+                mirrorOf: string;
+                createdAt: number;
+                updatedAt: number;
+                origin: string;
+                kind: "paragraph";
+              };
+            }
+          | {
+              op: "update";
+              value: {
+                id: string;
+                parentId: string;
+                prevSiblingId: string;
+                text: string;
+                isTask: boolean;
+                completed: boolean;
+                collapsed: boolean;
+                bookmarkedAt: number;
+                mirrorOf: string;
+                createdAt: number;
+                updatedAt: number;
+                origin: string;
+                kind: "paragraph";
+              };
+            }
+          | { op: "delete"; key: string }
+        >,
       });
       // Classic DO returns a seq; Lunora watermarks are internal. Tools ignore
       // the numeric return (commit() awaits applyBatch for side effects only).
