@@ -163,6 +163,7 @@ import {
 } from "./SelectionFormatToolbar";
 import { useShowCompleted } from "./show-completed-provider";
 import { useSlashMenu } from "./slash-menu";
+import { useSpotlightEnabled } from "./spotlight-mode";
 import { Subheader } from "./Subheader";
 import { Button } from "./ui/button";
 import {
@@ -643,11 +644,37 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     ro.observe(header);
     return () => ro.disconnect();
   }, [rootId, zoomedNode?.id]);
+  // Typewriter well (ADR 0060): half-viewport padding so the first and last
+  // rows can actually reach the vertical center. The virtualizer's own
+  // paddingStart/End, not CSS -- absolute rows would ignore padding-box
+  // otherwise. Compensating scroll on toggle keeps the current view from jumping
+  // when the mode flips; skip the compensate on mount (spotlight already on
+  // via localStorage) so the first paint isn't scrolled into the empty pad.
+  const spotlight = useSpotlightEnabled();
+  const typewriterPad = spotlight
+    ? Math.round(
+        (typeof window !== "undefined"
+          ? (window.visualViewport?.height ?? window.innerHeight)
+          : 0) / 2,
+      )
+    : 0;
+  const prevTypewriterPad = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (prevTypewriterPad.current === null) {
+      prevTypewriterPad.current = typewriterPad;
+      return;
+    }
+    const delta = typewriterPad - prevTypewriterPad.current;
+    prevTypewriterPad.current = typewriterPad;
+    if (delta !== 0) window.scrollBy(0, delta);
+  }, [typewriterPad]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,
     overscan: 8,
     scrollMargin,
+    paddingStart: typewriterPad,
+    paddingEnd: typewriterPad,
     // Key by the row's render ADDRESS, not its node id: inside a mirror a
     // source's descendant appears under every instance, so its bare id is no
     // longer unique (ADR 0022). `key` equals `id` for every mirror-free row, so

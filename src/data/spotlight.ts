@@ -1,20 +1,28 @@
 /**
- * Spotlight focus mode (ADR 0033). When enabled, the outline dims to 0.3 while a
- * bullet is focused -- EXCEPT that focused bullet, which stays full -- so the
- * line you're editing stands out. Single-node by design: dimmed context is still
- * legible at 0.3, so one bright line against a uniform dim field reads calmer
- * than a ladder of lit ancestors, and it matches the intent (focus on the node).
+ * Spotlight focus mode (ADR 0033 + ADR 0060). When enabled, the outline dims to
+ * 0.3 while a bullet is focused -- EXCEPT that focused bullet, which stays full
+ * -- so the line you're editing stands out. Single-node by design: dimmed
+ * context is still legible at 0.3, so one bright line against a uniform dim
+ * field reads calmer than a ladder of lit ancestors, and it matches the intent
+ * (focus on the node).
  *
- * Two halves:
+ * Three halves:
  *  1. A localStorage-backed store for the on/off toggle -- the More-menu
  *     checkbox reads it via `useSpotlightEnabled`, mirroring show-completed.
  *     It's a per-browser view preference, not synced document data.
- *  2. A tiny engine that toggles two `<body>` classes: `spotlight-on` (the mode)
- *     and `spotlight-fade` (the input modality). ALL of the dim/light logic is
- *     pure CSS (`:has(.node-text:focus)` + `:focus-within`, see styles.css) --
- *     no focus listeners, no generated stylesheet, no tree walk. Single-node
- *     lighting is exactly what `:focus-within` expresses, and "dim only while a
- *     caret is in the outline" is exactly `:has(:focus)`, so CSS does both.
+ *  2. A tiny dim engine that toggles two `<body>` classes: `spotlight-on` (the
+ *     mode) and `spotlight-fade` (the input modality). ALL of the dim/light
+ *     logic is pure CSS (`:has(.node-text:focus)` + `:focus-within`, see
+ *     styles.css) -- no focus listeners, no generated stylesheet, no tree walk
+ *     on the dim path. Single-node lighting is exactly what `:focus-within`
+ *     expresses, and "dim only while a caret is in the outline" is exactly
+ *     `:has(:focus)`, so CSS does both.
+ *  3. Typewriter centering (ADR 0060): while the mode is on, a focused list
+ *     row is scrolled to the vertical center of the visual viewport. Separate
+ *     from the dim -- it only shares the install lifetime. This engine scrolls
+ *     `window` from the live rect with an interruptible ease-out slide;
+ *     OutlineEditor supplies half-viewport virtualizer padding so the first
+ *     and last rows can actually reach center.
  */
 
 import { SPOTLIGHT_KEY } from "../lib/storage-keys";
@@ -63,26 +71,147 @@ const SPOTLIGHT_ON = "spotlight-on";
 const SPOTLIGHT_FADE = "spotlight-fade";
 
 let installed = false;
+let slideRaf = 0;
+
+// Pointer-driven focus is armed from pointerdown until pointerup/cancel so we
+// can wait for the gesture to finish before scrolling. Centering on focusin
+// would yank a click-drag text selection as soon as the caret landed.
+let pointerArmed = false;
 
 // The dim change eases on a pointer-driven focus and snaps on keyboard nav
 // (ADR 0033): a click into a distant bullet can afford a fade, but rapid
 // arrow-stepping must feel immediate. We only track the modality; CSS reacts.
-const onPointerDown = () => document.body.classList.add(SPOTLIGHT_FADE);
-const onKeyDown = () => document.body.classList.remove(SPOTLIGHT_FADE);
+const onPointerDown = () => {
+  pointerArmed = true;
+  document.body.classList.add(SPOTLIGHT_FADE);
+};
+const onPointerUp = () => {
+  if (!pointerArmed) return;
+  pointerArmed = false;
+  scheduleCenter(document.activeElement);
+};
+const onPointerCancel = () => {
+  pointerArmed = false;
+};
+const onKeyDown = () => {
+  pointerArmed = false;
+  document.body.classList.remove(SPOTLIGHT_FADE);
+};
+const onFocusIn = (e: FocusEvent) => {
+  if (pointerArmed) return;
+  scheduleCenter(e.target);
+};
+
+/** Zoomed title is an h2, not a list row -- centering it would hide the children. */
+function lineOf(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  if (!target.classList.contains("node-text")) return null;
+  return target.closest("li[data-node-id]");
+}
+
+/** Distance to scroll so `line` sits at the vertical center of `view`. */
+export function centerScrollDelta(
+  lineTop: number,
+  lineHeight: number,
+  viewTop: number,
+  viewHeight: number,
+): number {
+  return lineTop + lineHeight / 2 - (viewTop + viewHeight / 2);
+}
+
+/** Skip centering when the user is drag-selecting text inside this row. */
+export function shouldSkipCenterForSelection(
+  isCollapsed: boolean,
+  selectionInsideLine: boolean,
+): boolean {
+  return !isCollapsed && selectionInsideLine;
+}
+
+/** Typewriter slide (~one beat). Rapid arrows cancel and retarget. */
+export const CENTER_SLIDE_MS = 240;
+
+/** Classic ease-out cubic: fast start, settle into place. */
+export function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function cancelSlide(): void {
+  if (!slideRaf) return;
+  cancelAnimationFrame(slideRaf);
+  slideRaf = 0;
+}
+
+function slideWindowBy(delta: number): void {
+  if (Math.abs(delta) < 1) return;
+  cancelSlide();
+  if (prefersReducedMotion()) {
+    window.scrollBy(0, delta);
+    return;
+  }
+  const from = window.scrollY;
+  const to = from + delta;
+  const started = performance.now();
+  const step = (now: number) => {
+    const t = Math.min(1, (now - started) / CENTER_SLIDE_MS);
+    window.scrollTo({ top: from + (to - from) * easeOutCubic(t), left: 0 });
+    if (t < 1) slideRaf = requestAnimationFrame(step);
+    else slideRaf = 0;
+  };
+  slideRaf = requestAnimationFrame(step);
+}
+
+function centerLine(li: HTMLElement): void {
+  if (!li.isConnected) return;
+  const sel = document.getSelection();
+  if (
+    sel &&
+    shouldSkipCenterForSelection(sel.isCollapsed, li.contains(sel.anchorNode))
+  )
+    return;
+  const rect = li.getBoundingClientRect();
+  if (rect.height === 0) return;
+  const viewTop = window.visualViewport?.offsetTop ?? 0;
+  const viewHeight = window.visualViewport?.height ?? window.innerHeight;
+  const delta = centerScrollDelta(rect.top, rect.height, viewTop, viewHeight);
+  slideWindowBy(delta);
+}
+
+function scheduleCenter(target: EventTarget | null): void {
+  const li = lineOf(target);
+  if (!li) return;
+  // After the browser's own focus-scroll and a layout pass (virtualizer
+  // remounts) so the rect we read is the one the user will see.
+  requestAnimationFrame(() => centerLine(li));
+}
 
 export function installSpotlight(): void {
   if (installed) return;
   installed = true;
+  pointerArmed = false;
   document.body.classList.add(SPOTLIGHT_ON);
   // Capture phase so the modality is set before focus lands.
   window.addEventListener("pointerdown", onPointerDown, true);
+  window.addEventListener("pointerup", onPointerUp, true);
+  window.addEventListener("pointercancel", onPointerCancel, true);
   window.addEventListener("keydown", onKeyDown, true);
+  window.addEventListener("focusin", onFocusIn, true);
+  // Turning the mode on while a line already holds the caret: center it now.
+  scheduleCenter(document.activeElement);
 }
 
 export function uninstallSpotlight(): void {
   if (!installed) return;
   installed = false;
+  pointerArmed = false;
+  cancelSlide();
   window.removeEventListener("pointerdown", onPointerDown, true);
+  window.removeEventListener("pointerup", onPointerUp, true);
+  window.removeEventListener("pointercancel", onPointerCancel, true);
   window.removeEventListener("keydown", onKeyDown, true);
+  window.removeEventListener("focusin", onFocusIn, true);
   document.body.classList.remove(SPOTLIGHT_ON, SPOTLIGHT_FADE);
 }

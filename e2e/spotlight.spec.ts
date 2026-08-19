@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { seedOutline, STANDARD_TREE } from "./fixtures";
+import { seedOutline, STANDARD_TREE, type SeedNode } from "./fixtures";
 
 // A node's OWN editable text span and its content row (the element that dims).
 const text = (page: Page, id: string) =>
@@ -143,5 +143,74 @@ test.describe("spotlight header indicator", () => {
     await text(page, "alpha-1").click();
     await expect(text(page, "alpha-1")).toBeFocused();
     await expect(row(page, "bravo")).toHaveCSS("opacity", "1");
+  });
+});
+
+// Typewriter centering (ADR 0060): while spotlight is on, a focused list row
+// is scrolled to the vertical center of the visual viewport. Needs a tree
+// taller than the viewport so the page can actually scroll.
+const TALL: SeedNode[] = Array.from({ length: 40 }, (_, i) => ({
+  id: `n${i}`,
+  parentId: null,
+  prevSiblingId: i === 0 ? null : `n${i - 1}`,
+  text: `line${i}`,
+}));
+
+async function loadTall(page: Page, on: boolean) {
+  await seedOutline(page, TALL);
+  if (on) {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:spotlight", "true");
+    });
+  }
+  await page.goto("/");
+  await expect(text(page, "n0")).toBeVisible();
+}
+
+// Poll waits out the 240ms typewriter slide (ADR 0060).
+function offsetFromViewportCenter(page: Page, id: string) {
+  return page.evaluate((nodeId) => {
+    const el = document.querySelector(`li[data-node-id="${nodeId}"]`);
+    if (!(el instanceof HTMLElement)) return Infinity;
+    const rect = el.getBoundingClientRect();
+    const viewTop = window.visualViewport?.offsetTop ?? 0;
+    const viewHeight = window.visualViewport?.height ?? window.innerHeight;
+    return Math.abs(rect.top + rect.height / 2 - (viewTop + viewHeight / 2));
+  }, id);
+}
+
+test.describe("spotlight typewriter centering", () => {
+  test("focusing a line scrolls it to the vertical center", async ({
+    page,
+  }) => {
+    await loadTall(page, true);
+    await text(page, "n0").click();
+    await expect(text(page, "n0")).toBeFocused();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n0"))
+      .toBeLessThan(48);
+  });
+
+  test("arrowing to the next line recenters it", async ({ page }) => {
+    await loadTall(page, true);
+    await text(page, "n0").click();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n0"))
+      .toBeLessThan(48);
+    await page.keyboard.press("ArrowDown");
+    await expect(text(page, "n1")).toBeFocused();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n1"))
+      .toBeLessThan(48);
+  });
+
+  test("with the mode off, focusing does not center the line", async ({
+    page,
+  }) => {
+    await loadTall(page, false);
+    await text(page, "n0").click();
+    await expect(text(page, "n0")).toBeFocused();
+    // n0 stays near the top, far from the vertical center.
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(150);
   });
 });
