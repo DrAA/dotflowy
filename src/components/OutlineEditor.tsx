@@ -652,22 +652,26 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // mount and on a mode flip -- a URL-bar or keyboard resize must not
   // scrollBy mid-gesture. Mount compensate looks past the well onto n0.
   const spotlight = useSpotlightEnabled();
-  const [viewHeight, setViewHeight] = useState(() =>
-    typeof window === "undefined"
-      ? 0
-      : (window.visualViewport?.height ?? window.innerHeight),
-  );
-  useEffect(() => {
+  // null until the client layout pass reads visualViewport. A 0 prerender
+  // snapshot would make the first real pad look like a viewport-only change
+  // and skip mount compensate.
+  const [viewHeight, setViewHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
     const vv = window.visualViewport;
+    const read = () => setViewHeight(vv?.height ?? window.innerHeight);
+    read();
     if (!vv) return;
-    const onResize = () => setViewHeight(vv.height);
-    vv.addEventListener("resize", onResize);
-    return () => vv.removeEventListener("resize", onResize);
+    vv.addEventListener("resize", read);
+    return () => vv.removeEventListener("resize", read);
   }, []);
-  const typewriterPad = typewriterPadPx(viewHeight, spotlight);
+  const typewriterPad = typewriterPadPx(viewHeight ?? 0, spotlight);
   const prevSpotlight = useRef<boolean | null>(null);
   const prevTypewriterPad = useRef(0);
   useLayoutEffect(() => {
+    // Wait for a client viewport and a list that can actually absorb the
+    // pad scroll. Compensating against an empty first commit clamps at 0
+    // and then the later pad looks like a viewport-only change.
+    if (viewHeight === null || (spotlight && rows.length === 0)) return;
     const delta = padCompensateDelta(
       prevSpotlight.current,
       spotlight,
@@ -677,7 +681,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     prevSpotlight.current = spotlight;
     prevTypewriterPad.current = typewriterPad;
     if (delta !== 0) window.scrollBy(0, delta);
-  }, [spotlight, typewriterPad]);
+  }, [spotlight, typewriterPad, viewHeight, rows.length]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,

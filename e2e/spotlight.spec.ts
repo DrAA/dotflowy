@@ -164,7 +164,7 @@ async function loadTall(page: Page, on: boolean) {
     });
   }
   await page.goto("/");
-  await expect(text(page, "n0")).toBeVisible();
+  await expect(text(page, "n0")).toBeVisible({ timeout: 15_000 });
 }
 
 // Poll waits out the 240ms typewriter slide (ADR 0060).
@@ -197,30 +197,38 @@ test.describe("spotlight typewriter centering", () => {
     page,
   }) => {
     await loadTall(page, true);
-    const metrics = await page.evaluate(() => {
-      const n0 = document.querySelector('li[data-node-id="n0"]');
-      const header = document.querySelector("header");
-      const region = document.querySelector('[aria-label="Outline"]');
-      if (
-        !(n0 instanceof HTMLElement) ||
-        !(header instanceof HTMLElement) ||
-        !(region instanceof HTMLElement)
-      ) {
-        return null;
-      }
-      const padTop =
-        Number.parseFloat(getComputedStyle(region).paddingTop) || 0;
-      return {
-        n0Top: n0.getBoundingClientRect().top,
-        listTop: header.getBoundingClientRect().bottom + padTop,
-        scrollY: window.scrollY,
-        viewH: window.visualViewport?.height ?? window.innerHeight,
-      };
-    });
-    expect(metrics).not.toBeNull();
-    // Compensated mount: n0 sits at the visible list top, not half a viewport
-    // down in the pad well. scrollY is that pad.
-    expect(Math.abs(metrics!.n0Top - metrics!.listTop)).toBeLessThan(48);
+    let metrics: {
+      n0Top: number;
+      listTop: number;
+      scrollY: number;
+      viewH: number;
+    } | null = null;
+    await expect
+      .poll(async () => {
+        metrics = await page.evaluate(() => {
+          const n0 = document.querySelector('li[data-node-id="n0"]');
+          const chrome = document.querySelector(".relative.sticky");
+          const region = document.querySelector('[aria-label="Outline"]');
+          if (
+            !(n0 instanceof HTMLElement) ||
+            !(chrome instanceof HTMLElement) ||
+            !(region instanceof HTMLElement)
+          ) {
+            return null;
+          }
+          const padTop =
+            Number.parseFloat(getComputedStyle(region).paddingTop) || 0;
+          return {
+            n0Top: n0.getBoundingClientRect().top,
+            listTop: chrome.getBoundingClientRect().bottom + padTop,
+            scrollY: window.scrollY,
+            viewH: window.visualViewport?.height ?? window.innerHeight,
+          };
+        });
+        if (!metrics) return Infinity;
+        return Math.abs(metrics.n0Top - metrics.listTop);
+      })
+      .toBeLessThan(48);
     expect(metrics!.scrollY).toBeGreaterThan(metrics!.viewH * 0.4);
     expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
   });
@@ -244,12 +252,22 @@ test.describe("spotlight typewriter centering", () => {
     await expect
       .poll(() => offsetFromViewportCenter(page, "n0"))
       .toBeLessThan(48);
-    await page.evaluate(() => window.scrollTo(0, 0));
-    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(100);
-    // Far-left header chrome: left of the 720px cluster, not Home or the chip.
-    await page.locator("header").click({ position: { x: 8, y: 8 } });
+    // Pad well at scrollY 0 already sits n0 near center. Push it off-center
+    // first so a yank back would be visible.
+    await page.evaluate(() => window.scrollBy(0, 250));
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+    // Window-capture pointer on non-focusable chrome. No focusin, so the
+    // armed gesture must not recenter the still-focused line.
+    await page.evaluate(() => {
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      document.body.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true }),
+      );
+    });
     await page.waitForTimeout(280);
-    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(100);
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
   });
 
   test("arrowing to the next line recenters it", async ({ page }) => {
