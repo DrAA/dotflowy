@@ -4,7 +4,10 @@ import {
   centerScrollDelta,
   createCenterRafHandle,
   easeOutCubic,
+  padCompensateDelta,
   shouldSkipCenterForSelection,
+  takePointerCenterTarget,
+  typewriterPadPx,
 } from "./spotlight";
 
 describe("centerScrollDelta", () => {
@@ -63,6 +66,34 @@ describe("centerRafHandle", () => {
   });
 });
 
+describe("typewriterPadPx", () => {
+  test("is half the viewport when the mode is on, else 0", () => {
+    expect(typewriterPadPx(800, true)).toBe(400);
+    expect(typewriterPadPx(801, true)).toBe(401);
+    expect(typewriterPadPx(800, false)).toBe(0);
+  });
+});
+
+describe("padCompensateDelta", () => {
+  test("mount with the mode on looks past the well", () => {
+    expect(padCompensateDelta(null, true, 0, 400)).toBe(400);
+  });
+
+  test("mount with the mode off does not scroll", () => {
+    expect(padCompensateDelta(null, false, 0, 0)).toBe(0);
+  });
+
+  test("toggle on/off compensates by the pad delta", () => {
+    expect(padCompensateDelta(false, true, 0, 400)).toBe(400);
+    expect(padCompensateDelta(true, false, 400, 0)).toBe(-400);
+  });
+
+  test("a viewport-only pad change does not scroll", () => {
+    expect(padCompensateDelta(true, true, 400, 250)).toBe(0);
+    expect(padCompensateDelta(false, false, 0, 0)).toBe(0);
+  });
+});
+
 describe("shouldSkipCenterForSelection", () => {
   test("does not skip a collapsed caret", () => {
     expect(shouldSkipCenterForSelection(true, true)).toBe(false);
@@ -74,5 +105,20 @@ describe("shouldSkipCenterForSelection", () => {
 
   test("does not skip a selection that lives outside the row", () => {
     expect(shouldSkipCenterForSelection(false, false)).toBe(false);
+  });
+});
+
+describe("takePointerCenterTarget", () => {
+  test("returns the recorded focusin target while armed", () => {
+    const recorded = { id: "n0" };
+    expect(takePointerCenterTarget(true, recorded)).toBe(recorded);
+  });
+
+  test("returns null when armed but nothing recorded (chrome click)", () => {
+    expect(takePointerCenterTarget(true, null)).toBeNull();
+  });
+
+  test("returns null when not armed", () => {
+    expect(takePointerCenterTarget(false, { id: "n0" })).toBeNull();
   });
 });

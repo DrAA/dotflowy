@@ -102,28 +102,38 @@ export function createCenterRafHandle(
 // can wait for the gesture to finish before scrolling. Centering on focusin
 // would yank a click-drag text selection as soon as the caret landed.
 let pointerArmed = false;
+let pointerFocusTarget: EventTarget | null = null;
+
+function clearPointerGesture(): void {
+  pointerArmed = false;
+  pointerFocusTarget = null;
+}
 
 // The dim change eases on a pointer-driven focus and snaps on keyboard nav
 // (ADR 0033): a click into a distant bullet can afford a fade, but rapid
 // arrow-stepping must feel immediate. We only track the modality; CSS reacts.
 const onPointerDown = () => {
   pointerArmed = true;
+  pointerFocusTarget = null;
   document.body.classList.add(SPOTLIGHT_FADE);
 };
 const onPointerUp = () => {
-  if (!pointerArmed) return;
-  pointerArmed = false;
-  scheduleCenter(document.activeElement);
+  const target = takePointerCenterTarget(pointerArmed, pointerFocusTarget);
+  clearPointerGesture();
+  scheduleCenter(target);
 };
 const onPointerCancel = () => {
-  pointerArmed = false;
+  clearPointerGesture();
 };
 const onKeyDown = () => {
-  pointerArmed = false;
+  clearPointerGesture();
   document.body.classList.remove(SPOTLIGHT_FADE);
 };
 const onFocusIn = (e: FocusEvent) => {
-  if (pointerArmed) return;
+  if (pointerArmed) {
+    pointerFocusTarget = e.target;
+    return;
+  }
   scheduleCenter(e.target);
 };
 
@@ -158,6 +168,36 @@ export const CENTER_SLIDE_MS = 240;
 /** Classic ease-out cubic: fast start, settle into place. */
 export function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
+}
+
+/** Half-viewport well so first and last rows can reach center. */
+export function typewriterPadPx(viewHeight: number, on: boolean): number {
+  return on ? Math.round(viewHeight / 2) : 0;
+}
+
+/**
+ * Scroll delta for the typewriter well. Mount compensates so n0 is not in the
+ * well. Mode flip compensates so the view does not jump. A viewport-only pad
+ * change returns 0 -- URL-bar / keyboard resize must not scrollBy mid-gesture.
+ */
+export function padCompensateDelta(
+  prevOn: boolean | null,
+  nextOn: boolean,
+  prevPad: number,
+  nextPad: number,
+): number {
+  if (prevOn === null) return nextPad;
+  if (prevOn === nextOn) return 0;
+  return nextPad - prevPad;
+}
+
+/** Pointerup centers only a focusin that landed while the gesture was armed. */
+export function takePointerCenterTarget(
+  armed: boolean,
+  recorded: EventTarget | null,
+): EventTarget | null {
+  if (!armed) return null;
+  return recorded;
 }
 
 function prefersReducedMotion(): boolean {
@@ -219,7 +259,7 @@ function scheduleCenter(target: EventTarget | null): void {
 export function installSpotlight(): void {
   if (installed) return;
   installed = true;
-  pointerArmed = false;
+  clearPointerGesture();
   document.body.classList.add(SPOTLIGHT_ON);
   // Capture phase so the modality is set before focus lands.
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -234,7 +274,7 @@ export function installSpotlight(): void {
 export function uninstallSpotlight(): void {
   if (!installed) return;
   installed = false;
-  pointerArmed = false;
+  clearPointerGesture();
   centerRaf.cancel();
   cancelSlide();
   window.removeEventListener("pointerdown", onPointerDown, true);

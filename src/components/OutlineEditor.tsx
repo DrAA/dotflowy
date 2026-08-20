@@ -61,6 +61,7 @@ import { appRuntime } from "../data/runtime";
 import { bootstrapOutline } from "../data/seed";
 import { useSyncSelectionFillRows } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
+import { padCompensateDelta, typewriterPadPx } from "../data/spotlight";
 import { runStructural } from "../data/structural";
 import {
   buildTreeIndex,
@@ -647,29 +648,36 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // Typewriter well (ADR 0060): half-viewport padding so the first and last
   // rows can actually reach the vertical center. The virtualizer's own
   // paddingStart/End, not CSS -- absolute rows would ignore padding-box
-  // otherwise. Compensating scroll on toggle keeps the current view from jumping
-  // when the mode flips. Mount also compensates: skip leaves paddingStart at
-  // scrollY 0, so the first row sits in the empty well. scrollBy(+pad) looks
-  // past the well onto the first row.
+  // otherwise. Pad size tracks visualViewport.resize. Compensate only on
+  // mount and on a mode flip -- a URL-bar or keyboard resize must not
+  // scrollBy mid-gesture. Mount compensate looks past the well onto n0.
   const spotlight = useSpotlightEnabled();
-  const typewriterPad = spotlight
-    ? Math.round(
-        (typeof window !== "undefined"
-          ? (window.visualViewport?.height ?? window.innerHeight)
-          : 0) / 2,
-      )
-    : 0;
-  const prevTypewriterPad = useRef<number | null>(null);
+  const [viewHeight, setViewHeight] = useState(() =>
+    typeof window === "undefined"
+      ? 0
+      : (window.visualViewport?.height ?? window.innerHeight),
+  );
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setViewHeight(vv.height);
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+  const typewriterPad = typewriterPadPx(viewHeight, spotlight);
+  const prevSpotlight = useRef<boolean | null>(null);
+  const prevTypewriterPad = useRef(0);
   useLayoutEffect(() => {
-    if (prevTypewriterPad.current === null) {
-      prevTypewriterPad.current = typewriterPad;
-      if (typewriterPad !== 0) window.scrollBy(0, typewriterPad);
-      return;
-    }
-    const delta = typewriterPad - prevTypewriterPad.current;
+    const delta = padCompensateDelta(
+      prevSpotlight.current,
+      spotlight,
+      prevTypewriterPad.current,
+      typewriterPad,
+    );
+    prevSpotlight.current = spotlight;
     prevTypewriterPad.current = typewriterPad;
     if (delta !== 0) window.scrollBy(0, delta);
-  }, [typewriterPad]);
+  }, [spotlight, typewriterPad]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,
@@ -760,7 +768,11 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
       <div
         role="region"
         aria-label="Outline"
-        className="mx-auto mb-[50vh] max-w-[720px] p-6 max-sm:p-4"
+        className={
+          spotlight
+            ? "mx-auto max-w-[720px] p-6 max-sm:p-4"
+            : "mx-auto mb-[50vh] max-w-[720px] p-6 max-sm:p-4"
+        }
         onMouseDown={onContentMouseDown}
         onPointerDown={onContentPointerDown}
         onPointerUp={onContentPointerUp}
