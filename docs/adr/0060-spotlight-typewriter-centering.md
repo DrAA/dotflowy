@@ -12,7 +12,7 @@ status: accepted
 
 **Why half-viewport `paddingStart`/`paddingEnd` on the virtualizer.** Without it, the first and last rows cannot reach center — `window.scrollY` clamps at 0 and at max. The pad is the virtualizer's own (absolute rows ignore CSS padding-box). Pad size tracks `visualViewport.resize`. A compensating `scrollBy` runs on toggle and on mount, not on every pad delta — a URL-bar or keyboard resize must not `scrollBy` mid-gesture. Skipping mount compensate leaves `paddingStart ≈ ½vh` at `scrollY 0`, so the first row sits in the empty well. `scrollBy(0, +pad)` on mount looks past the well onto the first row. The outline region's leftover `mb-[50vh]` stays off while the well is on, so it does not double `paddingEnd`.
 
-**Why pointer waits for pointerup.** Centering on `focusin` would yank a click-drag text selection the moment the caret landed. Keyboard (and programmatic focus, e.g. Enter) centers on `focusin`; pointer centers on `pointerup`, and a non-collapsed selection inside the row is skipped.
+**Why pointer waits for pointerup.** Centering on `focusin` would yank a click-drag text selection the moment the caret landed. Keyboard (and programmatic focus, e.g. Enter) centers on `focusin`. Pointer centers on `pointerup` of a gesture that hit a list row: `pointerdown` on the row, or `focusin` while the gesture is armed. Chrome that keeps the caret (format toolbar, mobile action bar) is not a list row, so it does not recenter. A non-collapsed selection inside the row is skipped. A click on the already-focused row does not fire `focusin`; `pointerdown` on that row still records it.
 
 **Rejected alternatives.**
 

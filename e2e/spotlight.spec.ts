@@ -233,6 +233,63 @@ test.describe("spotlight typewriter centering", () => {
     expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
   });
 
+  test("client zoom with the mode on puts the first child at the list top", async ({
+    page,
+  }) => {
+    const nested: SeedNode[] = [
+      { id: "root", parentId: null, prevSiblingId: null, text: "root" },
+      ...Array.from({ length: 40 }, (_, i) => ({
+        id: `c${i}`,
+        parentId: "root",
+        prevSiblingId: i === 0 ? null : `c${i - 1}`,
+        text: `child${i}`,
+      })),
+    ];
+    await seedOutline(page, nested);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:spotlight", "true");
+    });
+    await page.goto("/");
+    await expect(text(page, "root")).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => {
+      window.history.pushState({}, "", "/root");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.locator("h2.zoomed-title .node-text")).toHaveText("root");
+    let metrics: {
+      c0Top: number;
+      listTop: number;
+      scrollY: number;
+      viewH: number;
+    } | null = null;
+    await expect
+      .poll(async () => {
+        metrics = await page.evaluate(() => {
+          const c0 = document.querySelector('li[data-node-id="c0"]');
+          const chrome = document.querySelector(".relative.sticky");
+          const title = document.querySelector("h2.zoomed-title");
+          if (
+            !(c0 instanceof HTMLElement) ||
+            !(chrome instanceof HTMLElement) ||
+            !(title instanceof HTMLElement)
+          ) {
+            return null;
+          }
+          return {
+            c0Top: c0.getBoundingClientRect().top,
+            listTop: title.getBoundingClientRect().bottom,
+            scrollY: window.scrollY,
+            viewH: window.visualViewport?.height ?? window.innerHeight,
+          };
+        });
+        if (!metrics) return Infinity;
+        return Math.abs(metrics.c0Top - metrics.listTop);
+      })
+      .toBeLessThan(48);
+    expect(metrics!.scrollY).toBeGreaterThan(metrics!.viewH * 0.4);
+    expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
+  });
+
   test("focusing a line scrolls it to the vertical center", async ({
     page,
   }) => {
@@ -252,22 +309,38 @@ test.describe("spotlight typewriter centering", () => {
     await expect
       .poll(() => offsetFromViewportCenter(page, "n0"))
       .toBeLessThan(48);
-    // Pad well at scrollY 0 already sits n0 near center. Push it off-center
-    // first so a yank back would be visible.
+    // Format toolbar keeps the caret (preventDefault on pointerdown). A
+    // body/header click would blur; this is the chrome that distinguishes
+    // the armed-row target from activeElement.
+    await text(page, "n0").evaluate((el) => {
+      const sel = window.getSelection();
+      if (!sel) return;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    const toolbar = page.locator('[data-format-toolbar] [aria-label="Bold"]');
+    await expect(toolbar).toBeVisible();
     await page.evaluate(() => window.scrollBy(0, 250));
     expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
-    // Window-capture pointer on non-focusable chrome. No focusin, so the
-    // armed gesture must not recenter the still-focused line.
-    await page.evaluate(() => {
-      document.body.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true }),
-      );
-      document.body.dispatchEvent(
-        new PointerEvent("pointerup", { bubbles: true }),
-      );
-    });
+    await toolbar.click();
     await page.waitForTimeout(280);
     expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+  });
+
+  test("clicking the already-focused line recenters it", async ({ page }) => {
+    await loadTall(page, true);
+    await text(page, "n0").click();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n0"))
+      .toBeLessThan(48);
+    await page.evaluate(() => window.scrollBy(0, 250));
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+    await text(page, "n0").click();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n0"))
+      .toBeLessThan(48);
   });
 
   test("arrowing to the next line recenters it", async ({ page }) => {
