@@ -110,7 +110,7 @@ describe("shouldSkipCenterForSelection", () => {
 
 describe("takePointerCenterTarget", () => {
   test("returns the recorded focusin target while armed", () => {
-    const recorded = { id: "n0" };
+    const recorded = new EventTarget();
     expect(takePointerCenterTarget(true, recorded)).toBe(recorded);
   });
 
@@ -119,6 +119,6 @@ describe("takePointerCenterTarget", () => {
   });
 
   test("returns null when not armed", () => {
-    expect(takePointerCenterTarget(false, { id: "n0" })).toBeNull();
+    expect(takePointerCenterTarget(false, new EventTarget())).toBeNull();
   });
 });
