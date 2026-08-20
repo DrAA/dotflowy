@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   centerScrollDelta,
+  createCenterRafHandle,
   easeOutCubic,
   shouldSkipCenterForSelection,
 } from "./spotlight";
@@ -34,6 +35,31 @@ describe("easeOutCubic", () => {
 
   test("is front-loaded (halfway is past the midpoint)", () => {
     expect(easeOutCubic(0.5)).toBeGreaterThan(0.5);
+  });
+});
+
+describe("centerRafHandle", () => {
+  test("cancel drops a queued frame so the callback never runs", () => {
+    const pending = new Map<number, () => void>();
+    let nextId = 1;
+    const request = (cb: () => void) => {
+      const id = nextId++;
+      pending.set(id, cb);
+      return id;
+    };
+    const cancel = (id: number) => {
+      pending.delete(id);
+    };
+    const handle = createCenterRafHandle(request, cancel);
+    let ran = false;
+    handle.schedule(() => {
+      ran = true;
+    });
+    expect(pending.size).toBe(1);
+    handle.cancel();
+    expect(pending.size).toBe(0);
+    for (const cb of pending.values()) cb();
+    expect(ran).toBe(false);
   });
 });
 

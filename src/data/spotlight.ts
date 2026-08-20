@@ -72,6 +72,31 @@ const SPOTLIGHT_FADE = "spotlight-fade";
 
 let installed = false;
 let slideRaf = 0;
+const centerRaf = createCenterRafHandle(
+  (cb) => requestAnimationFrame(cb),
+  (id) => cancelAnimationFrame(id),
+);
+
+/** Tracks one rAF so uninstall can drop a queued center before it scrolls. */
+export function createCenterRafHandle(
+  request: (cb: () => void) => number,
+  cancel: (id: number) => void,
+): { schedule: (run: () => void) => void; cancel: () => void } {
+  let id = 0;
+  return {
+    schedule(run) {
+      cancel(id);
+      id = request(() => {
+        id = 0;
+        run();
+      });
+    },
+    cancel() {
+      cancel(id);
+      id = 0;
+    },
+  };
+}
 
 // Pointer-driven focus is armed from pointerdown until pointerup/cancel so we
 // can wait for the gesture to finish before scrolling. Centering on focusin
@@ -165,6 +190,7 @@ function slideWindowBy(delta: number): void {
 }
 
 function centerLine(li: HTMLElement): void {
+  if (!installed) return;
   if (!li.isConnected) return;
   const sel = document.getSelection();
   if (
@@ -185,7 +211,9 @@ function scheduleCenter(target: EventTarget | null): void {
   if (!li) return;
   // After the browser's own focus-scroll and a layout pass (virtualizer
   // remounts) so the rect we read is the one the user will see.
-  requestAnimationFrame(() => centerLine(li));
+  centerRaf.schedule(() => {
+    if (installed) centerLine(li);
+  });
 }
 
 export function installSpotlight(): void {
@@ -207,6 +235,7 @@ export function uninstallSpotlight(): void {
   if (!installed) return;
   installed = false;
   pointerArmed = false;
+  centerRaf.cancel();
   cancelSlide();
   window.removeEventListener("pointerdown", onPointerDown, true);
   window.removeEventListener("pointerup", onPointerUp, true);

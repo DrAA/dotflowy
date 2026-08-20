@@ -648,8 +648,9 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // rows can actually reach the vertical center. The virtualizer's own
   // paddingStart/End, not CSS -- absolute rows would ignore padding-box
   // otherwise. Compensating scroll on toggle keeps the current view from jumping
-  // when the mode flips; skip the compensate on mount (spotlight already on
-  // via localStorage) so the first paint isn't scrolled into the empty pad.
+  // when the mode flips. Mount also compensates: skip leaves paddingStart at
+  // scrollY 0, so the first row sits in the empty well. scrollBy(+pad) looks
+  // past the well onto the first row.
   const spotlight = useSpotlightEnabled();
   const typewriterPad = spotlight
     ? Math.round(
@@ -662,6 +663,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   useLayoutEffect(() => {
     if (prevTypewriterPad.current === null) {
       prevTypewriterPad.current = typewriterPad;
+      if (typewriterPad !== 0) window.scrollBy(0, typewriterPad);
       return;
     }
     const delta = typewriterPad - prevTypewriterPad.current;

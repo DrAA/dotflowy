@@ -180,6 +180,38 @@ function offsetFromViewportCenter(page: Page, id: string) {
 }
 
 test.describe("spotlight typewriter centering", () => {
+  test("first paint with the mode already on puts n0 at the list top, not in the well", async ({
+    page,
+  }) => {
+    await loadTall(page, true);
+    const metrics = await page.evaluate(() => {
+      const n0 = document.querySelector('li[data-node-id="n0"]');
+      const header = document.querySelector("header");
+      const region = document.querySelector('[aria-label="Outline"]');
+      if (
+        !(n0 instanceof HTMLElement) ||
+        !(header instanceof HTMLElement) ||
+        !(region instanceof HTMLElement)
+      ) {
+        return null;
+      }
+      const padTop =
+        Number.parseFloat(getComputedStyle(region).paddingTop) || 0;
+      return {
+        n0Top: n0.getBoundingClientRect().top,
+        listTop: header.getBoundingClientRect().bottom + padTop,
+        scrollY: window.scrollY,
+        viewH: window.visualViewport?.height ?? window.innerHeight,
+      };
+    });
+    expect(metrics).not.toBeNull();
+    // Compensated mount: n0 sits at the visible list top, not half a viewport
+    // down in the pad well. scrollY is that pad.
+    expect(Math.abs(metrics!.n0Top - metrics!.listTop)).toBeLessThan(48);
+    expect(metrics!.scrollY).toBeGreaterThan(metrics!.viewH * 0.4);
+    expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
+  });
+
   test("focusing a line scrolls it to the vertical center", async ({
     page,
   }) => {
