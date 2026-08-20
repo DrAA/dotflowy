@@ -179,6 +179,19 @@ function offsetFromViewportCenter(page: Page, id: string) {
   }, id);
 }
 
+async function caretOn(page: Page, id: string) {
+  await text(page, id).evaluate((el) => {
+    (el as HTMLElement).focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+}
+
 test.describe("spotlight typewriter centering", () => {
   test("first paint with the mode already on puts n0 at the list top, not in the well", async ({
     page,
@@ -223,9 +236,25 @@ test.describe("spotlight typewriter centering", () => {
       .toBeLessThan(48);
   });
 
-  test("arrowing to the next line recenters it", async ({ page }) => {
+  test("clicking chrome does not recenter the still-focused line", async ({
+    page,
+  }) => {
     await loadTall(page, true);
     await text(page, "n0").click();
+    await expect
+      .poll(() => offsetFromViewportCenter(page, "n0"))
+      .toBeLessThan(48);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(100);
+    // Far-left header chrome: left of the 720px cluster, not Home or the chip.
+    await page.locator("header").click({ position: { x: 8, y: 8 } });
+    await page.waitForTimeout(280);
+    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(100);
+  });
+
+  test("arrowing to the next line recenters it", async ({ page }) => {
+    await loadTall(page, true);
+    await caretOn(page, "n0");
     await expect
       .poll(() => offsetFromViewportCenter(page, "n0"))
       .toBeLessThan(48);
