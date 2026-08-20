@@ -112,9 +112,12 @@ function clearPointerGesture(): void {
 // The dim change eases on a pointer-driven focus and snaps on keyboard nav
 // (ADR 0033): a click into a distant bullet can afford a fade, but rapid
 // arrow-stepping must feel immediate. We only track the modality; CSS reacts.
-const onPointerDown = () => {
+const onPointerDown = (e: PointerEvent) => {
   pointerArmed = true;
-  pointerFocusTarget = null;
+  // A click on the already-focused row does not fire focusin. Keep the row
+  // so pointerup can still center it. Chrome (toolbar, empty well) is not
+  // a list row, so this stays null and does not yank.
+  pointerFocusTarget = lineOf(e.target);
   document.body.classList.add(SPOTLIGHT_FADE);
 };
 const onPointerUp = () => {
@@ -191,7 +194,27 @@ export function padCompensateDelta(
   return nextPad - prevPad;
 }
 
-/** Pointerup centers only a focusin that landed while the gesture was armed. */
+/** Hold the pad scroll until the real list can absorb it. Spinner height cannot. */
+export function canApplyPadCompensate(
+  viewHeight: number | null,
+  listReady: boolean,
+  listHeight: number,
+  pad: number,
+): boolean {
+  if (viewHeight === null) return false;
+  if (!listReady) return false;
+  if (pad > 0 && listHeight < pad) return false;
+  return true;
+}
+
+/** Remaining scroll after a later scrollTo(0) wiped a mount/zoom well. */
+export function remainingWellScroll(pad: number, scrollY: number): number {
+  if (pad <= 0) return 0;
+  if (scrollY >= pad) return 0;
+  return pad - scrollY;
+}
+
+/** Pointerup centers a row the gesture hit. Chrome with no row is null. */
 export function takePointerCenterTarget(
   armed: boolean,
   recorded: EventTarget | null,

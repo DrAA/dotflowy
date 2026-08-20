@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  canApplyPadCompensate,
   centerScrollDelta,
   createCenterRafHandle,
   easeOutCubic,
   padCompensateDelta,
+  remainingWellScroll,
   shouldSkipCenterForSelection,
   takePointerCenterTarget,
   typewriterPadPx,
@@ -91,6 +93,43 @@ describe("padCompensateDelta", () => {
   test("a viewport-only pad change does not scroll", () => {
     expect(padCompensateDelta(true, true, 400, 250)).toBe(0);
     expect(padCompensateDelta(false, false, 0, 0)).toBe(0);
+  });
+});
+
+describe("canApplyPadCompensate", () => {
+  test("waits for a client viewport", () => {
+    expect(canApplyPadCompensate(null, true, 800, 400)).toBe(false);
+  });
+
+  test("waits until the list is in the tree", () => {
+    expect(canApplyPadCompensate(800, false, 800, 400)).toBe(false);
+  });
+
+  test("waits until the list can absorb the well", () => {
+    expect(canApplyPadCompensate(800, true, 66, 400)).toBe(false);
+  });
+
+  test("applies once the list is tall enough", () => {
+    expect(canApplyPadCompensate(800, true, 800, 400)).toBe(true);
+  });
+
+  test("applies a zero pad without waiting for height", () => {
+    expect(canApplyPadCompensate(800, true, 0, 0)).toBe(true);
+  });
+});
+
+describe("remainingWellScroll", () => {
+  test("is zero when the mode is off", () => {
+    expect(remainingWellScroll(0, 0)).toBe(0);
+  });
+
+  test("finishes a well that a later scrollTo(0) wiped", () => {
+    expect(remainingWellScroll(400, 0)).toBe(400);
+  });
+
+  test("is zero once scrollY has cleared the well", () => {
+    expect(remainingWellScroll(400, 400)).toBe(0);
+    expect(remainingWellScroll(400, 480)).toBe(0);
   });
 });
 

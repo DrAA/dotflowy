@@ -61,7 +61,12 @@ import { appRuntime } from "../data/runtime";
 import { bootstrapOutline } from "../data/seed";
 import { useSyncSelectionFillRows } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
-import { padCompensateDelta, typewriterPadPx } from "../data/spotlight";
+import {
+  canApplyPadCompensate,
+  padCompensateDelta,
+  remainingWellScroll,
+  typewriterPadPx,
+} from "../data/spotlight";
 import { runStructural } from "../data/structural";
 import {
   buildTreeIndex,
@@ -667,11 +672,23 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   const typewriterPad = typewriterPadPx(viewHeight ?? 0, spotlight);
   const prevSpotlight = useRef<boolean | null>(null);
   const prevTypewriterPad = useRef(0);
-  useLayoutEffect(() => {
-    // Wait for a client viewport and a list that can actually absorb the
-    // pad scroll. Compensating against an empty first commit clamps at 0
-    // and then the later pad looks like a viewport-only change.
-    if (viewHeight === null || (spotlight && rows.length === 0)) return;
+  // True until this editor instance has looked past the well. A later
+  // router scrollTo(0) on zoom can wipe the layout-effect scroll; leftover
+  // rAFs finish it. Viewport resize must not re-open this (ADR 0060).
+  const mountWellPending = useRef(true);
+  const applyPadCompensate = useCallback(() => {
+    const list = listRef.current;
+    const listHeight = list?.getBoundingClientRect().height ?? 0;
+    if (
+      !canApplyPadCompensate(
+        viewHeight,
+        !loading && list != null,
+        listHeight,
+        typewriterPad,
+      )
+    ) {
+      return;
+    }
     const delta = padCompensateDelta(
       prevSpotlight.current,
       spotlight,
@@ -681,7 +698,30 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     prevSpotlight.current = spotlight;
     prevTypewriterPad.current = typewriterPad;
     if (delta !== 0) window.scrollBy(0, delta);
-  }, [spotlight, typewriterPad, viewHeight, rows.length]);
+    if (!mountWellPending.current) return;
+    const leftover = remainingWellScroll(typewriterPad, window.scrollY);
+    if (leftover !== 0) window.scrollBy(0, leftover);
+    if (typewriterPad === 0 || window.scrollY >= typewriterPad) {
+      mountWellPending.current = false;
+    }
+  }, [viewHeight, loading, typewriterPad, spotlight]);
+  useLayoutEffect(() => {
+    applyPadCompensate();
+  }, [applyPadCompensate]);
+  useEffect(() => {
+    if (!mountWellPending.current) return;
+    let frames = 0;
+    let raf = 0;
+    const tick = () => {
+      applyPadCompensate();
+      frames += 1;
+      if (mountWellPending.current && frames < 8) {
+        raf = requestAnimationFrame(tick);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [applyPadCompensate]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,
