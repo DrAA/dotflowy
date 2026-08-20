@@ -699,11 +699,11 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     prevTypewriterPad.current = typewriterPad;
     if (delta !== 0) window.scrollBy(0, delta);
     if (!mountWellPending.current) return;
+    // Server snapshot is off (pad 0). Wait for the client spotlight
+    // snapshot before closing, or a later scrollTo(0) has nothing to finish.
+    if (typewriterPad === 0) return;
     const leftover = remainingWellScroll(typewriterPad, window.scrollY);
     if (leftover !== 0) window.scrollBy(0, leftover);
-    if (typewriterPad === 0 || window.scrollY >= typewriterPad) {
-      mountWellPending.current = false;
-    }
   }, [viewHeight, loading, typewriterPad, spotlight]);
   useLayoutEffect(() => {
     applyPadCompensate();
@@ -715,13 +715,23 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     const tick = () => {
       applyPadCompensate();
       frames += 1;
-      if (mountWellPending.current && frames < 8) {
+      // Router scroll restoration can land after the first layout pass.
+      if (mountWellPending.current && frames < 24) {
         raf = requestAnimationFrame(tick);
       }
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [applyPadCompensate]);
+    const done = window.setTimeout(() => {
+      applyPadCompensate();
+      if (typewriterPad === 0 || window.scrollY >= typewriterPad) {
+        mountWellPending.current = false;
+      }
+    }, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(done);
+    };
+  }, [applyPadCompensate, typewriterPad]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,

@@ -258,7 +258,6 @@ test.describe("spotlight typewriter centering", () => {
     await expect(page.locator("h2.zoomed-title .node-text")).toHaveText("root");
     let metrics: {
       c0Top: number;
-      listTop: number;
       scrollY: number;
       viewH: number;
     } | null = null;
@@ -267,27 +266,32 @@ test.describe("spotlight typewriter centering", () => {
         metrics = await page.evaluate(() => {
           const c0 = document.querySelector('li[data-node-id="c0"]');
           const chrome = document.querySelector(".relative.sticky");
-          const title = document.querySelector("h2.zoomed-title");
+          const region = document.querySelector('[aria-label="Outline"]');
           if (
             !(c0 instanceof HTMLElement) ||
             !(chrome instanceof HTMLElement) ||
-            !(title instanceof HTMLElement)
+            !(region instanceof HTMLElement)
           ) {
             return null;
           }
           return {
             c0Top: c0.getBoundingClientRect().top,
-            listTop: title.getBoundingClientRect().bottom,
             scrollY: window.scrollY,
             viewH: window.visualViewport?.height ?? window.innerHeight,
           };
         });
         if (!metrics) return Infinity;
-        return Math.abs(metrics.c0Top - metrics.listTop);
+        // Title sits between chrome and the list and scrolls with the well.
+        // Pin the well scroll, not a title-relative gap (that gap is pad).
+        return metrics.scrollY > metrics.viewH * 0.4 &&
+          metrics.c0Top < metrics.viewH * 0.4
+          ? 0
+          : Math.abs(metrics.scrollY - metrics.viewH / 2);
       })
       .toBeLessThan(48);
     expect(metrics!.scrollY).toBeGreaterThan(metrics!.viewH * 0.4);
     expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
+    expect(metrics!.c0Top).toBeLessThan(metrics!.viewH * 0.4);
   });
 
   test("focusing a line scrolls it to the vertical center", async ({

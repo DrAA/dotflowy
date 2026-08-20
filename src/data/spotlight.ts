@@ -142,9 +142,19 @@ const onFocusIn = (e: FocusEvent) => {
 
 /** Zoomed title is an h2, not a list row -- centering it would hide the children. */
 function lineOf(target: EventTarget | null): HTMLElement | null {
-  if (!(target instanceof HTMLElement)) return null;
-  if (!target.classList.contains("node-text")) return null;
-  return target.closest("li[data-node-id]");
+  const el =
+    target instanceof HTMLElement
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!el) return null;
+  if (el.matches("li[data-node-id]")) return el;
+  const text = el.classList.contains("node-text")
+    ? el
+    : el.closest(".node-text");
+  if (!text || text.closest("h2.zoomed-title")) return null;
+  return text.closest("li[data-node-id]");
 }
 
 /** Distance to scroll so `line` sits at the vertical center of `view`. */
