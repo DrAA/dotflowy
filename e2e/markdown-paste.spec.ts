@@ -50,7 +50,7 @@ async function pasteInto(locator: Locator, plain: string) {
 }
 
 /** Focus a bullet and put the caret at source offset `col` (arrows and Home/End
- *  are unreliable in macOS Chromium contentEditable -- see AGENTS.md). */
+ *  are unreliable in macOS Chromium contentEditable -- see CONTRIBUTING.md). */
 async function caretAt(page: Page, id: string, col: number) {
   await text(page, id).evaluate((el, target) => {
     el.focus();

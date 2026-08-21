@@ -6,42 +6,20 @@ Keep this file brief. Put task-specific guidance behind a pointer.
 
 ## Gotchas
 
-- **Structural vs field writes.** Tree-shape changes go through `runStructural` at the call site, not inside `mutations.ts`. Field edits stay a direct PATCH.
-- **A new `Node` field touches seven places:** `src/data/wire-schema.ts`, `src/data/schema.ts`, `makeNode()`, `withNodeDefaults` in `collection.ts`, a DO `ADD COLUMN` migration, `e2e/fixtures.ts`, and the R2 snapshot boundary in `worker/backup.ts`. Miss the fixtures and inbound-frame decode rejects every snapshot. Build nodes with `makeNode()`.
-- **Add a new side-collection to `KV_COLLECTIONS` in `worker/index.ts`.**
-- **Read side-collections with `subscribeChanges` and `useSyncExternalStore`.** `useLiveQuery` hard-fails the `/` prerender. Readiness rides `toArrayWhenReady()`.
-- **The tree index mutates in place and notifies synchronously.** Read sibling state before you mutate.
-- **Read event-time values through the getters** (`getTreeIndex()`, `getViewRootId()`, `getViewIsHidden()`, `getViewFilter()`). Write view state in effects.
-- **Entitlement reads never call Stripe.** `getPlan(userId, env)` is one D1 query. Keep the founding seat cap in `getCheckoutSessionParams`.
-- **A node renders in three places**, with three keymaps: `OutlineRow`, `ZoomedTitle`, `MiniNodeEditor`. Keymaps and slots do not share. The `refs` registry maps a node id to its contentEditable span; the zoomed title registers under `rootId`.
-- **`el.textContent` is not the source.** Read with `readSource(el)`. Caret offsets are SOURCE offsets. Stored text writes to the DOM only when it differs.
-- **`OutlineEditor` and `SwitcherDialog` carry `"use no memo"`.**
-- **The visible-neighbor walk must mirror render visibility.** Assert nesting through `data-parent-id` and `data-depth`.
-- **`rootId` is route-owned.** `routes/index.tsx` gives `null`; `routes/$nodeId.tsx` gives `nodeId`. The editor remounts per zoom via `key={nodeId}`.
-- **The typed-error channel in Effect is the error model.** Read Effect v4 from `bunx opensrc path Effect-TS/effect-smol`, never `node_modules/effect/`. App code imports `effect` from npm. **`kv-api.ts` must keep throwing.**
-- **e2e runs on its own Vite server on port 3210.** Kill a zombie or set `E2E_PORT`. For a caret, set the Selection range directly. `toHaveText` normalizes whitespace.
-- **A perf guard asserts a countable invariant**, never a wall clock.
-- **When you add an MCP tool, update the ordered tool-name list in `worker/mcp.test.ts`.**
-- **After `bun add` of a React-importing package, clear `node_modules/.vite`** if the hook call dies.
-- **The Codex app rewrites `.codex/environments/environment.toml`** and drops comments.
-- **Session handoffs.** `HANDOFF.md` is branch-local. Commit it on the branch; delete it in the shipping PR. It must never reach `main`.
-- **Local dev is `bun run cf:dev` on port 8787.** `bun run dev` on :3000 has a broken database on Cam's machine.
-- **Lunora mutator patch, delete, and get must pass `expectedTable`.** Write through the per-table facade. `ctx.db.asId(...)` is compile-time branding only.
-- **Vite proxies for `/api` and `/_lunora` need `ws: true`.**
-- **Capture a repeated incantation** in a `package.json` script or a config file.
+- **Local dev is `bun run cf:dev` on port 8787.** `bun run dev` on :3000 has a broken database on Cam's machine. Why, and the rest of setup: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Guardrails
 
 - **Grill first.** New plugin, route, seam, `Node` field, side-collection, or ADR-worthy behavior: read the matching ADRs, then ask the user to run `/grill-with-docs` (user-invoked only). If they waive it, hold the design against those ADRs by hand. An agent can invoke `/domain-modeling`, `/code-review`, `/security-review`, and `/ft-create-concise-pr`.
 - **There is no client-side data migration.**
 - **Key the DO through `resolveUserId`**, never the email. The one exception is the owner-continuity bridge to `'default'`.
-- **The `/api` session check trusts the server session**, never a client-supplied id.
+- **The `/api` session check trusts the server session.**
 - **The SSRF guard in `worker/unfurl.ts` revalidates every redirect hop.**
 - **Google is `disableSignUp: true`**, never `disableImplicitSignUp`. Signup gates fail closed: `SIGNUP_OPEN` must be the exact literal `"true"`. Admin routes return 404.
 - **Send all transactional email through `worker/email.ts`.** Park sends on `ctx.waitUntil`.
 - **Decode request bodies against Effect Schema.**
 - **The app is a pure static SPA.** Code that touches `nodesCollection` stays off the server and render pass.
-- **Lunora sync stays opt-in.** User-facing copy must not name Lunora. Turning it off returns the last classic snapshot. Live-read and `isPersisted` landmines: [ADR 0058](./docs/adr/0058-lunora-replaces-custom-outline-sync.md).
+- **Lunora sync stays opt-in.** User-facing copy must not name Lunora. Turning it off returns the last classic snapshot.
 - **Documentation Freshness.** If `AGENTS.md` or `README.md` becomes false about a path, command, or tool, correct it in the same change. Ask first before changing policy, philosophy, or positioning.
 - **Run the app before calling an observable change done.** Drive it in `bun run cf:dev` or an e2e spec.
 
@@ -61,7 +39,11 @@ New feature or design: `ls docs/adr/` and read the ADRs that match the surface. 
 
 ## Architecture
 
-Structure, data model, backend-swap: [`docs/architecture.md`](./docs/architecture.md). Setup and local dev: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Structure, data model, new `Node` field, tree reads: [`docs/architecture.md`](./docs/architecture.md). **`rootId` is route-owned.** Setup and local dev: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+## Editor
+
+**A node renders in three places.** Caret, folding tokens, keymaps: [`docs/plugins.md`](./docs/plugins.md).
 
 ## Plugins
 
@@ -69,7 +51,19 @@ Plugin, seam, token, or kit UI: read [`docs/plugins.md`](./docs/plugins.md).
 
 ## Testing
 
-Testing or coverage: read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Testing or coverage: read [`CONTRIBUTING.md`](./CONTRIBUTING.md). **A perf guard asserts a countable invariant.**
+
+## Effect
+
+**The typed-error channel in Effect is the error model.** Opensrc path and `kv-api.ts` throw: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+## Billing
+
+Entitlements and checkout: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+## Lunora
+
+Experimental sync, live reads, `isPersisted`, `expectedTable`: [ADR 0058](./docs/adr/0058-lunora-replaces-custom-outline-sync.md).
 
 ## Review
 
@@ -81,12 +75,7 @@ Version bump or changelog: [ADR 0046](./docs/adr/0046-changelog-and-release-vers
 
 ## Landing
 
-Landing site (`landing/`, dotflowy.com): Geist only, no mono. Accents match the app palette. Feature bullets stay vertical on desktop. Keep "Workflowy alternative" out of the H1 and the footer brand row.
-
-## Preferences
-
-- Once the approach is agreed, pick the best reasonable option and proceed. If the target worktree is unclear, ask.
-- Icons: free MIT Hugeicons (`@hugeicons/react`, `@hugeicons/core-free-icons`) at default stroke.
+Landing site (`landing/`, dotflowy.com): Geist only, no mono. Accents match the app palette. Feature bullets stay vertical on desktop. Keep "Workflowy alternative" out of the H1 and the footer brand row. Icons in the app: free MIT Hugeicons (`@hugeicons/react`, `@hugeicons/core-free-icons`) at default stroke.
 
 ## Tooling
 

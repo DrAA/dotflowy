@@ -12,7 +12,7 @@ import { seedOutline, type SeedNode } from "./fixtures";
 //
 // Every command here runs from an EMPTY bullet, so the `/` palette opens at
 // offset 0 and no caret helper is needed (Home/End and `.click()` on text are
-// unreliable in macOS Chromium contentEditable -- see AGENTS.md).
+// unreliable in macOS Chromium contentEditable -- see CONTRIBUTING.md).
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
