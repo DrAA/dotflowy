@@ -63,6 +63,7 @@ import { useSyncSelectionFillRows } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
 import {
   canApplyPadCompensate,
+  isMountWellSettled,
   padCompensateDelta,
   remainingWellScroll,
   typewriterPadPx,
@@ -656,6 +657,8 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // otherwise. Pad size tracks visualViewport.resize. Compensate only on
   // mount and on a mode flip -- a URL-bar or keyboard resize must not
   // scrollBy mid-gesture. Mount compensate looks past the well onto n0.
+  // Leftover well-finish is mount/zoom only (keyed on rootId). A short
+  // outline settles at max scroll so a resize cannot re-open that scrollBy.
   const spotlight = useSpotlightEnabled();
   // null until the client layout pass reads visualViewport. A 0 prerender
   // snapshot would make the first real pad look like a viewport-only change
@@ -698,13 +701,40 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     prevSpotlight.current = spotlight;
     prevTypewriterPad.current = typewriterPad;
     if (delta !== 0) window.scrollBy(0, delta);
-    if (!mountWellPending.current) return;
-    // Server snapshot is off (pad 0). Wait for the client spotlight
-    // snapshot before closing, or a later scrollTo(0) has nothing to finish.
-    if (typewriterPad === 0) return;
-    const leftover = remainingWellScroll(typewriterPad, window.scrollY);
-    if (leftover !== 0) window.scrollBy(0, leftover);
   }, [viewHeight, loading, typewriterPad, spotlight]);
+  const finishMountWell = useCallback(() => {
+    if (!mountWellPending.current) return;
+    if (typewriterPad === 0) return;
+    const list = listRef.current;
+    const listHeight = list?.getBoundingClientRect().height ?? 0;
+    const listReady = !loading && list != null;
+    if (
+      !canApplyPadCompensate(viewHeight, listReady, listHeight, typewriterPad)
+    ) {
+      return;
+    }
+    const maxScroll = Math.max(
+      0,
+      document.documentElement.scrollHeight -
+        document.documentElement.clientHeight,
+    );
+    const leftover = remainingWellScroll(
+      typewriterPad,
+      window.scrollY,
+      maxScroll,
+    );
+    if (leftover !== 0) window.scrollBy(0, leftover);
+    const afterMax = Math.max(
+      0,
+      document.documentElement.scrollHeight -
+        document.documentElement.clientHeight,
+    );
+    if (isMountWellSettled(typewriterPad, window.scrollY, afterMax, true)) {
+      mountWellPending.current = false;
+    }
+  }, [viewHeight, loading, typewriterPad]);
+  const finishMountWellRef = useRef(finishMountWell);
+  finishMountWellRef.current = finishMountWell;
   useLayoutEffect(() => {
     applyPadCompensate();
   }, [applyPadCompensate]);
@@ -713,7 +743,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     let frames = 0;
     let raf = 0;
     const tick = () => {
-      applyPadCompensate();
+      finishMountWellRef.current();
       frames += 1;
       // Router scroll restoration can land after the first layout pass.
       if (mountWellPending.current && frames < 24) {
@@ -722,16 +752,14 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     };
     raf = requestAnimationFrame(tick);
     const done = window.setTimeout(() => {
-      applyPadCompensate();
-      if (typewriterPad === 0 || window.scrollY >= typewriterPad) {
-        mountWellPending.current = false;
-      }
+      finishMountWellRef.current();
+      mountWellPending.current = false;
     }, 200);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(done);
     };
-  }, [applyPadCompensate, typewriterPad]);
+  }, [rootId]);
   const virtualizer = useWindowVirtualizer<HTMLLIElement>({
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,

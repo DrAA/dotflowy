@@ -140,21 +140,44 @@ const onFocusIn = (e: FocusEvent) => {
   scheduleCenter(e.target);
 };
 
-/** Zoomed title is an h2, not a list row -- centering it would hide the children. */
-function lineOf(target: EventTarget | null): HTMLElement | null {
-  const el =
-    target instanceof HTMLElement
-      ? target
-      : target instanceof Node
-        ? target.parentElement
-        : null;
+type LineEl = {
+  matches(sel: string): boolean;
+  classList: { contains(c: string): boolean };
+  closest(sel: string): LineEl | null;
+};
+
+function elementFromTarget(target: EventTarget | null): HTMLElement | null {
+  if (target instanceof HTMLElement) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+/** Normalize something already known to be a list row. */
+export function asLine<T extends LineEl>(el: T | null): T | null {
+  return el?.matches("li[data-node-id]") ? el : null;
+}
+
+/**
+ * Resolve an event target to a list row through `.node-text`.
+ * A bare `<li>` (indent gutter) is not a line. Use `asLine` for a stored row.
+ */
+export function lineOfElement<T extends LineEl>(el: T | null): T | null {
   if (!el) return null;
-  if (el.matches("li[data-node-id]")) return el;
   const text = el.classList.contains("node-text")
     ? el
     : el.closest(".node-text");
   if (!text || text.closest("h2.zoomed-title")) return null;
-  return text.closest("li[data-node-id]");
+  return text.closest("li[data-node-id]") as T | null;
+}
+
+/** Zoomed title is an h2, not a list row -- centering it would hide the children. */
+function lineOf(target: EventTarget | null): HTMLElement | null {
+  return lineOfElement(elementFromTarget(target));
+}
+
+function resolveCenterLine(target: EventTarget | null): HTMLElement | null {
+  const el = elementFromTarget(target);
+  return asLine(el) ?? lineOf(target);
 }
 
 /** Distance to scroll so `line` sits at the vertical center of `view`. */
@@ -218,10 +241,29 @@ export function canApplyPadCompensate(
 }
 
 /** Remaining scroll after a later scrollTo(0) wiped a mount/zoom well. */
-export function remainingWellScroll(pad: number, scrollY: number): number {
+export function remainingWellScroll(
+  pad: number,
+  scrollY: number,
+  maxScroll = Number.POSITIVE_INFINITY,
+): number {
   if (pad <= 0) return 0;
-  if (scrollY >= pad) return 0;
-  return pad - scrollY;
+  const target = Math.min(pad, maxScroll);
+  if (scrollY >= target) return 0;
+  return target - scrollY;
+}
+
+/** Mount/zoom leftover is done: pad reached, or a short outline is at max. */
+export function isMountWellSettled(
+  pad: number,
+  scrollY: number,
+  maxScroll: number,
+  listReady: boolean,
+): boolean {
+  if (pad <= 0) return true;
+  if (!listReady) return false;
+  if (scrollY >= pad) return true;
+  if (scrollY >= maxScroll) return true;
+  return false;
 }
 
 /** Pointerup centers a row the gesture hit. Chrome with no row is null. */
@@ -280,7 +322,7 @@ function centerLine(li: HTMLElement): void {
 }
 
 function scheduleCenter(target: EventTarget | null): void {
-  const li = lineOf(target);
+  const li = resolveCenterLine(target);
   if (!li) return;
   // After the browser's own focus-scroll and a layout pass (virtualizer
   // remounts) so the rect we read is the one the user will see.

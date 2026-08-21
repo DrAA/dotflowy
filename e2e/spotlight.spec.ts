@@ -199,7 +199,6 @@ test.describe("spotlight typewriter centering", () => {
     await loadTall(page, true);
     let metrics: {
       n0Top: number;
-      listTop: number;
       scrollY: number;
       viewH: number;
     } | null = null;
@@ -207,30 +206,23 @@ test.describe("spotlight typewriter centering", () => {
       .poll(async () => {
         metrics = await page.evaluate(() => {
           const n0 = document.querySelector('li[data-node-id="n0"]');
-          const chrome = document.querySelector(".relative.sticky");
-          const region = document.querySelector('[aria-label="Outline"]');
-          if (
-            !(n0 instanceof HTMLElement) ||
-            !(chrome instanceof HTMLElement) ||
-            !(region instanceof HTMLElement)
-          ) {
-            return null;
-          }
-          const padTop =
-            Number.parseFloat(getComputedStyle(region).paddingTop) || 0;
+          if (!(n0 instanceof HTMLElement)) return null;
           return {
             n0Top: n0.getBoundingClientRect().top,
-            listTop: chrome.getBoundingClientRect().bottom + padTop,
             scrollY: window.scrollY,
             viewH: window.visualViewport?.height ?? window.innerHeight,
           };
         });
         if (!metrics) return Infinity;
-        return Math.abs(metrics.n0Top - metrics.listTop);
+        return metrics.scrollY > metrics.viewH * 0.4 &&
+          metrics.n0Top < metrics.viewH * 0.4
+          ? 0
+          : Math.abs(metrics.scrollY - metrics.viewH / 2);
       })
       .toBeLessThan(48);
     expect(metrics!.scrollY).toBeGreaterThan(metrics!.viewH * 0.4);
     expect(metrics!.scrollY).toBeLessThan(metrics!.viewH * 0.6 + 8);
+    expect(metrics!.n0Top).toBeLessThan(metrics!.viewH * 0.4);
   });
 
   test("client zoom with the mode on puts the first child at the list top", async ({
@@ -265,15 +257,7 @@ test.describe("spotlight typewriter centering", () => {
       .poll(async () => {
         metrics = await page.evaluate(() => {
           const c0 = document.querySelector('li[data-node-id="c0"]');
-          const chrome = document.querySelector(".relative.sticky");
-          const region = document.querySelector('[aria-label="Outline"]');
-          if (
-            !(c0 instanceof HTMLElement) ||
-            !(chrome instanceof HTMLElement) ||
-            !(region instanceof HTMLElement)
-          ) {
-            return null;
-          }
+          if (!(c0 instanceof HTMLElement)) return null;
           return {
             c0Top: c0.getBoundingClientRect().top,
             scrollY: window.scrollY,
@@ -305,32 +289,74 @@ test.describe("spotlight typewriter centering", () => {
       .toBeLessThan(48);
   });
 
-  test("clicking chrome does not recenter the still-focused line", async ({
+  test.describe("chrome click does not yank", () => {
+    test.use({
+      hasTouch: true,
+      isMobile: true,
+      viewport: { width: 412, height: 900 },
+    });
+
+    test("clicking the mobile action bar does not recenter the still-focused line", async ({
+      page,
+    }) => {
+      await loadTall(page, true);
+      await text(page, "n0").click();
+      await expect
+        .poll(() => offsetFromViewportCenter(page, "n0"))
+        .toBeLessThan(48);
+      await expect(text(page, "n0")).toBeFocused();
+      const undo = page.locator('[data-mobile-bar] [aria-label="Undo"]');
+      await expect(undo).toBeVisible();
+      await page.evaluate(() => window.scrollBy(0, 250));
+      expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+      await undo.click();
+      await page.waitForTimeout(280);
+      expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+      await expect(text(page, "n0")).toBeFocused();
+    });
+  });
+
+  test("a short outline does not scrollBy on visualViewport.resize after mount", async ({
     page,
   }) => {
-    await loadTall(page, true);
-    await text(page, "n0").click();
-    await expect
-      .poll(() => offsetFromViewportCenter(page, "n0"))
-      .toBeLessThan(48);
-    // Format toolbar keeps the caret (preventDefault on pointerdown). A
-    // body/header click would blur; this is the chrome that distinguishes
-    // the armed-row target from activeElement.
-    await text(page, "n0").evaluate((el) => {
-      const sel = window.getSelection();
-      if (!sel) return;
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      sel.removeAllRanges();
-      sel.addRange(range);
+    const short: SeedNode[] = [
+      { id: "s0", parentId: null, prevSiblingId: null, text: "short0" },
+      { id: "s1", parentId: null, prevSiblingId: "s0", text: "short1" },
+      { id: "s2", parentId: null, prevSiblingId: "s1", text: "short2" },
+    ];
+    await seedOutline(page, short);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:spotlight", "true");
     });
-    const toolbar = page.locator('[data-format-toolbar] [aria-label="Bold"]');
-    await expect(toolbar).toBeVisible();
-    await page.evaluate(() => window.scrollBy(0, 250));
-    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
-    await toolbar.click();
+    await page.goto("/");
+    await expect(text(page, "s0")).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(280);
-    expect(await offsetFromViewportCenter(page, "n0")).toBeGreaterThan(80);
+    await page.evaluate(() => {
+      const w = window as Window & { __scrollBys?: number };
+      w.__scrollBys = 0;
+      const orig = window.scrollBy.bind(window);
+      window.scrollBy = (...args: Parameters<typeof orig>) => {
+        w.__scrollBys = (w.__scrollBys ?? 0) + 1;
+        return orig(...args);
+      };
+    });
+    const before = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      Object.defineProperty(vv, "height", {
+        configurable: true,
+        value: (vv.height ?? window.innerHeight) * 0.6,
+      });
+      vv.dispatchEvent(new Event("resize"));
+    });
+    await page.waitForTimeout(120);
+    const after = await page.evaluate(() => {
+      const w = window as Window & { __scrollBys?: number };
+      return { scrollY: window.scrollY, scrollBys: w.__scrollBys ?? 0 };
+    });
+    expect(after.scrollBys).toBe(0);
+    expect(after.scrollY).toBe(before);
   });
 
   test("clicking the already-focused line recenters it", async ({ page }) => {

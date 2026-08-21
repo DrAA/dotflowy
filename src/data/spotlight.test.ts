@@ -1,16 +1,38 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  asLine,
   canApplyPadCompensate,
   centerScrollDelta,
   createCenterRafHandle,
   easeOutCubic,
+  isMountWellSettled,
+  lineOfElement,
   padCompensateDelta,
   remainingWellScroll,
   shouldSkipCenterForSelection,
   takePointerCenterTarget,
   typewriterPadPx,
 } from "./spotlight";
+
+type LineEl = {
+  matches(sel: string): boolean;
+  classList: { contains(c: string): boolean };
+  closest(sel: string): LineEl | null;
+};
+
+function probe(init: {
+  sel?: string[];
+  cls?: string[];
+  tree?: Record<string, LineEl | null>;
+}): LineEl {
+  const el: LineEl = {
+    matches: (s) => init.sel?.includes(s) ?? false,
+    classList: { contains: (c) => init.cls?.includes(c) ?? false },
+    closest: (s) => (init.sel?.includes(s) ? el : (init.tree?.[s] ?? null)),
+  };
+  return el;
+}
 
 describe("centerScrollDelta", () => {
   test("is zero when the line is already centered", () => {
@@ -131,6 +153,30 @@ describe("remainingWellScroll", () => {
     expect(remainingWellScroll(400, 400)).toBe(0);
     expect(remainingWellScroll(400, 480)).toBe(0);
   });
+
+  test("clamps leftover to maxScroll on a short outline", () => {
+    expect(remainingWellScroll(400, 0, 80)).toBe(80);
+    expect(remainingWellScroll(400, 80, 80)).toBe(0);
+  });
+});
+
+describe("isMountWellSettled", () => {
+  test("waits while the list is not ready", () => {
+    expect(isMountWellSettled(400, 0, 0, false)).toBe(false);
+  });
+
+  test("closes when the mode is off", () => {
+    expect(isMountWellSettled(0, 0, 0, true)).toBe(true);
+  });
+
+  test("closes once scrollY has cleared the well", () => {
+    expect(isMountWellSettled(400, 400, 800, true)).toBe(true);
+  });
+
+  test("closes a short outline at max scroll", () => {
+    expect(isMountWellSettled(400, 80, 80, true)).toBe(true);
+    expect(isMountWellSettled(400, 0, 80, true)).toBe(false);
+  });
 });
 
 describe("shouldSkipCenterForSelection", () => {
@@ -159,5 +205,46 @@ describe("takePointerCenterTarget", () => {
 
   test("returns null when not armed", () => {
     expect(takePointerCenterTarget(false, new EventTarget())).toBeNull();
+  });
+
+  test("old always-activeElement centers a chrome click; armed-target does not", () => {
+    const line = new EventTarget();
+    const oldPointerUp = (activeElement: EventTarget | null) => activeElement;
+    const newPointerUp = (armed: boolean, recorded: EventTarget | null) =>
+      takePointerCenterTarget(armed, recorded);
+    expect(oldPointerUp(line)).toBe(line);
+    expect(newPointerUp(true, null)).toBeNull();
+  });
+});
+
+describe("asLine / lineOfElement", () => {
+  const row = probe({ sel: ["li[data-node-id]"] });
+  const text = probe({
+    cls: ["node-text"],
+    tree: { "li[data-node-id]": row },
+  });
+
+  test("asLine keeps an already-resolved list row (re-click)", () => {
+    expect(asLine(row)).toBe(row);
+    expect(asLine(text) ?? lineOfElement(text)).toBe(row);
+  });
+
+  test("lineOfElement requires .node-text and ignores a bare list row", () => {
+    expect(lineOfElement(text)).toBe(row);
+    expect(lineOfElement(row)).toBeNull();
+  });
+
+  test("lineOfElement skips the zoomed title and non-row chrome", () => {
+    const title = probe({
+      cls: ["node-text"],
+      tree: {
+        "h2.zoomed-title": probe({ sel: ["h2.zoomed-title"] }),
+        "li[data-node-id]": row,
+      },
+    });
+    const chrome = probe({});
+    expect(lineOfElement(title)).toBeNull();
+    expect(lineOfElement(chrome)).toBeNull();
+    expect(asLine(chrome)).toBeNull();
   });
 });
