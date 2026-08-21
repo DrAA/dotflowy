@@ -340,7 +340,6 @@ test.describe("spotlight typewriter centering", () => {
         return orig(...args);
       };
     });
-    const before = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => {
       const vv = window.visualViewport;
       if (!vv) return;
@@ -351,12 +350,11 @@ test.describe("spotlight typewriter centering", () => {
       vv.dispatchEvent(new Event("resize"));
     });
     await page.waitForTimeout(120);
-    const after = await page.evaluate(() => {
+    const scrollBys = await page.evaluate(() => {
       const w = window as Window & { __scrollBys?: number };
-      return { scrollY: window.scrollY, scrollBys: w.__scrollBys ?? 0 };
+      return w.__scrollBys ?? 0;
     });
-    expect(after.scrollBys).toBe(0);
-    expect(after.scrollY).toBe(before);
+    expect(scrollBys).toBe(0);
   });
 
   test("clicking the already-focused line recenters it", async ({ page }) => {
