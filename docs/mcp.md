@@ -23,3 +23,8 @@ fidelity-degradation tally) — `dryRun: true` previews that receipt without
 writing; `export_opml` mirrors `get_outline` scoping and returns the raw OPML
 string. Both are capped at 5,000 nodes and reject rather than truncate — a
 full Workflowy migration belongs in the app UI.
+
+## Adding a tool
+
+When you add an MCP tool, update the ordered tool-name list in
+`worker/mcp.test.ts`. The test asserts the registry order, not just presence.

@@ -6,10 +6,9 @@ change" guide. Two companion docs go deeper:
 - **[`README.md`](./README.md)** — what Dotflowy is, at a glance. Read it
   first, then **[`docs/architecture.md`](./docs/architecture.md)** for the data
   model, the sync design, and the project layout.
-- **[`AGENTS.md`](./AGENTS.md)** (symlinked as `CLAUDE.md`) — the per-feature
-  rules and gotchas. It's written for coding agents but it's the canonical
-  reference for _why_ the code is shaped the way it is. Read the section that
-  covers whatever you're touching before you touch it.
+- **[`AGENTS.md`](./AGENTS.md)** (symlinked as `CLAUDE.md`) — always-on
+  identity, guardrails, and pointers. Task landmines live in the doc each
+  pointer names.
 
 ## Prerequisites
 
@@ -73,6 +72,11 @@ bun run dev      # vite (:3000) + wrangler (:8787) together; HMR for the UI
 Open http://localhost:3000. Vite gives you HMR; the Worker reloads on its own
 edits. This is the loop for almost all work. `bun run dev:api` + `bun run dev:web`
 still exist if you want the two servers in separate terminals with isolated logs.
+
+On Cam's machine `bun run dev` on :3000 has a broken database. Agents use
+`bun run cf:dev` on :8787 (one origin, closer to prod). Vite proxies for `/api`
+and `/_lunora` need `ws: true` — the string shorthand does not upgrade WebSockets
+(`vite.config.ts` already sets this).
 
 ### Sign in
 
@@ -143,6 +147,12 @@ guard — `STRIPE_SECRET_KEY=sk_live_… bun scripts/stripe-setup.ts --live` —
 also registers the `app.dotflowy.com` webhook endpoint and prints the `whsec_…`
 signing secret once (feed it to `wrangler secret put STRIPE_WEBHOOK_SECRET`).
 
+Entitlement reads never call Stripe. `getPlan(userId, env)` is one D1 query on
+`referenceId = user.id`, `status IN ('active','trialing')`. Free tier is no
+row. An operator-comped user is a hand-inserted active row with no Stripe ids.
+Keep the founding seat cap in `getCheckoutSessionParams` at checkout-creation
+time. Webhooks and `subscription.list()` resolve plans from that same list.
+
 ## Before you open a PR
 
 Run the full gate. These mirror CI — except `bun run test:e2e`, which is
@@ -159,13 +169,12 @@ bun run test:e2e        # playwright (chromium) — behavior/integration
 bunx changeset          # describe your change for the changelog (see below)
 ```
 
-Then **run the app**: before calling an observable change done, drive it in the
-running app (`bun run dev`) — or exercise it through an e2e spec — and confirm
-the behavior. Green gates are necessary, not sufficient (see _Run the app
-before declaring done_ in `AGENTS.md`). Skip only for changes with no runtime
-surface (docs, types, tooling).
+Then **run the app**: before calling an observable change done, drive it in
+`bun run cf:dev` — or exercise it through an e2e spec — and confirm the
+behavior. Green gates are necessary, not sufficient. Skip only for changes with
+no runtime surface (docs, types, tooling).
 
-Rules of thumb, expanded in `AGENTS.md`:
+Rules of thumb:
 
 - **Every PR carries a changeset.** `bunx changeset` writes a fragment saying what
   changed and how loudly — `major` when a reader has to _do_ something, `minor` for
@@ -183,40 +192,51 @@ Rules of thumb, expanded in `AGENTS.md`:
   maximum-determinism local run; `--workers=2` is the clean-signal full run
   before a PR. **e2e does not run in CI** — Playwright is a local pre-PR gate,
   so running it here is what stands in for a CI check. A parallel-contention
-  flake isn't a real failure.
+  flake isn't a real failure. e2e runs on its own Vite server on port 3210;
+  kill a zombie or set `E2E_PORT`. For a caret, set the Selection range
+  directly. `toHaveText` normalizes whitespace. **A perf guard asserts a
+  countable invariant**, never a wall clock.
 - **react-doctor is an occasional manual audit, not a gate** — its accepted
   editor false-positives (the deliberately kept manual memos) are known noise
   on every run, so it stays out of the recurring validation set.
-- **Shipping a multi-session branch? Delete `HANDOFF.md`** — it's transient
-  branch-local build state (see _Session handoffs_ in `AGENTS.md`) and must not
-  reach `main`.
+- **Session handoffs.** `HANDOFF.md` is transient branch-local build state.
+  Commit it on the branch; delete it in the shipping PR. It must not reach
+  `main`.
 - **`src/routeTree.gen.ts` is generated** — never hand-edit. After adding or
   renaming a file in `src/routes/`, run `bun run dev` once to regenerate it.
-- If you change a documented fact (a command, a path, repo structure), fix the
-  affected doc (`AGENTS.md` and/or `README.md`) in the same change. See
-  _Documentation Freshness_ in `AGENTS.md`.
+- **Documentation Freshness.** If you change a documented fact (a command, a
+  path, repo structure), fix the affected doc (`AGENTS.md` and/or `README.md`)
+  in the same change. Ask first before changing policy, philosophy, or
+  positioning.
 - **PR descriptions follow the snapshot template** in
   `.agents/skills/ft-create-concise-pr/SKILL.md` (agents: run
   `/ft-create-concise-pr`) — one consistent, skimmable shape for every review.
 
 ## Conventions worth knowing
 
-`AGENTS.md` is the full reference; the headlines:
-
 - **Skills first.** Before substantial work, run `bunx @tanstack/intent@latest list`
-  and load a matching skill if one fits (see the top of `AGENTS.md`).
-- **Effect v4 source comes via opensrc** — `bunx opensrc path Effect-TS/effect-smol`
-  prints a machine-global cached copy (`bun run setup` pre-warms it). Read from it,
-  never import from it; app/worker code imports `effect` from npm. Read the fetched
-  repo's `AGENTS.md` before writing Effect.
+  and load a matching skill if one fits (see the Skill Loading block in
+  `AGENTS.md`).
+- **The typed-error channel in Effect is the error model.** Effect v4 source
+  comes via opensrc — `bunx opensrc path Effect-TS/effect-smol` prints a
+  machine-global cached copy (`bun run setup` pre-warms it). Read from it,
+  never import from it; app/worker code imports `effect` from npm. Read the
+  fetched repo's `AGENTS.md` before writing Effect. `kv-api.ts` must keep
+  throwing — TanStack DB rolls back on throw.
 - **Plugins** live in `src/plugins/<name>/`; adding a feature is a folder plus one
   line in `src/plugins/index.ts` ([ADR 0001](./docs/adr/0001-plugin-architecture.md)).
-- **Structural edits are atomic; field edits are direct.** Any tree-shape
-  mutation goes through `runStructural` (one batch, echo-held); single-field edits
-  stay direct ([ADR 0009](./docs/adr/0009-atomic-structural-writes.md)).
+- **Structural edits are atomic; field edits are direct.** Tree-shape changes
+  go through `runStructural` at the call site, not inside `mutations.ts`.
+  Field edits stay a direct PATCH ([ADR 0009](./docs/adr/0009-atomic-structural-writes.md)).
 - **Load-bearing decisions are ADRs** in `docs/adr/`, numbered sequentially. A
   decision earns one when it's hard to reverse and surprising without context;
   otherwise the code is the doc.
+- **After `bun add` of a React-importing package**, clear `node_modules/.vite`
+  if the dev server dies on an invalid hook call.
+- **The Codex app rewrites `.codex/environments/environment.toml`** and drops
+  comments. Put no load-bearing explanation there.
+- **Capture a repeated incantation** in a `package.json` script or a config
+  file. Reach for `scripts/*.ts` only when there is no config home.
 
 ## Deploying
 

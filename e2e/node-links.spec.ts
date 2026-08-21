@@ -34,7 +34,7 @@ async function load(page: Page) {
 }
 
 /** Focus a bullet and place the caret at the end of its text via the Selection
- *  API (a plain click can land on a chip or past the text -- see AGENTS.md). */
+ *  API (a plain click can land on a chip or past the text -- see CONTRIBUTING.md). */
 async function caretAtEnd(page: Page, id: string) {
   await text(page, id).evaluate((el) => {
     (el as HTMLElement).focus();

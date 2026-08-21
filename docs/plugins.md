@@ -33,3 +33,24 @@ Feature → seams: **code** A · **links** A+B+C+I+K · **node-links** A(widget)
 **Still core-wired (deliberately, awaiting future seams):** fade-inheritance (`faded`/`ancestorCompleted`) and Backspace-on-the-checkbox demotion still read `completed`/`isTask` in `OutlineRow`; the bullet-vs-paragraph glyph reads `kind` there too (core's own field, ADR 0045); the `/` palette still runs `useSlashMenu` (only its command _list_ is registry-driven).
 
 **Constraints when touching this:** keep token `render` output byte-stable (the `decorate` cache compares strings) and allocation-light (runs per keystroke); never hand the core raw HTML (return `El`/`WidgetEl`); don't reintroduce N separate token scans. **Shared token helpers live in `src/plugins/token-kit.ts`** (`isRevealed` fold/reveal predicate, verbatim-match-or-drop write-back, `spliceToken` re-export) — use them, don't re-copy the predicate; `spliceToken` itself lives in the dependency-free `token-splice.ts` so worker-reachable data modules can import it without dragging DOM types into the Workers tsconfig. **Plugin UI comes from `src/plugins/kit.ts`** — the curated shadcn surface a Lane-A plugin may use (ADR 0031); a plugin importing `@/components/ui/*` directly is an oxlint error (`no-restricted-imports` override on `src/plugins/**`). Add a component to the kit when a plugin needs it; there is no plugin `styles` seam (style via Tailwind utilities on your `El`/JSX).
+
+Add a new side-collection to `KV_COLLECTIONS` in `worker/index.ts`. The e2e kv mock accepts any name.
+
+## Editor render paths
+
+**A node renders in three places**, with three keymaps: `OutlineRow` /
+`useBulletKeymap`, `ZoomedTitle`'s inline `useHotkeys`, and `MiniNodeEditor`.
+Delegated pointers, `/`, and caret menus already reach all three. Keymaps and
+slots do not. The `refs` registry maps a node id to its contentEditable span;
+the zoomed title registers under `rootId`.
+
+`el.textContent` is not the source. Folding tokens render `data-src` atoms.
+Read with `readSource(el)`. Caret offsets are SOURCE offsets through
+`getCaretOffset` / `setCaretOffset` ([ADR 0005](./adr/0005-rich-links-source-offset-caret.md)).
+Stored text writes to the DOM only when it differs.
+
+`OutlineEditor` and `SwitcherDialog` carry `"use no memo"`. Keep the hand-tuned
+`memo` / `useMemo` on the contentEditable hot path.
+
+The visible-neighbor walk must mirror render visibility. Assert nesting through
+`data-parent-id` and `data-depth` — the windowed list is flat.

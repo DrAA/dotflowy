@@ -61,16 +61,16 @@ you deploy. [`CONTRIBUTING.md`](./CONTRIBUTING.md) has the full setup guide.
 
 ## Documentation
 
-| Doc                                      | What's in it                                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [Architecture](./docs/architecture.md)   | The data model, persistence + sync design, the plugin system, the stack, and the project layout            |
-| [Deploying](./docs/deploying.md)         | Self-hosting on Cloudflare Workers, auth + signup configuration                                            |
-| [Agents (MCP)](./docs/mcp.md)            | Connecting AI agents to your outline over the Model Context Protocol                                       |
-| [Keyboard shortcuts](./docs/keyboard.md) | The full key reference                                                                                     |
-| [`CONTRIBUTING.md`](./CONTRIBUTING.md)   | Setup, the dev loops, the pre-PR check matrix, repo conventions                                            |
-| [`AGENTS.md`](./AGENTS.md)               | Per-feature rules and gotchas — written for coding agents, canonical for _why_ the code is shaped this way |
-| [`docs/adr/`](./docs/adr/)               | One decision record per load-bearing choice                                                                |
-| [`CHANGELOG.md`](./CHANGELOG.md)         | What's new, release by release                                                                             |
+| Doc                                      | What's in it                                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [Architecture](./docs/architecture.md)   | The data model, persistence + sync design, the plugin system, the stack, and the project layout |
+| [Deploying](./docs/deploying.md)         | Self-hosting on Cloudflare Workers, auth + signup configuration                                 |
+| [Agents (MCP)](./docs/mcp.md)            | Connecting AI agents to your outline over the Model Context Protocol                            |
+| [Keyboard shortcuts](./docs/keyboard.md) | The full key reference                                                                          |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md)   | Setup, the dev loops, the pre-PR check matrix, repo conventions                                 |
+| [`AGENTS.md`](./AGENTS.md)               | Always-on identity, guardrails, and pointers for coding agents                                  |
+| [`docs/adr/`](./docs/adr/)               | One decision record per load-bearing choice                                                     |
+| [`CHANGELOG.md`](./CHANGELOG.md)         | What's new, release by release                                                                  |
 
 ## License
 

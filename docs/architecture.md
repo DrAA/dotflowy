@@ -1,8 +1,8 @@
 # Architecture
 
-How Dotflowy stores, syncs, and renders an outline. This is the human-facing
-overview; per-feature rules and gotchas live in [`AGENTS.md`](../AGENTS.md), and
-each load-bearing decision has a full write-up in [`docs/adr/`](./adr/).
+How Dotflowy stores, syncs, and renders an outline. Agent pointers live in
+[`AGENTS.md`](../AGENTS.md). Each load-bearing decision has a write-up in
+[`docs/adr/`](./adr/).
 
 ## The shape of the system
 
@@ -45,6 +45,30 @@ the structural operations — insert, indent / outdent, the fused `moveNode`
 (drag reorder + reparent), move up / down, delete — plus the field setters
 (text, task, completed, collapsed, bookmark). Each preserves the linked-list
 invariant.
+
+### Adding a Node field
+
+A new field touches seven places: `src/data/wire-schema.ts`, `src/data/schema.ts`,
+`makeNode()`, `withNodeDefaults` in `collection.ts`, a DO `ADD COLUMN` migration,
+`e2e/fixtures.ts`, and the R2 snapshot boundary in `worker/backup.ts`. Miss the
+fixtures and inbound-frame decode rejects every snapshot. Build nodes with
+`makeNode()` — a schema default makes the field optional in the encoded type
+([ADR 0003](./adr/0003-no-schema-defaults.md)).
+
+### Reading the tree
+
+The tree index mutates in place and notifies synchronously. Read sibling state
+before you mutate. Multi-node mutations rebuild the index from the live
+collection between each step.
+
+Read event-time values through the getters (`getTreeIndex()`, `getViewRootId()`,
+`getViewIsHidden()`, `getViewFilter()`). Write view state in effects.
+
+Read side-collections with `subscribeChanges` and `useSyncExternalStore`.
+`useLiveQuery` hard-fails the `/` prerender. Readiness rides `toArrayWhenReady()`.
+
+`rootId` is route-owned: `routes/index.tsx` gives `null`; `routes/$nodeId.tsx`
+gives `nodeId`. The editor remounts per zoom via `key={nodeId}`.
 
 ### Why flat, not nested
 

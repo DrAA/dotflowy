@@ -87,7 +87,7 @@ async function expectNoToast(page: Page, re: RegExp): Promise<void> {
 
 /** Put the caret at the end of a bullet through the Selection API. `.click()`
  *  can land on a chip or past the text, and macOS Chromium's Home/End/arrow
- *  keys are unreliable in a contentEditable (AGENTS.md). */
+ *  keys are unreliable in a contentEditable (CONTRIBUTING.md). */
 async function caretAtEnd(page: Page, id: string): Promise<void> {
   await text(page, id).evaluate((el) => {
     (el as HTMLElement).focus();

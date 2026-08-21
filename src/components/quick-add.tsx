@@ -173,7 +173,7 @@ export interface MiniEditorHandle {
 }
 
 /** The contentEditable capture surface for ONE node. A curated, text-authoring
- *  fork of `OutlineEditor`'s `ZoomedTitle` (AGENTS.md "A node renders in three
+ *  fork of `OutlineEditor`'s `ZoomedTitle` (docs/plugins.md "A node renders in three
  *  places"): it calls the SAME shared decorate/caret/slash/menu primitives,
  *  but wires NO structural nav and a filtered `/` palette. `onText`
  *  is born-aware (creates the node on the first non-empty input, possibly async
@@ -184,7 +184,7 @@ export interface MiniEditorHandle {
  *  `ZoomedTitle`'s contentEditable wiring (onInput/onPaste/onCopy/onCut/onFocus/
  *  onBlur/onKeyDown + the slash/menus engines + the caret-reveal watcher + the
  *  `*:before-text` node slots -- the THIRD render path for a node's decorations,
- *  AGENTS.md "A node renders in three places"). The duplication is accepted rather
+ *  docs/plugins.md "A node renders in three places"). The duplication is accepted rather
  *  than extracting a shared hook (that would touch the outline's hot path for one
  *  consumer). When you change caret/decorate/menu/slot behavior in ZoomedTitle,
  *  mirror it here (and vice versa). Two DELIBERATE divergences from the title:

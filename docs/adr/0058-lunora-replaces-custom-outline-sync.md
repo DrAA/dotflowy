@@ -49,6 +49,13 @@ A read straight through the await therefore reports a failure for a write that l
 - **The claim path fails DANGEROUSLY, not merely loudly.** `claimTx` falls back to the local candidate id when the row reads as missing, so a read inside the window reports a WIN to a caller that lost the claim. `claimScaffoldNode` then calls `setMapping(key, winner)` unconditionally, which under Lunora patches `nodeId` blindly — so the false win overwrites the real winner's mapping on every other device.
 - **The wait NARROWS that window; it does not close it.** A stall past the timeout (backgrounded tab, reconnect, slow socket) still produces the false win. Closing it needs a server-authoritative read, which is follow-up work. Until then the timeout path reports to Sentry, because a rare silent corruption is harder to find than a routine one. It reports in PROD, not just DEV: every trigger is a production condition, so a DEV-only warn would be silent exactly where the hazard lives. `captureException` and not `captureMessage`, since the errors-only posture (#227) is deliberate and an unresolvable claim is an error. The payload carries a day key and two opaque ids, so no outline text rides along.
 
+## Mutator writes (locked)
+
+**Patch, delete, and get must pass `expectedTable`.** Write through the per-table
+facade (`ctx.db.nodes.delete(...)`, `ctx.db.dailyIndex.patch(...)`).
+`ctx.db.asId(...)` is compile-time branding only — it does not scope the runtime
+lookup. Unscoped patch/delete resolve the id across tables.
+
 ## Identity / e2e / kv (locked)
 
 - **Identity:** product Better Auth stays the session authority (MCP OAuth, Stripe, invite/Turnstile). Lunora `resolveIdentity` reads that session — do **not** run a second `@lunora/auth` signup stack in the main app.
