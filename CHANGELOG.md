@@ -1,5 +1,11 @@
 # dotflowy
 
+## 1.13.0
+
+### Minor Changes
+
+- 178df51: Spotlight mode now slides the line you're editing to the vertical center of the screen.
+
 ## 1.12.1
 
 ### Patch Changes
