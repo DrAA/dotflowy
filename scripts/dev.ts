@@ -2,7 +2,7 @@
  * `bun run dev` orchestrator: starts BOTH local servers with one command.
  *
  * Dotflowy's dev loop is two servers: `wrangler dev` (Worker + per-user DO +
- * local D1) on :8787, and Vite (the SPA) on :3000, which proxies `/api` to
+ * local D1) on :8787, and Vite (the SPA) on :3001, which proxies `/api` to
  * :8787 (see vite.config.ts). Previously `bun run dev` only started Vite, so
  * a new contributor running just that command got a UI where every `/api`
  * call 502s with no explanation. This spawns both, prefixes their output,
@@ -18,7 +18,7 @@ const ROOT = resolve(import.meta.dir, "..");
 
 const log = (msg: string) => console.log(`\x1b[36m[dev]\x1b[0m ${msg}`);
 
-log("starting wrangler dev on :8787 + vite dev on :3000 ...");
+log("starting wrangler dev on :8787 + vite dev on :3001 ...");
 
 const wrangler = Bun.spawn(["bunx", "wrangler", "dev", "--port", "8787"], {
   cwd: ROOT,
@@ -31,7 +31,7 @@ const vite = Bun.spawn(["bunx", "vite", "dev", ...process.argv.slice(2)], {
   stdio: ["inherit", "inherit", "inherit"],
 });
 
-log("Worker: http://localhost:8787  |  App: http://localhost:3000");
+log("Worker: http://localhost:8787  |  App: http://localhost:3001");
 
 function teardownAndExit(): void {
   wrangler.kill();

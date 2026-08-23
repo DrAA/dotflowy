@@ -234,7 +234,7 @@ export function useGlobalActions(opts: {
       {
         id: "g:changelog",
         label: "What's new",
-        description: "Every change to Dotflowy, newest first",
+        description: "Every change to aaflowy, newest first",
         icon: SparklesIcon,
         scope: "global",
         keywords: ["changelog", "release", "version", "news", "updates"],

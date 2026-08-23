@@ -19,7 +19,7 @@ const CURRENT: string = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ).version;
 
-const toast = (page: Page) => page.getByText("Dotflowy has been updated");
+const toast = (page: Page) => page.getByText("aaflowy has been updated");
 
 async function load(page: Page, serverVersion?: string) {
   await seedOutline(page, STANDARD_TREE, { serverVersion });

@@ -140,7 +140,7 @@ export function LegalPage({ markdown }: Readonly<{ markdown: string }>) {
             href="/"
             className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >
-            ← Back to Dotflowy
+            ← Back to aaflowy
           </a>
         </div>
         <article className="text-sm text-muted-foreground">

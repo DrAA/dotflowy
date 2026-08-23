@@ -169,7 +169,7 @@ export function Footer() {
        * plainly that we're independent and unaffiliated. */}
       <div className="mx-auto w-full max-w-2xl px-6 pb-6">
         <p className="text-xs leading-relaxed text-muted-foreground/70">
-          Workflowy is a trademark of its respective owner. Dotflowy is an
+          Workflowy is a trademark of its respective owner. aaflowy is an
           independent, open-source project and is not affiliated with, sponsored
           by, or endorsed by Workflowy.
         </p>

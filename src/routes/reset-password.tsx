@@ -87,7 +87,7 @@ function ResetPassword() {
     <main className="flex min-h-dvh items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold">Dotflowy</h1>
+          <h1 className="text-xl font-semibold">aaflowy</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Choose a new password
           </p>
@@ -105,7 +105,7 @@ function ResetPassword() {
                 : "This reset link is invalid or has expired. Request a new one from the sign-in screen."}
             </p>
             <Button className="w-full" onClick={() => hardReset("/")}>
-              {done ? "Go to sign in" : "Back to Dotflowy"}
+              {done ? "Go to sign in" : "Back to aaflowy"}
             </Button>
           </div>
         ) : (

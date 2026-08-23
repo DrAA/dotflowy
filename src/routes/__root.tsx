@@ -1,6 +1,8 @@
-// Sentry init must run before any app code (#227). SPA mode has no client entry
-// file, so the root route module is the earliest reliable place. Keep first.
-import "../instrument.client";
+// Sentry init must run before any app code (#227). SPA mode has no client
+// entry file, so the root route module is the earliest reliable place. Keep
+// first. File is `instrument.ts` (not `*.client.ts`) because this module is
+// also loaded in Vite's SSR graph; Start would deny a `.client` import.
+import "../instrument";
 import type { ReactNode } from "react";
 
 import {
@@ -79,7 +81,7 @@ const noFlashTextSizeScript = `
 `;
 
 const APP_URL = "https://app.dotflowy.com";
-const APP_TITLE = "Dotflowy";
+const APP_TITLE = "aaflowy";
 const APP_DESCRIPTION =
   "Room to think. Get everything out of your head, shape it when you're ready, and find it when it matters.";
 const OG_IMAGE = `${APP_URL}/og.png`;

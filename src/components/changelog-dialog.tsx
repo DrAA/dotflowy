@@ -172,7 +172,7 @@ export function ChangelogDialog() {
         <DialogHeader>
           <DialogTitle>What's new</DialogTitle>
           <DialogDescription>
-            Every change to Dotflowy, newest first.
+            Every change to aaflowy, newest first.
           </DialogDescription>
         </DialogHeader>
 

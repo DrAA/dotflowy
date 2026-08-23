@@ -105,10 +105,10 @@ export const STRIPE_LOOKUP_KEYS = {
  *  template system; inline strings are the system. */
 function resetPasswordEmail(url: string) {
   return {
-    subject: "Reset your Dotflowy password",
-    text: `Reset your Dotflowy password:\n\n${url}\n\nThis link expires in 1 hour. If you didn't ask for a reset, you can ignore this email — your password is unchanged.`,
+    subject: "Reset your aaflowy password",
+    text: `Reset your aaflowy password:\n\n${url}\n\nThis link expires in 1 hour. If you didn't ask for a reset, you can ignore this email — your password is unchanged.`,
     html: `<div style="font-family: system-ui, -apple-system, sans-serif; max-width: 28rem; margin: 0 auto; padding: 24px;">
-  <h1 style="font-size: 18px; font-weight: 600;">Reset your Dotflowy password</h1>
+  <h1 style="font-size: 18px; font-weight: 600;">Reset your aaflowy password</h1>
   <p style="font-size: 14px; color: #444; line-height: 1.5;">Someone (hopefully you) asked to reset the password for this email address.</p>
   <p style="margin: 24px 0;"><a href="${url}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; font-size: 14px; padding: 10px 16px; border-radius: 6px;">Choose a new password</a></p>
   <p style="font-size: 13px; color: #666; line-height: 1.5;">This link expires in 1 hour. If you didn't ask for a reset, ignore this email — your password is unchanged.</p>
@@ -121,13 +121,13 @@ function resetPasswordEmail(url: string) {
  *  can sign in (#293). */
 function verifyEmail(url: string) {
   return {
-    subject: "Confirm your Dotflowy email",
-    text: `Confirm your email to finish setting up Dotflowy:\n\n${url}\n\nIf you didn't create a Dotflowy account, you can ignore this email.`,
+    subject: "Confirm your aaflowy email",
+    text: `Confirm your email to finish setting up aaflowy:\n\n${url}\n\nIf you didn't create an aaflowy account, you can ignore this email.`,
     html: `<div style="font-family: system-ui, -apple-system, sans-serif; max-width: 28rem; margin: 0 auto; padding: 24px;">
   <h1 style="font-size: 18px; font-weight: 600;">Confirm your email</h1>
-  <p style="font-size: 14px; color: #444; line-height: 1.5;">One more step to finish setting up your Dotflowy account.</p>
+  <p style="font-size: 14px; color: #444; line-height: 1.5;">One more step to finish setting up your aaflowy account.</p>
   <p style="margin: 24px 0;"><a href="${url}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; font-size: 14px; padding: 10px 16px; border-radius: 6px;">Confirm email</a></p>
-  <p style="font-size: 13px; color: #666; line-height: 1.5;">If you didn't create a Dotflowy account, ignore this email.</p>
+  <p style="font-size: 13px; color: #666; line-height: 1.5;">If you didn't create an aaflowy account, ignore this email.</p>
 </div>`,
   };
 }
@@ -318,11 +318,16 @@ export function createAuth(
         allowDifferentEmails: true,
       },
     },
-    // Dev serves the SPA from Vite (:3000) and proxies /api to the Worker, so
+    // Dev serves the SPA from Vite (:3001) and proxies /api to the Worker, so
     // a sign-in request's Origin is the Vite origin, not the Worker's. Trust
     // the local dev origins explicitly; prod is covered by baseURL. e2e (:3210)
     // mocks /api/auth, so it never reaches this, but trusting it costs nothing.
-    trustedOrigins: ["http://localhost:3000", "http://localhost:3210"],
+    // :3000 stays trusted in case something still hits the old Vite port.
+    trustedOrigins: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3210",
+    ],
     // Signup gate: /sign-up/email is the ONLY account-creation path (the mcp
     // plugin's dynamic registration creates OAuth clients, not users), so gating
     // it here controls signup entirely. Server-side on purpose — hiding the

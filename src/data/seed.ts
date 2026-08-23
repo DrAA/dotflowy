@@ -126,7 +126,7 @@ async function seedIfEmpty(): Promise<boolean> {
       id: aId,
       parentId: null,
       prevSiblingId: null,
-      text: "Welcome to Dotflowy",
+      text: "Welcome to aaflowy",
       createdAt: now(),
     }),
   );

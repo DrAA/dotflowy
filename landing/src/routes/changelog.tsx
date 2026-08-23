@@ -4,9 +4,9 @@ import { ChangelogList } from "@/components/Changelog";
 import { Footer, Nav } from "@/components/SiteChrome";
 import { RELEASES_URL, releases } from "@/lib/changelog-data";
 
-const TITLE = "What's new — Dotflowy";
+const TITLE = "What's new — aaflowy";
 const DESCRIPTION =
-  "Every change to Dotflowy, newest first. No sign-in required.";
+  "Every change to aaflowy, newest first. No sign-in required.";
 const URL = "https://dotflowy.com/changelog";
 
 export const Route = createFileRoute("/changelog")({
@@ -36,7 +36,7 @@ function ChangelogPage() {
               What&apos;s new
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-pretty text-muted-foreground">
-              Every change to Dotflowy, newest first.
+              Every change to aaflowy, newest first.
             </p>
             <div className="mt-12">
               <ChangelogList releases={releases} />

@@ -530,7 +530,7 @@ function PlanBilling({ state, subs, reload }: Subscriptions) {
               featured
               note={
                 <>
-                  Support Dotflowy early and lock in three years. Limited to 50
+                  Support aaflowy early and lock in three years. Limited to 50
                   seats.{" "}
                   <span className="text-foreground">
                     Renews after 3 years unless you cancel — cancel anytime.
@@ -764,8 +764,8 @@ function BetaSection() {
           title="Upgraded outline sync"
           description={
             <>
-              Try Dotflowy&apos;s next sync engine. Your outline stays yours —
-              we never claim your data. Opting in helps us harden it before
+              Try aaflowy&apos;s next sync engine. Your outline stays yours — we
+              never claim your data. Opting in helps us harden it before
               everyone gets it. May have rough edges; your choice syncs across
               devices, and toggling reloads the app. Turning it off returns you
               to your last classic snapshot — edits you make while this is on

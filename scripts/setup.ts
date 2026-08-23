@@ -74,5 +74,5 @@ if ((await warm.exited) !== 0) {
 }
 
 log("Setup complete. Next:");
-log("  bun run dev          # start the app (http://localhost:3000)");
+log("  bun run dev          # start the app (http://localhost:3001)");
 log("  Sign up with invite code: dev-invite");

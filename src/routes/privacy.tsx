@@ -9,7 +9,7 @@ import { LegalPage } from "../components/legal-page";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({
-    meta: [{ title: "Privacy Policy — Dotflowy" }],
+    meta: [{ title: "Privacy Policy — aaflowy" }],
   }),
   component: Privacy,
 });

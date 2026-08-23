@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** The brand lockup: dot badge + "Dotflowy" wordmark (text as outlines).
+/** The brand lockup: dot badge + "aaflowy" wordmark (text as outlines).
  * Fills use currentColor so it follows the theme (inverts in dark mode);
  * the badge keeps the mark's 7% halo via fill-opacity. Size with a height
  * class — the viewBox preserves the 632:128 ratio. Same artwork as
@@ -12,7 +12,7 @@ export function Logo({ className }: { className?: string }) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="Dotflowy"
+      aria-label="aaflowy"
       className={cn("text-foreground", className)}
     >
       <circle

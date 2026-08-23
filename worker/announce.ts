@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 /**
- * Launch-day "Dotflowy is open" blast (map #151 / ticket #294). When signup
+ * Launch-day "aaflowy is open" blast (map #151 / ticket #294). When signup
  * graduates from invite-only to public, every waitlist row (migration 0005) gets
  * one announcement email. The counterpart to worker/invites.ts's MINT/SEND half:
  * same shape, same reasons.
@@ -42,8 +42,8 @@ export interface AnnounceBatchResult {
  *  founding plan) are pinned to ticket #294; keep them honest if edited. */
 export function announceEmail(signupUrl: string) {
   return {
-    subject: "Dotflowy is open",
-    text: `You joined the Dotflowy waitlist a while back. Thanks for waiting.
+    subject: "aaflowy is open",
+    text: `You joined the aaflowy waitlist a while back. Thanks for waiting.
 
 Signup's open now, no invite code needed: ${signupUrl}
 
@@ -58,8 +58,8 @@ dotflowy.com
 
 (Written by Claude to be organized well, content and heart from Cam.)`,
     html: `<div style="font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 0 auto; padding: 24px; color: #111; line-height: 1.5;">
-  <h1 style="font-size: 18px; font-weight: 600;">Dotflowy is open</h1>
-  <p style="font-size: 14px; color: #444;">You joined the Dotflowy waitlist a while back. Thanks for waiting.</p>
+  <h1 style="font-size: 18px; font-weight: 600;">aaflowy is open</h1>
+  <p style="font-size: 14px; color: #444;">You joined the aaflowy waitlist a while back. Thanks for waiting.</p>
   <p style="font-size: 14px; color: #444;">Signup's open now, no invite code needed.</p>
   <p style="margin: 20px 0;"><a href="${signupUrl}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; font-size: 14px; padding: 10px 16px; border-radius: 6px;">Create your account</a></p>
   <p style="font-size: 14px; color: #444;">The free plan is the whole outliner: up to 10,000 live nodes, export always free, and going over the cap never locks you out.</p>

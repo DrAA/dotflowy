@@ -1,6 +1,6 @@
 /**
  * The ONE place we strip user-authored text from an outbound Sentry event
- * (#227). Shared by the client (`src/instrument.client.ts`, @sentry/react) and
+ * (#227). Shared by the client (`src/instrument.ts`, @sentry/react) and
  * the Worker/DO (`worker/sentry.ts`, @sentry/cloudflare) so the two can't drift
  * on the privacy guarantee the policy makes: "your note text never rides an
  * error report".

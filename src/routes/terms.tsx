@@ -9,7 +9,7 @@ import { LegalPage } from "../components/legal-page";
 
 export const Route = createFileRoute("/terms")({
   head: () => ({
-    meta: [{ title: "Terms of Service — Dotflowy" }],
+    meta: [{ title: "Terms of Service — aaflowy" }],
   }),
   component: Terms,
 });

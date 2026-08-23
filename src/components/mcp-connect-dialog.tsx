@@ -42,7 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 /**
  * "Connect to your AI apps" dialog (opened from the header More menu).
  *
- * Dotflowy's MCP server is a REMOTE, OAuth-gated Streamable-HTTP endpoint
+ * aaflowy's MCP server is a REMOTE, OAuth-gated Streamable-HTTP endpoint
  * (`POST /mcp`, ADR 0026), so every client's setup reduces to "point at the
  * server URL and sign in" -- there is no API key to paste anywhere. That's the
  * spine of this dialog: one canonical URL up top, then a per-client rail with
@@ -175,7 +175,7 @@ const CLIENTS: Client[] = [
             Click <span className="text-foreground">Add custom connector</span>.
           </li>
           <li>Paste the server URL and continue.</li>
-          <li>Sign in when the Dotflowy window opens.</li>
+          <li>Sign in when the aaflowy window opens.</li>
         </Steps>
         <CopyField value={MCP_URL} />
       </>
@@ -188,14 +188,14 @@ const CLIENTS: Client[] = [
     content: (
       <>
         <p className="text-sm text-muted-foreground">
-          Add Dotflowy as an HTTP MCP server from your terminal.
+          Add aaflowy as an HTTP MCP server from your terminal.
         </p>
         <CopyBlock
           code={`claude mcp add --transport http dotflowy ${MCP_URL}`}
         />
         <p className="text-sm text-muted-foreground">
           Then run <span className="font-mono text-foreground">/mcp</span>{" "}
-          inside Claude Code and pick Dotflowy to sign in.
+          inside Claude Code and pick aaflowy to sign in.
         </p>
       </>
     ),
@@ -256,7 +256,7 @@ const CLIENTS: Client[] = [
             Open <span className="text-foreground">Settings → Connectors</span>.
           </li>
           <li>Add a connector and paste the server URL.</li>
-          <li>Authenticate with your Dotflowy account.</li>
+          <li>Authenticate with your aaflowy account.</li>
         </Steps>
         <CopyField value={MCP_URL} />
       </>
@@ -274,7 +274,7 @@ const CLIENTS: Client[] = [
         </p>
         <CopyBlock code={`npx install-mcp ${MCP_URL} --client <your-client>`} />
         <p className="text-sm text-muted-foreground">
-          Dotflowy is a Streamable-HTTP server with OAuth, so any spec-compliant
+          aaflowy is a Streamable-HTTP server with OAuth, so any spec-compliant
           client works.
         </p>
       </>
@@ -338,8 +338,8 @@ export function McpConnectDialog({
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle>Connect to your AI apps</DialogTitle>
           <DialogDescription>
-            Dotflowy speaks MCP. Connect any AI app to read and edit your
-            outline — no API key, you just sign in.
+            aaflowy speaks MCP. Connect any AI app to read and edit your outline
+            — no API key, you just sign in.
           </DialogDescription>
         </DialogHeader>
 

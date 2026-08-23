@@ -334,7 +334,7 @@ export function AuthScreen() {
     <main className="flex min-h-dvh items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold">Dotflowy</h1>
+          <h1 className="text-xl font-semibold">aaflowy</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isForgot
               ? "Reset your password"
@@ -544,7 +544,7 @@ export function AuthScreen() {
         {isSignup && !signupOpen && (
           <p className="mt-2 text-center text-sm text-muted-foreground">
             {waitlist === "done" ? (
-              "You're on the list! An invite will land in your inbox when Dotflowy is ready."
+              "You're on the list! An invite will land in your inbox when aaflowy is ready."
             ) : (
               <>
                 No invite code?{" "}

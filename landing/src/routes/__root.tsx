@@ -13,7 +13,7 @@ import "../styles.css";
 // SEARCH surface, so the category + "Workflowy alternative" keywords live
 // here on purpose (OSS/comparison is a channel, not the pitch — see
 // .agents/product-marketing.md).
-const TITLE = "Dotflowy — free up your mind";
+const TITLE = "aaflowy — free up your mind";
 const DESCRIPTION =
   "Get everything out of your head, shape it when you're ready, and find it when it matters. A calm, fast, open-source outliner — a Workflowy alternative your AI agents can edit too.";
 const URL = "https://dotflowy.com";

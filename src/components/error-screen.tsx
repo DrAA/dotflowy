@@ -11,7 +11,7 @@ import { Button } from "./ui/button";
  * the failed render; a full reload is the harder escape hatch.
  *
  * `Sentry.captureException` is a no-op until `Sentry.init` has run (PROD only,
- * see instrument.client.ts), so this is safe to call unconditionally.
+ * see instrument.ts), so this is safe to call unconditionally.
  */
 export function ErrorScreen({ error, reset }: ErrorComponentProps) {
   useEffect(() => {

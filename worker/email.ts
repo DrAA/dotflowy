@@ -24,7 +24,7 @@ export interface EmailEnv {
 /** The sender identity, pinned here AND in the binding's
  *  `allowed_sender_addresses` (defense in depth: the binding rejects any other
  *  From even if a future caller tries one). */
-const FROM = "Dotflowy <no-reply@dotflowy.com>";
+const FROM = "aaflowy <no-reply@dotflowy.com>";
 
 export interface EmailMessage {
   to: string;

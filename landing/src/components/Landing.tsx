@@ -56,7 +56,7 @@ function DemoVideo() {
         <iframe
           className="absolute inset-0 size-full"
           src={`https://www.youtube-nocookie.com/embed/${VIDEO_ID}?autoplay=1&rel=0`}
-          title="Dotflowy demo video"
+          title="aaflowy demo video"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowFullScreen
         />
@@ -74,7 +74,7 @@ function DemoVideo() {
         >
           <img
             src="/demo-thumb.jpg"
-            alt="Dotflowy demo — overview of the outliner"
+            alt="aaflowy demo — overview of the outliner"
             width={1280}
             height={720}
             loading="eager"
@@ -201,7 +201,7 @@ function WhatsNew() {
             What&apos;s new
           </h2>
           <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-pretty text-muted-foreground">
-            Recent updates to Dotflowy. No sign-in required.
+            Recent updates to aaflowy. No sign-in required.
           </p>
         </Reveal>
         <Reveal delay={80} className="mt-10">
@@ -350,7 +350,7 @@ const TIERS: Tier[] = [
         </p>
       </div>
     ),
-    tagline: "Back Dotflowy early. Lock in three years.",
+    tagline: "Back aaflowy early. Lock in three years.",
     features: [
       "Everything in Unlimited.",
       "One payment covers three full years of Unlimited.",

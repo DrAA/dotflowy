@@ -26,7 +26,7 @@ export type LunoraEnv = AuthEnv & {
    */
   LUNORA_OUTLINE?: string;
   /**
-   * Extra origins for Lunora CSRF/CORS (comma-separated). Vite `:3000` /
+   * Extra origins for Lunora CSRF/CORS (comma-separated). Vite `:3001` /
    * e2e `:3210` are always included — see `lunoraTrustedOrigins`.
    */
   LUNORA_TRUSTED_ORIGINS?: string;
@@ -38,7 +38,7 @@ export type LunoraEnv = AuthEnv & {
  * Origins the SPA may use when talking to Lunora through the Vite/dev proxy.
  *
  * Lunora's CSRF guard compares `Origin` to `new URL(request.url).origin`. In
- * `bun run dev`, the browser Origin is Vite (`:3000`) while the Worker URL
+ * `bun run dev`, the browser Origin is Vite (`:3001`) while the Worker URL
  * (after `changeOrigin`) is wrangler (`:8787`) — without these trusted, cookie
  * WS upgrades return `FORBIDDEN_ORIGIN` 403 and the outline never leaves
  * "Loading outline". Mirrors Better Auth's `trustedOrigins` in `auth.ts`.
@@ -62,6 +62,7 @@ function lunoraTrustedOrigins(env: LunoraEnv): string[] {
   return [
     ...new Set([
       "http://localhost:3000",
+      "http://localhost:3001",
       "http://localhost:3210",
       ...fromBase,
       ...fromEnv,

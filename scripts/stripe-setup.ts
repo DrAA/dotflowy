@@ -68,7 +68,7 @@ const PRICE_SPECS: PriceSpec[] = [
   {
     lookupKey: LOOKUP_KEYS.unlimitedMonthly,
     label: "Unlimited monthly ($5/mo)",
-    productName: "Dotflowy Unlimited",
+    productName: "aaflowy Unlimited",
     unitAmount: 500,
     currency: "usd",
     interval: "month",
@@ -77,7 +77,7 @@ const PRICE_SPECS: PriceSpec[] = [
   {
     lookupKey: LOOKUP_KEYS.unlimitedAnnual,
     label: "Unlimited annual ($48/yr)",
-    productName: "Dotflowy Unlimited",
+    productName: "aaflowy Unlimited",
     unitAmount: 4800,
     currency: "usd",
     interval: "year",
@@ -86,7 +86,7 @@ const PRICE_SPECS: PriceSpec[] = [
   {
     lookupKey: LOOKUP_KEYS.founding,
     label: "Founding ($99 / 3yr)",
-    productName: "Dotflowy Founding",
+    productName: "aaflowy Founding",
     unitAmount: 9900,
     currency: "usd",
     interval: "year",

@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`Sign in at http://localhost:3000 with ${EMAIL} / ${PASSWORD}`);
+  console.log(`Sign in at http://localhost:3001 with ${EMAIL} / ${PASSWORD}`);
 }
 
 await main();

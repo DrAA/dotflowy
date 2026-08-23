@@ -8,10 +8,11 @@ import { scrubSentryEvent } from "./data/sentry-scrub";
  * capture (~35 KB gzip). Imported as the FIRST import in the root route module
  * so it initializes before the app renders.
  *
- * SPA-mode note: there is no client entry file to put this in front of, so the
- * root route module (`__root.tsx`) is the earliest reliable app code. The
- * guards below keep it a no-op during the build's static prerender (no window)
- * and in dev (only PROD), so dev throws never pollute the issue feed.
+ * Not named like `foo.client.ts`: `__root.tsx` is loaded in Vite's SSR graph
+ * even in SPA mode, and TanStack Start's import-protection denies `.client.`
+ * files from that environment. Guards below keep init a no-op during prerender
+ * (no window) and in dev (PROD only), so dev throws never pollute the issue
+ * feed.
  *
  * The DSN is public-by-design; it comes from `VITE_SENTRY_DSN` (a committed
  * `.env.production` value, not a secret). Unset => Sentry stays dormant.

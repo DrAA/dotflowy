@@ -194,7 +194,7 @@ src/
     registry.ts       # composes every plugin's registrations once at load
     code/ links/ node-links/ route-bible/ tags/ todos/ daily/
     emphasis/ highlight/ spoiler/ provenance/   # one folder per plugin
-  instrument.client.ts # Sentry init (errors-only), imported first in __root.tsx; no-op in dev/prerender
+  instrument.ts        # Sentry init (errors-only), imported first in __root.tsx; no-op in dev/prerender
   router.tsx
   styles.css
 worker/               # Cloudflare Worker: serves the SPA + routes /api/nodes + /api/kv to per-user DOs

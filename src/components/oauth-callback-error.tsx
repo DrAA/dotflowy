@@ -13,17 +13,17 @@ import { toast } from "sonner";
  */
 
 const MESSAGES: Record<string, string> = {
-  // A Google identity with no Dotflowy account hit the server-side signup
+  // A Google identity with no aaflowy account hit the server-side signup
   // gate (worker/auth.ts `disableSignUp` — the OAuth face of the invite gate).
   signup_disabled:
-    "That Google account isn't connected to a Dotflowy account yet. Sign up with your email first, then connect Google from the More menu.",
+    "That Google account isn't connected to an aaflowy account yet. Sign up with your email first, then connect Google from the More menu.",
   // An email+password account exists at this address but isn't linked, and
   // implicit linking refused (unverified local email). The fix is the
   // explicit, authenticated path.
   account_not_linked:
-    "That email already has a Dotflowy password account. Sign in with your password, then connect Google from the More menu.",
+    "That email already has an aaflowy password account. Sign in with your password, then connect Google from the More menu.",
   account_already_linked_to_different_user:
-    "That Google account is already connected to a different Dotflowy account.",
+    "That Google account is already connected to a different aaflowy account.",
   // The user backed out at Google's consent screen.
   access_denied: "Google sign-in was cancelled.",
 };

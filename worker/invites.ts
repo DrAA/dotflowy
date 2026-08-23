@@ -65,10 +65,10 @@ export function normalizeEmail(email: string): string {
  *  the recipient to sign up with THIS address — the code only validates for it. */
 export function inviteEmail(code: string, signupUrl: string, email: string) {
   return {
-    subject: "You're invited to Dotflowy",
-    text: `You're invited to Dotflowy.\n\nYour invite code: ${code}\n\nSign up at ${signupUrl} using this email address (${email}) — the code only works for it, and only once.\n\nSee you inside.`,
+    subject: "You're invited to aaflowy",
+    text: `You're invited to aaflowy.\n\nYour invite code: ${code}\n\nSign up at ${signupUrl} using this email address (${email}) — the code only works for it, and only once.\n\nSee you inside.`,
     html: `<div style="font-family: system-ui, -apple-system, sans-serif; max-width: 28rem; margin: 0 auto; padding: 24px;">
-  <h1 style="font-size: 18px; font-weight: 600;">You're invited to Dotflowy</h1>
+  <h1 style="font-size: 18px; font-weight: 600;">You're invited to aaflowy</h1>
   <p style="font-size: 14px; color: #444; line-height: 1.5;">Your invite is ready. Use this code when you sign up:</p>
   <p style="margin: 20px 0;"><code style="display: inline-block; background: #f4f4f5; border: 1px solid #e4e4e7; font-size: 18px; letter-spacing: 2px; padding: 10px 16px; border-radius: 6px; font-family: ui-monospace, monospace;">${code}</code></p>
   <p style="margin: 24px 0;"><a href="${signupUrl}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; font-size: 14px; padding: 10px 16px; border-radius: 6px;">Create your account</a></p>

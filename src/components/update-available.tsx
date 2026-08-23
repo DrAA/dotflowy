@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useUpdateAvailable } from "../data/app-version";
 
 /**
- * "Dotflowy has been updated" — the reload affordance for a tab whose bundle is
+ * "aaflowy has been updated" — the reload affordance for a tab whose bundle is
  * older than the Worker it just handshook with (ADR 0046, `app-version.ts`).
  *
  * Non-blocking and never automatic: an outliner tab can hold a keystroke that
@@ -22,7 +22,7 @@ export function UpdateAvailableToast() {
   useEffect(() => {
     if (!available || fired.current) return;
     fired.current = true;
-    toast("Dotflowy has been updated", {
+    toast("aaflowy has been updated", {
       description: "Reload to pick up the latest version.",
       duration: Infinity,
       action: {

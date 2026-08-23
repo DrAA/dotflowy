@@ -39,12 +39,12 @@ const LATEST_PROTOCOL_VERSION = "2025-06-18";
  *  from package.json, not typed here (ADR 0046). */
 const SERVER_INFO = {
   name: "dotflowy",
-  title: "Dotflowy",
+  title: "aaflowy",
   version: APP_VERSION,
 };
 
 const SERVER_INSTRUCTIONS =
-  'Dotflowy is the user\'s personal outline (nested bullets; some are to-dos; daily notes live under a "Daily" container). ' +
+  'aaflowy is the user\'s personal outline (nested bullets; some are to-dos; daily notes live under a "Daily" container). ' +
   "Read with get_outline / search_nodes — every line carries the node id the write tools need. " +
   "add_to_today and mirror_to_today are the fastest ways to put something on the user's daily note; " +
   'pass `timeZone` (e.g. "America/New_York") so an omitted `date` resolves to the user\'s own today.';
@@ -60,7 +60,7 @@ const INTERNAL_ERROR = -32603;
 // can still initialize + discover but no tool call ever touches the outline.
 const UPGRADE_REQUIRED = -32001;
 const UPGRADE_MESSAGE =
-  "Agent access requires a paid Dotflowy plan. Upgrade at https://dotflowy.com to connect an agent.";
+  "Agent access requires a paid aaflowy plan. Upgrade at https://dotflowy.com to connect an agent.";
 
 // --- Wire schemas (the /api/mcp trust boundary) --------------------------------
 
