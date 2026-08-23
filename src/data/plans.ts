@@ -9,11 +9,6 @@
  * `subscription.upgrade({ plan })` sends them verbatim.
  */
 
-/** Free-tier live-node ceiling — a display mirror of `FREE_NODE_LIMIT` in
- *  worker/plan.ts (which is the enforced number). Kept in sync by hand; only
- *  the meter copy reads it, so a mismatch mis-draws the bar, nothing more. */
-export const FREE_NODE_LIMIT = 10000;
-
 /** A resolved plan for display. Mirrors `worker/plan.ts` `Plan`. */
 export type PlanName = "free" | "unlimited" | "founding";
 

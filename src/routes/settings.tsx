@@ -30,9 +30,8 @@ import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import { outlineToMarkdown } from "../data/markdown";
 import { imageCountsByNode } from "../data/media";
-import { useNodeCount } from "../data/node-count";
 import { exportOpml } from "../data/opml-export";
-import { FREE_NODE_LIMIT, PLAN_LABELS, type PlanName } from "../data/plans";
+import { PLAN_LABELS, type PlanName } from "../data/plans";
 import { childrenOf } from "../data/tree";
 import { getTreeIndex } from "../data/tree-store";
 import {
@@ -270,37 +269,6 @@ function useSubscriptions(): Subscriptions {
   return { state, subs, reload };
 }
 
-function UsageMeter() {
-  const { count, ready } = useNodeCount();
-  const pct = Math.min(100, Math.round((count / FREE_NODE_LIMIT) * 100));
-  const near = pct >= 80;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between text-sm">
-        <span className="text-muted-foreground">Nodes used</span>
-        <span
-          className={cn(
-            "font-medium tabular-nums",
-            ready ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {ready ? count.toLocaleString() : "—"} of{" "}
-          {FREE_NODE_LIMIT.toLocaleString()}
-        </span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-500 ease-out motion-reduce:transition-none",
-            near ? "bg-amber-500" : "bg-primary",
-          )}
-          style={{ width: ready ? `${pct}%` : "0%" }}
-        />
-      </div>
-    </div>
-  );
-}
-
 /** One upgrade card: a headline price, a supporting line, and a single primary
  *  action. `featured` gives the founding card a subtle ring. */
 function UpgradeCard({
@@ -484,8 +452,6 @@ function PlanBilling({ state, subs, reload }: Subscriptions) {
           )}
         </div>
 
-        {plan === "free" && <UsageMeter />}
-
         {paid && (
           <button
             type="button"
@@ -507,7 +473,7 @@ function PlanBilling({ state, subs, reload }: Subscriptions) {
             cadence="/ month"
             note={
               <>
-                No node limit, plus AI app connections over MCP. Or{" "}
+                AI app connections over MCP. Or{" "}
                 <span className="font-medium text-foreground">
                   $48/yr ($4/mo billed yearly)
                 </span>

@@ -133,16 +133,12 @@ test.describe("Settings page", () => {
     }
   });
 
-  test("free plan shows the usage meter and all three upgrade CTAs", async ({
-    page,
-  }) => {
+  test("free plan shows all three upgrade CTAs", async ({ page }) => {
     await seedOutline(page, TREE);
     await mockFreePlan(page);
     await page.goto("/settings");
 
-    // Current-plan card reads "Free" and shows the usage meter.
     await expect(page.getByText("Current plan")).toBeVisible();
-    await expect(page.getByText("Nodes used")).toBeVisible();
 
     // The three upgrade paths (unique CTA labels).
     await expect(

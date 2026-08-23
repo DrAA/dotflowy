@@ -17,15 +17,15 @@ export type Plan = "free" | "unlimited" | "founding";
 /** Plan names as stored by the plugin (it lowercases `plan` on write). */
 export const PAID_PLANS = ["unlimited", "founding"] as const;
 
-/** Free tier ceiling: total LIVE nodes a free outline may hold (#152/#170).
- *  Generous by design — the funnel, not a wall; over-cap never locks (edits,
- *  moves, deletes always apply — see `batchExceedsNodeLimit`). Paid = no cap. */
+/** Historical free-tier ceiling (#152/#170). No longer enforced — every plan
+ *  is unlimited. Kept so the dead 403 `node_limit` body stays typed if a
+ *  gated DO path ever returns null. */
 export const FREE_NODE_LIMIT = 10000;
 
-/** The node ceiling a plan enforces: free is capped, paid is unlimited (`null`,
- *  which every gate below reads as "never reject"). */
-export function nodeLimitForPlan(plan: Plan): number | null {
-  return plan === "free" ? FREE_NODE_LIMIT : null;
+/** The node ceiling a plan enforces. Always `null` (unlimited) — the free-tier
+ *  10k cap was removed. Every gate below reads `null` as "never reject". */
+export function nodeLimitForPlan(_plan: Plan): number | null {
+  return null;
 }
 
 /**

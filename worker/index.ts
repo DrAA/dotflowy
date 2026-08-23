@@ -70,7 +70,7 @@ import {
 import { handleMcp, mcpCorsPreflight } from "./mcp";
 import { handleMedia } from "./media";
 import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
-import { FREE_NODE_LIMIT, getPlan, nodeLimitForPlan } from "./plan";
+import { FREE_NODE_LIMIT, getPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
 import { workerSentryOptions } from "./sentry";
 import { isHttpUrlString, unfurlTitleE } from "./unfurl";
@@ -405,8 +405,6 @@ function decodeBody<S extends Schema.Top>(
 function handleNodes(
   request: Request,
   stub: DurableObjectStub<UserOutlineDO>,
-  env: Env,
-  billingUserId: string,
 ): Effect.Effect<Response, BadRequest | NodeLimitExceeded> {
   return Effect.gen(function* () {
     switch (request.method) {
@@ -419,40 +417,20 @@ function handleNodes(
         // that seq so the client can hold its optimistic overlay until the frame
         // echoes back — closing the half-applied / reverted-state window.
         //
-        // Free-tier node ceiling (#170): resolve the caller's limit and let the
-        // DO reject a batch that would grow the outline past it (null seq → 403).
-        // A pure-delete batch can never grow the outline, so skip the plan query
-        // (deletes are never blocked) — most structural edits (moves) DO touch
-        // existing nodes, but the DO's per-op growth count makes that safe.
-        //
-        // getPlan takes the BILLING id (`session.user.id`), NOT the DO-routing id:
-        // the subscription table is keyed on the raw Better Auth `user.id`, but
-        // resolveUserId collapses the OWNER to the constant 'default' DO — so
-        // querying the resolved id would miss the owner's comp row and wrongly
-        // read `free`. Same split the MCP branch makes (getPlan(token.userId) with
-        // a separately-resolved DO stub).
+        // Node ceiling is off (every plan is unlimited). The DO still accepts a
+        // limit; we pass null so applyBatchGated never refuses. The 403 mapping
+        // below stays as a backstop if a gated path ever returns null.
         if (ops) {
-          const growable = ops.some((o) => o.op !== "delete");
-          const limit = growable
-            ? nodeLimitForPlan(
-                yield* Effect.promise(() => getPlan(billingUserId, env)),
-              )
-            : null;
           const seq = yield* Effect.promise(() =>
-            stub.applyBatchGated(ops, limit),
+            stub.applyBatchGated(ops, null),
           );
           if (seq === null) return yield* Effect.fail(new NodeLimitExceeded());
           return json({ seq });
         }
-        // Legacy upsert path: the first-run seed and any pre-batch client. Kept
-        // for back-compat during rollout — gated too, so a raw POST can't slip
-        // past the cap the batch path enforces.
+        // Legacy upsert path: the first-run seed and any pre-batch client.
         if (nodes?.length) {
-          const limit = nodeLimitForPlan(
-            yield* Effect.promise(() => getPlan(billingUserId, env)),
-          );
           const applied = yield* Effect.promise(() =>
-            stub.upsertNodesGated(nodes, limit),
+            stub.upsertNodesGated(nodes, null),
           );
           if (!applied) return yield* Effect.fail(new NodeLimitExceeded());
         }
@@ -1058,9 +1036,7 @@ function handleApiRequest(
 
     if (url.pathname === "/api/nodes") {
       yield* maybeSeed;
-      // `stub` routes on the resolved `userId` (owner → 'default'); the plan
-      // lookup takes the raw billing id (`session.user.id`) — see handleNodes.
-      return yield* handleNodes(request, stub, env, session.user.id);
+      return yield* handleNodes(request, stub);
     }
 
     if (url.pathname === "/api/kv") {

@@ -6,7 +6,6 @@ import { makeNode } from "../src/data/tree";
 import {
   batchExceedsNodeLimit,
   countNetGrowth,
-  FREE_NODE_LIMIT,
   nodeLimitForPlan,
   resolvePlan,
 } from "./plan";
@@ -44,8 +43,8 @@ describe("resolvePlan", () => {
 });
 
 describe("nodeLimitForPlan", () => {
-  test("free is capped, paid is unlimited (null)", () => {
-    expect(nodeLimitForPlan("free")).toBe(FREE_NODE_LIMIT);
+  test("every plan is unlimited (null) — the free-tier cap is gone", () => {
+    expect(nodeLimitForPlan("free")).toBeNull();
     expect(nodeLimitForPlan("unlimited")).toBeNull();
     expect(nodeLimitForPlan("founding")).toBeNull();
   });
