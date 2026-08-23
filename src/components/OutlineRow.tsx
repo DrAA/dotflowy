@@ -51,6 +51,7 @@ import {
 import { applyPendingCaret } from "./pending-caret";
 import { healProtectedText } from "./protected-text";
 import { ProtectedLock } from "./protection";
+import { openFilterInput } from "./query-filter-nav";
 import { useSlashMenu } from "./slash-menu";
 import { useBulletKeymap } from "./use-bullet-keymap";
 
@@ -575,7 +576,14 @@ function RowChrome({
             }}
             onKeyDown={(e) => {
               if (menus.handleKeyDown(e)) return;
-              slash.handleKeyDown(e);
+              if (slash.handleKeyDown(e)) return;
+              // Escape on the editing host itself: window bubble never sees
+              // contentEditable keydowns, and capture can be skipped by overlays.
+              if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                openFilterInput({ skipSuggestions: true });
+              }
             }}
           />
           {/* Full-width under the text (Seam F `row:below`, ADR 0061). Inside

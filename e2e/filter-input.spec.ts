@@ -6,8 +6,9 @@ import { seedOutline, type SeedNode } from "./fixtures";
 // chrome opened by Cmd+F / the header magnifier / the Cmd+K "Filter this view"
 // action. Live (debounced) filtering while composing; the raw query stays
 // RESIDENT in the input while `?q=` is active -- focused or not (the pill state
-// is dead). A trailing clear X, and a progressive Escape ladder (close the
-// popover -> clear the text -> collapse the row).
+// is dead). A trailing clear X. Escape toggles filter ↔ outline (Workflowy):
+// close the suggestion popover first, then return the caret to the last bullet
+// without clearing. The X / magnifier still wipe `?q=`.
 
 const TREE: SeedNode[] = [
   {
@@ -230,7 +231,7 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
     await expect(input(page)).toBeVisible();
   });
 
-  test("Escape ladder: close the popover, clear the text, collapse the row", async ({
+  test("Escape ladder: close the popover, then return to the outline", async ({
     page,
   }) => {
     await load(page);
@@ -250,32 +251,53 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
     await expect(input(page)).toBeFocused();
     await expect(page).toHaveURL(/q=%23work/);
 
-    // Stage 2: Escape clears the text AND the query, keeping focus.
+    // Stage 2: Escape jumps to the outline. The query stays resident.
     await input(page).press("Escape");
-    await expect(input(page)).toHaveValue("");
-    await expect(input(page)).toBeFocused();
-    await expect(page).not.toHaveURL(/q=/);
-
-    // Stage 3: a final Escape (empty, no popover) collapses the row.
-    await input(page).press("Escape");
-    await expect(input(page)).toHaveCount(0);
+    await expect(input(page)).toBeVisible();
+    await expect(input(page)).toHaveValue("#work");
+    await expect(input(page)).not.toBeFocused();
+    await expect(page).toHaveURL(/q=%23work/);
+    await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
   });
 
-  test("window Escape clears an active filter in one press", async ({
+  test("Escape from a bullet focuses the filter (query kept)", async ({
     page,
   }) => {
     await load(page);
     await summon(page);
 
     await input(page).fill("#work");
-    await input(page).press("Enter"); // commit + blur; input stays resident
+    await expect(page).toHaveURL(/q=%23work/);
+    await input(page).press("Enter");
     await expect(input(page)).not.toBeFocused();
     await expect(page).toHaveURL(/q=%23work/);
 
-    // The caret is not in the outline and no input is focused: one window-level
-    // Escape clears the whole filter and collapses the row.
+    // Outline Escape focuses search; suggestions stay closed so the next
+    // Escape can return (a 1:1 toggle). The query is not cleared.
     await page.keyboard.press("Escape");
-    await expect(page).not.toHaveURL(/q=/);
+    await expect(input(page)).toBeFocused();
+    await expect(input(page)).toHaveValue("#work");
+    await expect(page).toHaveURL(/q=%23work/);
+    await expect(page.locator('[role="listbox"]')).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(input(page)).not.toBeFocused();
+    await expect(page).toHaveURL(/q=%23work/);
+    await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
+  });
+
+  test("empty Escape collapses the row and focuses the outline", async ({
+    page,
+  }) => {
+    await load(page);
+    await summon(page);
+    const listbox = page.locator('[role="listbox"]');
+    await expect(listbox).toBeVisible();
+
+    await input(page).press("Escape");
+    await expect(listbox).toHaveCount(0);
+    await input(page).press("Escape");
     await expect(input(page)).toHaveCount(0);
+    await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
   });
 });

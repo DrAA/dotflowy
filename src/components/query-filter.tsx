@@ -31,9 +31,14 @@ import { filterOperatorInfos } from "../plugins/registry";
 import {
   addTermToFilter,
   bindQueryFilterNav,
+  focusLastContent,
   getFilterOpen,
+  isEscapeBlockedByOverlay,
+  openFilterInput,
+  type OpenFilterOpts,
   setFilterInputController,
   setFilterOpen,
+  snapshotContentFocus,
   subscribeFilterOpen,
   toggleFilterInput,
   writeQuery,
@@ -56,7 +61,7 @@ export { addTermToFilter };
 const DEBOUNCE_MS = 200;
 
 /** The `?q=` filter state + route writers. Reads route state directly (no bridge
- *  needed) and owns the window-level Escape clear. */
+ *  needed). Escape toggles search ↔ content (Workflowy); it does not clear. */
 export function useQueryFilter() {
   const params = useParams({ strict: false });
   const rootId = params.nodeId ?? null;
@@ -71,28 +76,40 @@ export function useQueryFilter() {
 
   const clear = useCallback(() => writeQuery(""), []);
 
-  // Window-level Escape (ADR 0047 §6): with an active filter and no input
-  // focused, Escape clears the whole filter in one press -- but NOT while a
-  // bullet caret is in the outline. The input's own Escape (its ladder) stops
-  // propagation, so this only fires when the caret is elsewhere.
+  // Escape in the outline focuses the filter (Workflowy). Bullet caret Escape
+  // is handled in OutlineEditor capture (contentEditable never reaches bubble).
+  // This listener covers the rest (blurred outline, chrome). Overlays that own
+  // Escape -- dialogs, caret menus, node selection -- are skipped.
   useEffect(() => {
-    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // A capture-phase handler already claimed this Escape (node multi-selection
-      // exits, an open caret menu closes -- both preventDefault). Don't ALSO clear.
       if (e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEscapeBlockedByOverlay()) return;
       const el = document.activeElement;
-      if (el instanceof HTMLElement && el.classList.contains("node-text"))
+      if (
+        el instanceof HTMLElement &&
+        (el.classList.contains("node-text") || el.closest(".node-text"))
+      )
         return;
-      // A modal overlay (Cmd+K, a confirm dialog, a plugin sheet) owns Escape --
-      // closing it must not clear the filter underneath it.
-      if (document.querySelector('[role="dialog"]')) return;
-      clear();
+      if (
+        el instanceof HTMLElement &&
+        (el.getAttribute("aria-label") === "Filter query" ||
+          el.closest("[data-filter-popover]"))
+      )
+        return;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      )
+        return;
+      e.preventDefault();
+      openFilterInput({ skipSuggestions: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, clear]);
+  }, []);
 
   return { rawQuery, active, clear };
 }
@@ -268,7 +285,7 @@ function SavedQueriesSection({
               onChange={(e) => setNameDraft(e.target.value)}
               onKeyDown={(e) => {
                 // Own Enter/Escape locally; never bubble to the filter input's
-                // ladder or the window Escape clear.
+                // ladder or the window Escape toggle.
                 e.stopPropagation();
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -427,6 +444,8 @@ export function QueryFilterBar() {
   // an active filter keeps it resident on its own. Blur with empty text drops
   // `summoned`, which -- with no query -- collapses the row.
   const [summoned, setSummoned] = useState(false);
+  const summonedRef = useRef(false);
+  summonedRef.current = summoned;
   const [draft, setDraft] = useState("");
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -436,7 +455,7 @@ export function QueryFilterBar() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // Autocomplete (ADR 0047 §7): suggestions for the token at the caret, the
-  // active row, and whether the popover is showing (Escape stage 0 hides it).
+  // active row, and whether the popover is showing (Escape closes it first).
   const [suggestions, setSuggestions] = useState<FilterSuggestion[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -446,11 +465,15 @@ export function QueryFilterBar() {
   // While the subheader expands on a fresh summon, the reveal that opens the
   // popover once the band settles is deferred behind this timer. A pending timer
   // (ref non-null) is also the "still deferring" flag onFocus reads. Any EXPLICIT
-  // close (Escape stage 1, clear, collapse, blur) must cancel it, or it fires
-  // after the close and silently re-opens `popoverOpen` — which desyncs the
-  // Escape ladder (stage 2 re-closes a popover the user already closed instead
-  // of clearing the text).
+  // close (Escape closing the popover, clear, collapse, blur) must cancel it, or
+  // it fires after the close and silently re-opens `popoverOpen` — which desyncs
+  // Escape (the next press re-closes a popover the user already closed instead
+  // of returning to the outline).
   const revealTimerRef = useRef<number | null>(null);
+  // Escape-from-outline focuses the filter without opening suggestions, so the
+  // next Escape can return to the last bullet (a 1:1 toggle). Cmd+F still
+  // reveals the cheat sheet.
+  const skipSuggestionsRef = useRef(false);
   const cancelDeferredReveal = useCallback(() => {
     if (revealTimerRef.current != null) {
       window.clearTimeout(revealTimerRef.current);
@@ -566,12 +589,35 @@ export function QueryFilterBar() {
     [flush, recompute],
   );
 
-  const open = useCallback(() => {
-    // Prefill with the raw `?q=` string (caret goes to the end in the focus
-    // effect), so summoning an active filter lands you editing it.
-    setDraft(rawRef.current);
-    setSummoned(true);
-  }, []);
+  const open = useCallback(
+    (opts?: OpenFilterOpts) => {
+      // Prefill with the raw `?q=` string (caret goes to the end in the focus
+      // effect), so summoning an active filter lands you editing it.
+      snapshotContentFocus();
+      skipSuggestionsRef.current = !!opts?.skipSuggestions;
+      setDraft(rawRef.current);
+      if (summonedRef.current) {
+        // Already showing: the summon effect won't re-fire; focus now.
+        requestAnimationFrame(() => {
+          const el = inputRef.current;
+          if (!el) return;
+          el.focus();
+          const end = el.value.length;
+          el.setSelectionRange(end, end);
+          if (skipSuggestionsRef.current) {
+            cancelDeferredReveal();
+            setPopoverOpen(false);
+            skipSuggestionsRef.current = false;
+          } else {
+            recompute();
+            setPopoverOpen(true);
+          }
+        });
+      }
+      setSummoned(true);
+    },
+    [cancelDeferredReveal, recompute],
+  );
 
   // Dismiss: wipe any pending/active query and collapse the row. Used by the
   // header magnifier's toggle-off path (open-only stays on Cmd+F / Cmd+K).
@@ -592,8 +638,6 @@ export function QueryFilterBar() {
 
   // Live open-probe for the header toggle -- `showInput` itself isn't stable
   // across the mount-once registration, so the probe reads refs/state live.
-  const summonedRef = useRef(summoned);
-  summonedRef.current = summoned;
   const isOpen = useCallback(
     () => summonedRef.current || rawRef.current.trim().length > 0,
     [],
@@ -630,13 +674,25 @@ export function QueryFilterBar() {
     if (!summoned) return;
     // Collapsed → expand animates; already-resident (active `?q=`) does not.
     const needsExpandWait = rawRef.current.trim().length === 0;
-    const id = requestAnimationFrame(() => {
+    let raf = 0;
+    let tries = 0;
+    const tick = () => {
       const el = inputRef.current;
-      if (!el) return;
+      // The collapsed subheader is `aria-hidden` until it measures children.
+      // focus() on a hidden ancestor is ignored -- retry until the band opens.
+      if (!el || el.closest('[aria-hidden="true"]')) {
+        if (tries++ < 30) raf = requestAnimationFrame(tick);
+        return;
+      }
       el.focus();
       const end = el.value.length;
       el.setSelectionRange(end, end);
       recompute();
+      if (skipSuggestionsRef.current) {
+        skipSuggestionsRef.current = false;
+        setPopoverOpen(false);
+        return;
+      }
       const reduceMotion =
         typeof window !== "undefined" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -653,9 +709,10 @@ export function QueryFilterBar() {
       } else {
         setPopoverOpen(true);
       }
-    });
+    };
+    raf = requestAnimationFrame(tick);
     return () => {
-      cancelAnimationFrame(id);
+      cancelAnimationFrame(raf);
       cancelDeferredReveal();
     };
   }, [summoned, recompute, cancelDeferredReveal]);
@@ -679,7 +736,7 @@ export function QueryFilterBar() {
     inputRef.current?.blur();
   };
 
-  // The clear X (and Escape stage 2): wipe the text AND `?q=`, keeping focus.
+  // The clear X: wipe the text AND `?q=`, keeping focus.
   const clearText = (reopenCheatSheet: boolean) => {
     cancelDeferredReveal();
     draftRef.current = "";
@@ -711,6 +768,10 @@ export function QueryFilterBar() {
     // Fresh summon: the summon effect's reveal timer (still pending) opens the
     // popover after the expand anim; don't pre-empt it here.
     if (revealTimerRef.current != null) return;
+    if (skipSuggestionsRef.current) {
+      setPopoverOpen(false);
+      return;
+    }
     setPopoverOpen(true);
   };
 
@@ -733,7 +794,14 @@ export function QueryFilterBar() {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
-      if (!showPopover) return;
+      if (!showPopover) {
+        if (suggestions.length > 0) {
+          e.preventDefault();
+          setPopoverOpen(true);
+          setActiveIndex(0);
+        }
+        return;
+      }
       e.preventDefault();
       setActiveIndex((i) => (i + 1) % suggestions.length);
       return;
@@ -761,24 +829,22 @@ export function QueryFilterBar() {
         return;
       }
       collapse();
+      focusLastContent();
       return;
     }
     if (e.key === "Escape") {
-      // Stop propagation so the window-level clear never also fires.
+      // Stop propagation so the window-level toggle never also fires.
       e.preventDefault();
       e.stopPropagation();
-      // Ladder (ADR 0047 §6): (1) an open popover closes first; (2) else text is
-      // cleared, focus kept; (3) else the row collapses.
+      // (1) an open popover closes first; (2) else jump to the outline. The
+      // query stays -- Workflowy Escape is a focus switch, not a clear.
       if (showPopover) {
         cancelDeferredReveal();
         setPopoverOpen(false);
         return;
       }
-      if (draft.length > 0) {
-        clearText(false);
-        return;
-      }
       collapse();
+      focusLastContent();
       return;
     }
   };

@@ -14,6 +14,7 @@
 | `Shift+↑` / `↓`                   | Select whole nodes (then `Tab` indents the run, `Backspace` deletes it, …)                                      |
 | `Cmd/Ctrl+K`                      | Open the command center                                                                                         |
 | `Cmd/Ctrl+F`                      | Filter the current view (`?q=` — tags, operators, free text)                                                    |
+| `Escape`                          | Toggle filter ↔ outline (query kept; the X / magnifier still clear)                                             |
 | `q`                               | Quick-add capture (files to Today without leaving where you are)                                                |
 
 The `/` menu on any bullet lists every command (to-do, paragraph, move,

@@ -165,6 +165,7 @@ import {
   guardProtected,
   ProtectedLock,
 } from "./protection";
+import { openFilterInput, isEscapeBlockedByOverlay } from "./query-filter-nav";
 import { SelectionActionsMenu, useSelectionMode } from "./selection-mode";
 import {
   SelectionFormatToolbar,
@@ -501,6 +502,28 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     startDrag,
     consumeClick,
   });
+
+  // Escape (filter ↔ outline). Window capture, not useHotkeys / a bubble
+  // listener: contentEditable keydowns often never reach window bubble.
+  useEffect(() => {
+    const host = (): HTMLElement | null => {
+      const a = document.activeElement;
+      if (!(a instanceof HTMLElement)) return null;
+      return a.classList.contains("node-text") ? a : a.closest(".node-text");
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!host()) return;
+      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // Menus, selection, and dialogs own Escape first.
+        if (isEscapeBlockedByOverlay()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openFilterInput({ skipSuggestions: true });
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   // Live plugin async fibers (ctx.run), interrupted on editor unmount (ADR 0039).
   const runningFibers = useRef(new Set<Fiber.Fiber<void, never>>());
@@ -2338,7 +2361,12 @@ function ZoomedTitle({
               // consumers. Both no-op when closed. A caret menu (#, [[) wins over
               // the `/` palette (they never co-open, but mirror OutlineRow's order).
               if (menus.handleKeyDown(e)) return;
-              slash.handleKeyDown(e);
+              if (slash.handleKeyDown(e)) return;
+              if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                openFilterInput({ skipSuggestions: true });
+              }
             }}
           />
         </span>

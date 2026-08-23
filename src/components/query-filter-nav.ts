@@ -1,6 +1,9 @@
 import type { useNavigate } from "@tanstack/react-router";
 
+import { getNodeActionBridge } from "../data/command-bridge";
 import { tokenizeQuery } from "../data/filter-query";
+import { getSelectionState } from "../data/selection-state";
+import { scrollRowIntoView } from "../data/virtual-nav";
 
 // The `?q=` filter is CORE chrome now (the query grammar, ADR 0047 §6). This
 // module holds the route writers + the summon-opener singleton so surfaces
@@ -60,7 +63,9 @@ export function addTermToFilter(term: string) {
 
 // --- The summon-input opener singleton --------------------------------------
 
-let opener: (() => void) | null = null;
+export type OpenFilterOpts = { skipSuggestions?: boolean };
+
+let opener: ((opts?: OpenFilterOpts) => void) | null = null;
 let closer: (() => void) | null = null;
 let isOpenProbe: (() => boolean) | null = null;
 
@@ -68,7 +73,7 @@ let isOpenProbe: (() => boolean) | null = null;
  *  action can summon (or dismiss) the filter input from anywhere. */
 export function setFilterInputController(
   next: {
-    open: () => void;
+    open: (opts?: OpenFilterOpts) => void;
     close: () => void;
     isOpen: () => boolean;
   } | null,
@@ -79,8 +84,9 @@ export function setFilterInputController(
 }
 
 /** Summon the filter input (focused, prefilled if a filter is active). */
-export function openFilterInput() {
-  opener?.();
+export function openFilterInput(opts?: OpenFilterOpts) {
+  snapshotContentFocus();
+  opener?.(opts);
 }
 
 /** Header-magnifier toggle: open when idle, dismiss (clear + collapse) when
@@ -119,4 +125,54 @@ export function subscribeFilterOpen(cb: () => void) {
 /** Snapshot of the input's open state (for `useSyncExternalStore`). */
 export function getFilterOpen() {
   return filterOpen;
+}
+
+// --- Escape toggles search ↔ content (Workflowy) ----------------------------
+// Escape in the outline focuses the filter (query kept). Escape in the filter
+// (after the suggestion popover closes) returns the caret to the last bullet.
+// Clearing the query stays on the X / magnifier -- Escape is a focus switch.
+
+let lastContentId: string | null = null;
+
+/** True when Escape belongs to an overlay (dialog, caret menu, node selection)
+ *  rather than the filter ↔ outline toggle. */
+export function isEscapeBlockedByOverlay() {
+  if (getSelectionState()) return true;
+  if (document.querySelector('[role="listbox"]')) return true;
+  for (const el of document.querySelectorAll('[role="dialog"]')) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.hidden || el.getAttribute("aria-hidden") === "true") continue;
+    if (typeof el.checkVisibility === "function" && !el.checkVisibility())
+      continue;
+    return true;
+  }
+  return false;
+}
+
+/** Remember the focused bullet so Escape-from-search can land back on it. */
+export function snapshotContentFocus() {
+  const id = getNodeActionBridge()?.findFocusedId() ?? null;
+  if (id) lastContentId = id;
+}
+
+/** Return the caret to the last outline bullet, or the first visible row. */
+export function focusLastContent() {
+  const bridge = getNodeActionBridge();
+  const id = lastContentId;
+  if (id && bridge) {
+    scrollRowIntoView(id);
+    bridge.focusNode(id);
+  }
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (active.classList.contains("node-text") ||
+        active.classList.contains("zoomed-title-text"))
+    )
+      return;
+    document
+      .querySelector<HTMLElement>(".outline-row .node-text, .zoomed-title-text")
+      ?.focus();
+  });
 }
