@@ -195,20 +195,6 @@ export function useBulletKeymap({
             callback: () => commands.onOutdent(node.id),
           },
           {
-            // Cmd/Ctrl+Shift+Up: move this bullet up among its siblings; at the
-            // top edge it reparents into the parent's previous sibling. Default
-            // options always preventDefault, so macOS "extend selection to doc start"
-            // never fires inside the outline. See ADR 0009.
-            hotkey: "Mod+Shift+ArrowUp",
-            callback: () => commands.onMoveUp(node.id),
-          },
-          {
-            // Cmd/Ctrl+Shift+Down: move down; at the bottom edge it reparents into
-            // the parent's next sibling. Mirror of Mod+Shift+ArrowUp.
-            hotkey: "Mod+Shift+ArrowDown",
-            callback: () => commands.onMoveDown(node.id),
-          },
-          {
             // Backspace at the start of a bullet. On a task, the first backspace
             // "deletes the checkbox" -- demoting it to a plain bullet while keeping
             // the text (mirrors the "[ ]" autoformat). On an empty plain bullet, it

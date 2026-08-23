@@ -433,7 +433,7 @@ export interface CommandSpec {
 //
 // A plugin binds a hotkey active while a bullet (or the zoomed title) is
 // focused. The core's reserved keys -- Enter, Shift+Enter, Tab, Shift+Tab,
-// Backspace, the arrows, the structural moves (Mod+Shift+Arrow, Mod+Arrow) and
+// Backspace, the arrows, the structural moves (Alt+Shift+Arrow, Mod+Arrow) and
 // Mod+. -- are off-limits (D7); the registry guards against a collision at load.
 // todos owns Mod+Enter and Mod+D (toggle completion).
 

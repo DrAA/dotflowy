@@ -2,10 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { seedOutline, type SeedNode } from "./fixtures";
 
-function modifier() {
-  return process.platform === "darwin" ? "Meta" : "Control";
-}
-
 const text = (page: Page, id: string) =>
   page.locator(`li[data-node-id="${id}"] > .outline-row .node-text`);
 
@@ -54,7 +50,7 @@ test.describe("keyboard move edge: reparent into parent's sibling", () => {
     await seedOutline(page, TREE);
     await page.goto("/");
     await text(page, "first").click();
-    await page.keyboard.press(`${modifier()}+Shift+ArrowUp`);
+    await page.keyboard.press("Shift+Alt+ArrowUp");
 
     await expect(nestedUnder(page, "uncle", "first")).toBeVisible();
     await expect(nestedUnder(page, "parent", "first")).toHaveCount(0);
@@ -67,7 +63,7 @@ test.describe("keyboard move edge: reparent into parent's sibling", () => {
     await seedOutline(page, TREE);
     await page.goto("/");
     await text(page, "last").click();
-    await page.keyboard.press(`${modifier()}+Shift+ArrowDown`);
+    await page.keyboard.press("Shift+Alt+ArrowDown");
 
     await expect(nestedUnder(page, "aunt", "last")).toBeVisible();
     await expect(nestedUnder(page, "parent", "last")).toHaveCount(0);
@@ -85,12 +81,12 @@ test.describe("keyboard move edge: reparent into parent's sibling", () => {
   for (const move of [
     {
       id: "first",
-      key: `${modifier()}+Shift+ArrowUp`,
+      key: "Shift+Alt+ArrowUp",
       label: "move up",
     },
     {
       id: "last",
-      key: `${modifier()}+Shift+ArrowDown`,
+      key: "Shift+Alt+ArrowDown",
       label: "move down",
     },
   ] as const) {

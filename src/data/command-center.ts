@@ -63,7 +63,7 @@ export interface CommandCenterAction {
   icon: ComponentType<{ className?: string }>;
   scope: ActionScope;
   keywords?: string[];
-  /** Display-only shortcut, one string per key cap (e.g. `["⌘", "⇧", "↑"]`). */
+  /** Display-only shortcut, one string per key cap (e.g. `["⇧", "⌥", "↑"]`). */
   hotkey?: string[];
   run: () => void;
 }
@@ -122,7 +122,7 @@ export function buildNodeVerbActions(
       icon: ArrowUpIcon,
       scope: "node",
       keywords: ["move", "up", "reorder"],
-      hotkey: ["⌘", "⇧", "↑"],
+      hotkey: ["⇧", "⌥", "↑"],
       run: () => {
         commands.onMoveUp(id);
         focusNode(id);
@@ -135,7 +135,7 @@ export function buildNodeVerbActions(
       icon: ArrowDownIcon,
       scope: "node",
       keywords: ["move", "down", "reorder"],
-      hotkey: ["⌘", "⇧", "↓"],
+      hotkey: ["⇧", "⌥", "↓"],
       run: () => {
         commands.onMoveDown(id);
         focusNode(id);

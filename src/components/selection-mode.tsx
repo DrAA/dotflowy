@@ -383,12 +383,13 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
         ops.remove();
         return;
       }
-      if (e.shiftKey && e.key === "ArrowDown") {
+      // Alt+Shift+Arrow is move (Workflowy parity), not selection extend.
+      if (e.shiftKey && !e.altKey && e.key === "ArrowDown") {
         e.preventDefault();
         extendSelection("down");
         return;
       }
-      if (e.shiftKey && e.key === "ArrowUp") {
+      if (e.shiftKey && !e.altKey && e.key === "ArrowUp") {
         e.preventDefault();
         extendSelection("up");
         return;

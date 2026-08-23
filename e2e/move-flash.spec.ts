@@ -2,11 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { seedOutline, STANDARD_TREE, type SeedNode } from "./fixtures";
 
-// Cmd on macOS, Control elsewhere -- the e2e run is chromium on whatever host.
-function modifier() {
-  return process.platform === "darwin" ? "Meta" : "Control";
-}
-
 // A node's OWN editable text span and its row (see move-dialog.spec.ts).
 const text = (page: Page, id: string) =>
   page.locator(`li[data-node-id="${id}"] > .outline-row .node-text`);
@@ -70,7 +65,7 @@ test.describe("move flash: jump to the moved node", () => {
     await expect(moved).not.toHaveClass(/node-acted/, { timeout: 4000 });
   });
 
-  test("a keyboard move (Cmd+Shift+Down) flashes the moved row", async ({
+  test("a keyboard move (Shift+Alt+Down) flashes the moved row", async ({
     page,
   }) => {
     await seedOutline(page, STANDARD_TREE);
@@ -80,7 +75,7 @@ test.describe("move flash: jump to the moved node", () => {
     // Focus alpha and nudge it past bravo among the top-level siblings.
     await text(page, "alpha").click();
     await expect(text(page, "alpha")).toBeFocused();
-    await page.keyboard.press(`${modifier()}+Shift+ArrowDown`);
+    await page.keyboard.press("Shift+Alt+ArrowDown");
 
     // It moved (now after bravo) and the moved row flashes, focus intact.
     await expect(text(page, "alpha")).toBeFocused();

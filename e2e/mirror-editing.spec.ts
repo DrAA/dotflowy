@@ -293,7 +293,7 @@ test.describe("node mirrors -- editing parity inside a mirror (ADR 0022, 2c)", (
     expect(chainErrors).toEqual([]);
   });
 
-  test("edge reparent (Cmd+Shift+Up) into a mirror UNCLE lands in the source, not the vanishing instance", async ({
+  test("edge reparent (Shift+Alt+Up) into a mirror UNCLE lands in the source, not the vanishing instance", async ({
     page,
   }) => {
     // moveUp at the first-child edge reparents into the parent's PREVIOUS sibling
@@ -309,7 +309,7 @@ test.describe("node mirrors -- editing parity inside a mirror (ADR 0022, 2c)", (
         chainErrors.push(msg.text());
     });
 
-    // Q's prev sibling is the mirror M; X is Q's FIRST child, so Cmd+Shift+Up on X
+    // Q's prev sibling is the mirror M; X is Q's FIRST child, so Shift+Alt+Up on X
     // hits the edge and reparents into the uncle M -> its source A.
     const tree: SeedNode[] = [
       { id: "A", parentId: null, prevSiblingId: null, text: "alphasource" },
@@ -330,7 +330,7 @@ test.describe("node mirrors -- editing parity inside a mirror (ADR 0022, 2c)", (
 
     await spans(page, "X").click();
     await expect(spans(page, "X")).toBeFocused();
-    await page.keyboard.press(`${modifier()}+Shift+ArrowUp`);
+    await page.keyboard.press("Shift+Alt+ArrowUp");
 
     // X windows into both instances now (child of source A, appended after a1).
     await expect(page.locator('li[data-node-id="X"]')).toHaveCount(2);

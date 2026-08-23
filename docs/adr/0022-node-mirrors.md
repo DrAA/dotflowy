@@ -138,7 +138,7 @@ Even though we chose A1, the build is sequenced so daily value arrives before th
   heavy e2e.
   - **Boundary redirect covers EVERY structural entry point, not just drag.** The first cut resolved the
     mirror boundary only in the drag `onMove` handler; keyboard **indent** (`Tab`), the **edge reparent**
-    (`Cmd+Shift+↑/↓` nudging into an uncle/aunt), and **multi-select `Tab`** (`indentManyNodes`) each derive
+    (`Shift+Alt+↑/↓` nudging into an uncle/aunt), and **multi-select `Tab`** (`indentManyNodes`) each derive
     their new parent _inside_ the mutation primitive, so a mirror prev-sibling/uncle sent the node under the
     **instance** id — whose row windows the _source's_ children and never the node, so it **vanished**. Fixed
     by resolving `trueSourceOf` at each derivation site (`indent`, `reparentIntoParent{Prev,Next}Sibling`,

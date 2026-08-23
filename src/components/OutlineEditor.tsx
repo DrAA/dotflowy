@@ -503,14 +503,24 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     consumeClick,
   });
 
-  // Escape (filter ↔ outline). Window capture, not useHotkeys / a bubble
-  // listener: contentEditable keydowns often never reach window bubble.
+  // Shift+Alt+↑/↓ (Workflowy parity) and Escape (filter ↔ outline). Window
+  // capture, not useHotkeys / a bubble listener: contentEditable keydowns often
+  // never reach window bubble (the same reason Alt+Shift had to live here).
+  // 1. tanstack defaults ignoreInputs for Alt/Shift chords (Mod is exempt, which
+  //    is why Ctrl+Shift+Arrow still fired after the switch).
+  // 2. Chrome/Firefox on Linux+Windows move focus to the menu bar on Alt unless
+  //    that keydown is preventDefaulted -- the Arrow then never reaches the
+  //    page. Workflowy keep the caret by cancelling Alt while you edit.
   useEffect(() => {
     const host = (): HTMLElement | null => {
       const a = document.activeElement;
       if (!(a instanceof HTMLElement)) return null;
       return a.classList.contains("node-text") ? a : a.closest(".node-text");
     };
+    const isUp = (e: KeyboardEvent) =>
+      e.code === "ArrowUp" || e.key === "ArrowUp" || e.keyCode === 38;
+    const isDown = (e: KeyboardEvent) =>
+      e.code === "ArrowDown" || e.key === "ArrowDown" || e.keyCode === 40;
     const onKey = (e: KeyboardEvent) => {
       if (!host()) return;
       if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -519,11 +529,33 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         e.preventDefault();
         e.stopPropagation();
         openFilterInput({ skipSuggestions: true });
+        return;
       }
+      const altDown =
+        e.altKey ||
+        e.key === "Alt" ||
+        e.code === "AltLeft" ||
+        e.code === "AltRight";
+      if (!altDown) return;
+      // Cancel menu-bar focus steal and Alt+Left/Right browser nav while editing,
+      // the same trick Workflowy uses so Alt+Shift+Arrow actually arrives.
+      e.preventDefault();
+      if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") {
+        return;
+      }
+      if (!e.shiftKey || e.metaKey) return;
+      if (!isUp(e) && !isDown(e)) return;
+      const id =
+        findFocusedId() ??
+        host()?.closest("[data-node-id]")?.getAttribute("data-node-id");
+      if (!id) return;
+      e.stopPropagation();
+      if (isUp(e)) commands.onMoveUp(id);
+      else commands.onMoveDown(id);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [commands, findFocusedId]);
 
   // Live plugin async fibers (ctx.run), interrupted on editor unmount (ADR 0039).
   const runningFibers = useRef(new Set<Fiber.Fiber<void, never>>());
