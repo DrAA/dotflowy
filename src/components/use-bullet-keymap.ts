@@ -392,11 +392,6 @@ export function useBulletKeymap({
                 commands.onToggleCollapsed(instanceId, true);
             },
           },
-          {
-            // Cmd/Ctrl+.: zoom this node to become the temporary root.
-            hotkey: "Mod+.",
-            callback: () => commands.onZoom(node.id),
-          },
         ]
       : EMPTY_KEYMAP,
     { target: textRef, enabled },

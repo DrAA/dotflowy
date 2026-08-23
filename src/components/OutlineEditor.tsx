@@ -315,7 +315,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   const headerRef = useRef<HTMLDivElement | null>(null);
 
   // Zoom navigation: the shared-element morph between a node's title and list-
-  // item roles, Cmd+, zoom-out, the current pivot id, and the post-navigation
+  // item roles, Alt+↑ zoom-out, the current pivot id, and the post-navigation
   // focus landing. See useZoomNavigation.
   const { navigateZoom, pivotId } = useZoomNavigation({
     rootId,
@@ -503,14 +503,10 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     consumeClick,
   });
 
-  // Shift+Alt+↑/↓ (Workflowy parity) and Escape (filter ↔ outline). Window
-  // capture, not useHotkeys / a bubble listener: contentEditable keydowns often
-  // never reach window bubble (the same reason Alt+Shift had to live here).
-  // 1. tanstack defaults ignoreInputs for Alt/Shift chords (Mod is exempt, which
-  //    is why Ctrl+Shift+Arrow still fired after the switch).
-  // 2. Chrome/Firefox on Linux+Windows move focus to the menu bar on Alt unless
-  //    that keydown is preventDefaulted -- the Arrow then never reaches the
-  //    page. Workflowy keep the caret by cancelling Alt while you edit.
+  // Shift+Alt+↑/↓ (move), Alt+↓/↑ (zoom), and Escape (filter ↔ outline).
+  // Window capture, not useHotkeys / a bubble listener: contentEditable
+  // keydowns often never reach window bubble, and Chrome/Firefox steal focus
+  // to the menu bar on Alt unless that keydown is preventDefaulted.
   useEffect(() => {
     const host = (): HTMLElement | null => {
       const a = document.activeElement;
@@ -521,9 +517,27 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
       e.code === "ArrowUp" || e.key === "ArrowUp" || e.keyCode === 38;
     const isDown = (e: KeyboardEvent) =>
       e.code === "ArrowDown" || e.key === "ArrowDown" || e.keyCode === 40;
+    const zoomOut = () => {
+      const currentRoot = getViewRootId();
+      if (currentRoot === null) return;
+      const node = getTreeIndex().byId.get(currentRoot);
+      navigateZoom(node?.parentId ?? null, currentRoot);
+    };
+    const zoomIn = () => {
+      const key =
+        findFocusedId() ??
+        host()?.closest("[data-node-id]")?.getAttribute("data-node-id");
+      if (!key) return;
+      const instanceId = instanceIdForKey(key);
+      const node = getTreeIndex().byId.get(instanceId);
+      const contentId =
+        isMirrorsEnabled() && node?.mirrorOf ? node.mirrorOf : instanceId;
+      if (contentId === getViewRootId()) return;
+      commands.onZoom(contentId);
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (!host()) return;
       if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!host()) return;
         // Menus, selection, and dialogs own Escape first.
         if (isEscapeBlockedByOverlay()) return;
         e.preventDefault();
@@ -537,25 +551,44 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         e.code === "AltLeft" ||
         e.code === "AltRight";
       if (!altDown) return;
+      const editing = host();
       // Cancel menu-bar focus steal and Alt+Left/Right browser nav while editing,
-      // the same trick Workflowy uses so Alt+Shift+Arrow actually arrives.
-      e.preventDefault();
+      // the same trick Workflowy uses so Alt+Arrow actually arrives.
+      if (editing) e.preventDefault();
       if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") {
         return;
       }
-      if (!e.shiftKey || e.metaKey) return;
+      if (e.metaKey || e.ctrlKey) return;
       if (!isUp(e) && !isDown(e)) return;
-      const id =
-        findFocusedId() ??
-        host()?.closest("[data-node-id]")?.getAttribute("data-node-id");
-      if (!id) return;
-      e.stopPropagation();
-      if (isUp(e)) commands.onMoveUp(id);
-      else commands.onMoveDown(id);
+      if (isEscapeBlockedByOverlay()) return;
+      if (e.shiftKey) {
+        // Shift+Alt+↑/↓: move among siblings (Workflowy).
+        if (!editing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const id =
+          findFocusedId() ??
+          editing.closest("[data-node-id]")?.getAttribute("data-node-id");
+        if (!id) return;
+        if (isUp(e)) commands.onMoveUp(id);
+        else commands.onMoveDown(id);
+        return;
+      }
+      // Alt+↓ zoom in (focused bullet becomes the root); Alt+↑ zoom out.
+      if (isDown(e)) {
+        if (!editing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        zoomIn();
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+        zoomOut();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [commands, findFocusedId]);
+  }, [commands, findFocusedId, navigateZoom]);
 
   // Live plugin async fibers (ctx.run), interrupted on editor unmount (ADR 0039).
   const runningFibers = useRef(new Set<Fiber.Fiber<void, never>>());
@@ -1272,7 +1305,7 @@ interface ZoomNavigationArgs {
 
 /**
  * Zoom navigation: the shared-element morph between a node's title and list-item
- * roles, Cmd+, zoom-out, and the focus landing after a navigation. Returns the
+ * roles, Alt+↑ zoom-out, and the focus landing after a navigation. Returns the
  * stable `navigateZoom` and the current pivot id. The mount-only effects rely on
  * the editor remounting per zoom view (its `key={nodeId}`; see
  * docs/architecture.md "`rootId` is route-owned").
@@ -1346,20 +1379,6 @@ function useZoomNavigation({
     // stable callback), so navigateZoom -- and therefore commands -- keeps its
     // identity across renders. refs is a stable ref object.
     [refs, navigate],
-  );
-
-  // Cmd/Ctrl+,: zoom out one level -- navigate to the current root's parent,
-  // with the current root as the morph pivot (title -> list item). No-op at the
-  // top. Mirror of Cmd+. (zoom in). Keyed off rootId, not the focused node.
-  useHotkey(
-    "Mod+,",
-    () => {
-      const currentRoot = getViewRootId();
-      if (currentRoot === null) return;
-      const node = getTreeIndex().byId.get(currentRoot);
-      navigateZoom(node?.parentId ?? null, currentRoot);
-    },
-    { preventDefault: true },
   );
 
   // After a zoom, drop focus where the user is most likely to continue:

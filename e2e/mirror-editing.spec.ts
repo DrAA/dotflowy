@@ -586,12 +586,12 @@ test.describe("node mirrors -- editing parity inside a mirror (ADR 0022, 2c)", (
     await expect(spans(page, "a1")).toHaveCount(2); // source + windowed under M
 
     // Zoom INTO the source A (bullet click -> A becomes the title), then back OUT
-    // one level (Mod+,). Zooming out sets the morph pivot to A while rooting at the
+    // one level (Alt+↑). Zooming out sets the morph pivot to A while rooting at the
     // top, so A's own row AND the mirror M (which windows A) are both visible with
     // pivotId === A -- the exact collision the user hit.
     await page.locator('li[data-node-id="A"] .bullet').first().click();
     await expect(page.locator(".zoomed-title-text")).toHaveText("alphasource");
-    await page.keyboard.press(`${modifier()}+Comma`);
+    await page.keyboard.press("Alt+ArrowUp");
 
     // Back at the top level with both rows visible. The source's row carrying the
     // morph name proves pivotId === A took effect (precondition -- fails loudly if

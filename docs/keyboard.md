@@ -7,7 +7,7 @@
 | `Shift+Alt/Option+↑` / `↓`        | Move the bullet among siblings; at the edge reparent into the parent's adjacent sibling                         |
 | `Cmd/Ctrl+↑` / `↓`                | Collapse / expand                                                                                               |
 | `Cmd/Ctrl+Enter` or `Cmd/Ctrl+D`  | Toggle complete                                                                                                 |
-| `Cmd/Ctrl+.` / `Cmd/Ctrl+,`       | Zoom in / out                                                                                                   |
+| `Alt/Option+↓` / `Alt/Option+↑`   | Zoom in / out (current bullet becomes the root; out goes to the parent)                                         |
 | `Backspace` on an empty bullet    | Delete it and focus the previous one                                                                            |
 | `Arrow ↑` / `↓` at line edges     | Move between bullets (preserves the caret column)                                                               |
 | `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` | Undo / redo                                                                                                     |

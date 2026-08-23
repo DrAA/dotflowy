@@ -203,6 +203,7 @@ export function buildNodeVerbActions(
     icon: MaximizeIcon,
     scope: "node",
     keywords: ["zoom", "focus", "root"],
+    hotkey: ["⌥", "↓"],
     run: () => commands.onZoom(id),
   });
 
