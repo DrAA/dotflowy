@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { DeleteAccountDialog } from "../components/delete-account-dialog";
 import { McpConnectDialog } from "../components/mcp-connect-dialog";
 import { openOpmlImport } from "../components/opml-import-opener";
+import { isEscapeBlockedByOverlay } from "../components/query-filter-nav";
 import { useTextSize, type TextSize } from "../components/text-size-provider";
 import { useTheme } from "../components/theme-provider";
 import { Button } from "../components/ui/button";
@@ -794,11 +795,26 @@ function BetaSection() {
 function SettingsPage() {
   // One subscription fetch for the whole page; Plan & billing and the
   // Connections nudge both read it (no double request, no divergent state).
+  const navigate = useNavigate();
   const subscriptions = useSubscriptions();
   const plan =
     subscriptions.state === "ready"
       ? resolvePlanFromSubs(subscriptions.subs)
       : null;
+
+  // Same destination as the header back button. Window bubble so a nested
+  // dialog (delete account, MCP setup, OPML import) can stopPropagation on
+  // document first — Escape closes that overlay, then Settings.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEscapeBlockedByOverlay()) return;
+      e.preventDefault();
+      void navigate({ to: "/" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
 
   return (
     <main className="min-h-dvh bg-background">

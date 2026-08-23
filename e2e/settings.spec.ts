@@ -83,6 +83,40 @@ test.describe("Settings page", () => {
     ).toBeVisible();
   });
 
+  test("Escape returns to the outline", async ({ page }) => {
+    await seedOutline(page, TREE);
+    await mockFreePlan(page);
+    await page.goto("/settings");
+    await expect(
+      page.getByRole("heading", { name: "Settings", level: 1 }),
+    ).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    await expect(page).toHaveURL(/\/$/);
+    await expect(nodeText(page, "alpha")).toBeVisible();
+  });
+
+  test("Escape closes a nested dialog before leaving Settings", async ({
+    page,
+  }) => {
+    await seedOutline(page, TREE);
+    await mockFreePlan(page);
+    await page.goto("/settings");
+
+    await page.getByRole("button", { name: "Delete" }).click();
+    await expect(
+      page.getByRole("heading", { name: /delete your account/i }),
+    ).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    await expect(
+      page.getByRole("heading", { name: /delete your account/i }),
+    ).toBeHidden();
+    await expect(page).toHaveURL(/\/settings$/);
+  });
+
   test("all five sections render", async ({ page }) => {
     await seedOutline(page, TREE);
     await mockFreePlan(page);
