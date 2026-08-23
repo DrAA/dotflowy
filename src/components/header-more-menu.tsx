@@ -19,6 +19,7 @@ import { useUnseenReleaseCount } from "../data/changelog-cursor";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import { openFeedbackReport } from "../data/feedback";
+import { isLocalDataEnabled } from "../data/flags";
 import { capture } from "../data/history";
 import { flattenInline } from "../data/inline-text";
 import { outlineToMarkdown } from "../data/markdown";
@@ -313,15 +314,18 @@ export function HeaderMoreMenu() {
           Privacy Policy
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={() => signOutAndReload()}
-        >
-          <LogOutIcon />
-          Sign out
-        </DropdownMenuItem>
+        {!isLocalDataEnabled() && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => signOutAndReload()}
+            >
+              <LogOutIcon />
+              Sign out
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

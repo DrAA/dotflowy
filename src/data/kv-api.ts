@@ -17,21 +17,90 @@
  * CONTRIBUTING.md "typed-error channel in Effect" and ADR 0012.
  */
 
+import { isLocalDataEnabled } from "./flags";
 import { kvDeleteE, kvFetchE, kvPutE, runPromise } from "./kv-client-effect";
+import {
+  inferKvKey,
+  readLocalKvRecord,
+  writeLocalKvRecord,
+} from "./local-store";
+
+const kvMemory = new Map<string, Record<string, unknown>>();
+
+function rememberKv(collection: string, record: Record<string, unknown>): void {
+  kvMemory.set(collection, record);
+}
+
+/** Last-seen kv rows, for snapshotting into localStorage when switching mode. */
+export function takeKvMemorySnapshot(): ReadonlyMap<
+  string,
+  Record<string, unknown>
+> {
+  return kvMemory;
+}
+
+function recordFromRows(
+  rows: readonly { key: string; value: unknown }[],
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...existing };
+  for (const row of rows) next[row.key] = row.value;
+  return next;
+}
+
+function valuesOf<T>(record: Record<string, unknown>): T[] {
+  return Object.values(record) as T[];
+}
 
 /** Complete state for one collection (the query collection treats it as
  *  authoritative, so the Worker returns every owned row). */
-export const kvFetch = <T>(collection: string): Promise<T[]> =>
-  runPromise(kvFetchE<T>(collection));
+export const kvFetch = <T>(collection: string): Promise<T[]> => {
+  if (isLocalDataEnabled()) {
+    const record = readLocalKvRecord(collection);
+    rememberKv(collection, record);
+    return Promise.resolve(valuesOf<T>(record));
+  }
+  return runPromise(kvFetchE<T>(collection)).then((rows) => {
+    const record: Record<string, unknown> = {};
+    for (const row of rows) {
+      record[inferKvKey(row, "")] = row as unknown;
+    }
+    rememberKv(collection, record);
+    return rows;
+  });
+};
 
 /** Upsert rows (insert + update both map here — the items are tiny). */
 export const kvPut = (
   collection: string,
   rows: { key: string; value: unknown }[],
-): Promise<void> => runPromise(kvPutE(collection, rows));
+): Promise<void> => {
+  if (isLocalDataEnabled()) {
+    const next = recordFromRows(rows, readLocalKvRecord(collection));
+    writeLocalKvRecord(collection, next);
+    rememberKv(collection, next);
+    return Promise.resolve();
+  }
+  return runPromise(kvPutE(collection, rows)).then(() => {
+    const next = recordFromRows(rows, kvMemory.get(collection) ?? {});
+    rememberKv(collection, next);
+  });
+};
 
-export const kvDelete = (collection: string, keys: string[]): Promise<void> =>
-  runPromise(kvDeleteE(collection, keys));
+export const kvDelete = (collection: string, keys: string[]): Promise<void> => {
+  if (isLocalDataEnabled()) {
+    const next = { ...readLocalKvRecord(collection) };
+    for (const key of keys) delete next[key];
+    writeLocalKvRecord(collection, next);
+    rememberKv(collection, next);
+    return Promise.resolve();
+  }
+  return runPromise(kvDeleteE(collection, keys)).then(() => {
+    const next = { ...kvMemory.get(collection) };
+    for (const key of keys) delete next[key];
+    rememberKv(collection, next);
+  });
+};
 
 // --- Mutation-transaction shaping --------------------------------------------
 // A side-collection's onInsert/onUpdate both upsert the WHOLE value (the items

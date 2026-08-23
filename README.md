@@ -17,12 +17,14 @@
 ---
 
 Dotflowy is an outliner: one big tree of bullets you can zoom, filter, and
-rearrange without friction. It's local-first at heart — a static SPA built with
+rearrange without friction. It's local-first — a static SPA built with
 [TanStack Start](https://tanstack.com/start) and
-[TanStack DB](https://tanstack.com/db) — with a Cloudflare backend that syncs
-your outline live across devices via a per-user
-[Durable Object](https://developers.cloudflare.com/durable-objects/), behind
-[Better Auth](https://www.better-auth.com) accounts.
+[TanStack DB](https://tanstack.com/db). By default the outline lives on the
+**backend machine** (Wrangler local Worker + per-user
+[Durable Object](https://developers.cloudflare.com/durable-objects/) SQLite),
+so every browser talking to that host shares one tree behind
+[Better Auth](https://www.better-auth.com). Opt in to **this browser only**
+(localStorage + IndexedDB) in Settings when you want no backend writes.
 
 ## Highlights
 

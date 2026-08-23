@@ -25,6 +25,7 @@ import { useMemo } from "react";
 import type { CommandCenterAction } from "../data/command-center";
 
 import { openFeedbackReport } from "../data/feedback";
+import { isLocalDataEnabled } from "../data/flags";
 import { capture } from "../data/history";
 import { toggleBookmark } from "../data/mutations";
 import { useTree } from "../data/useTree";
@@ -263,17 +264,21 @@ export function useGlobalActions(opts: {
             "noopener,noreferrer",
           ),
       },
-      {
-        id: "g:signout",
-        label: "Sign out",
-        description: "Sign out of your account",
-        icon: LogOutIcon,
-        scope: "global",
-        keywords: ["sign out", "logout", "log out", "exit"],
-        run: () => {
-          signOutAndReload();
-        },
-      },
+      ...(isLocalDataEnabled()
+        ? []
+        : [
+            {
+              id: "g:signout",
+              label: "Sign out",
+              description: "Sign out of your account",
+              icon: LogOutIcon,
+              scope: "global" as const,
+              keywords: ["sign out", "logout", "log out", "exit"],
+              run: () => {
+                signOutAndReload();
+              },
+            },
+          ]),
     );
 
     return a;

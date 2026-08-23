@@ -6,8 +6,15 @@ import { toast } from "sonner";
 
 import type { PluginContext } from "../plugins/types";
 
+import { isLocalDataEnabled } from "./flags";
 import { capture, registerHistoryExtra } from "./history";
 import { kvDelete, kvFetch, kvPut, toKvKeys, toKvRows } from "./kv-api";
+import {
+  hydrateLocalMediaUrls,
+  localMediaObjectUrl,
+  putLocalBlob,
+  rememberLocalMediaUrl,
+} from "./local-store";
 import { queryClient } from "./query-client";
 import { trueSourceOf } from "./tree";
 import { getTreeIndex, subscribeTree } from "./tree-store";
@@ -153,6 +160,15 @@ function ensureStarted(): void {
 /** Kick the kv fetch + history extra + orphan GC. Idempotent. */
 export function startMedia(): void {
   ensureStarted();
+  if (isLocalDataEnabled()) {
+    void hydrateLocalMediaUrls().then(() => rebuild());
+  }
+}
+
+/** Blob URL in local-data mode, otherwise the Worker media route. */
+export function mediaUrl(id: string): string {
+  if (isLocalDataEnabled()) return localMediaObjectUrl(id) ?? "";
+  return `/api/media/${id}`;
 }
 
 function subscribe(cb: () => void): () => void {
@@ -275,6 +291,20 @@ async function postMedia(
   width: number,
   height: number,
 ): Promise<MediaRow> {
+  if (isLocalDataEnabled()) {
+    const id = crypto.randomUUID();
+    await putLocalBlob(id, file);
+    rememberLocalMediaUrl(id, file);
+    return {
+      id,
+      nodeId,
+      contentType: file.type || "application/octet-stream",
+      bytes: file.size,
+      width,
+      height,
+      createdAt: Date.now(),
+    };
+  }
   const res = await fetch(`/api/media?nodeId=${encodeURIComponent(nodeId)}`, {
     method: "POST",
     credentials: "same-origin",

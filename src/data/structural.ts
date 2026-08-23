@@ -7,8 +7,12 @@ import type { Node } from "./schema";
 
 import { openSettings } from "../components/settings-nav";
 import { persistBatchE } from "./api";
-import { nodesCollection, waitForSeqE } from "./collection";
-import { isLunoraSyncEnabled } from "./flags";
+import {
+  nodesCollection,
+  persistLocalOutline,
+  waitForSeqE,
+} from "./collection";
+import { isLocalDataEnabled, isLunoraSyncEnabled } from "./flags";
 import { NodesLimitError, runPromise } from "./nodes-client-effect";
 import { notifySaveFailed } from "./save-failure";
 import { chainDisagreements } from "./sibling-chain";
@@ -122,6 +126,10 @@ export function runStructuralTracked<T>(body: () => T): {
       // A captured-but-no-op command (e.g. indent at the top of a list) makes no
       // mutations; skip the network round-trip entirely.
       if (ops.length === 0) return;
+      if (isLocalDataEnabled()) {
+        persistLocalOutline();
+        return;
+      }
       // P1 (atomic, writeSem-serialized send) → P2 (hold optimistic until the
       // echo) as ONE Effect program, bridged once here at the async mutationFn
       // seam (ADR 0021). waitForSeqE never fails, so the only rejection — which
@@ -180,6 +188,10 @@ export async function runStructuralSliced(
     mutationFn: async ({ transaction }) => {
       const ops = transaction.mutations.map(toChangeOp);
       if (ops.length === 0) return;
+      if (isLocalDataEnabled()) {
+        persistLocalOutline();
+        return;
+      }
       await persistStructuralBatch(ops);
     },
   });

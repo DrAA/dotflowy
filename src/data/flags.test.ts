@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  isLocalDataEnabled,
   isLunoraSyncEnabled,
   isMirrorsEnabled,
+  LOCAL_DATA_FLAG_KEY,
   LUNORA_SYNC_FLAG_KEY,
 } from "./flags";
 
@@ -32,7 +34,39 @@ afterEach(() => {
   delete (globalThis as { window?: unknown }).window;
 });
 
+describe("isLocalDataEnabled", () => {
+  test("defaults OFF (backend on this machine)", () => {
+    expect(isLocalDataEnabled()).toBe(false);
+  });
+
+  test("localStorage off disables", () => {
+    store.set(LOCAL_DATA_FLAG_KEY, "off");
+    expect(isLocalDataEnabled()).toBe(false);
+  });
+
+  test("localStorage on enables", () => {
+    store.set(LOCAL_DATA_FLAG_KEY, "on");
+    expect(isLocalDataEnabled()).toBe(true);
+  });
+
+  test("URL ?local-data=on wins over default", () => {
+    location.search = "?local-data=on";
+    expect(isLocalDataEnabled()).toBe(true);
+  });
+
+  test("URL ?local-data=off wins over localStorage on", () => {
+    store.set(LOCAL_DATA_FLAG_KEY, "on");
+    location.search = "?local-data=off";
+    expect(isLocalDataEnabled()).toBe(false);
+  });
+});
+
 describe("isLunoraSyncEnabled", () => {
+  beforeEach(() => {
+    // Browser-only mode forces Lunora off; keep these tests on backend path.
+    store.set(LOCAL_DATA_FLAG_KEY, "off");
+  });
+
   test("defaults OFF", () => {
     expect(isLunoraSyncEnabled()).toBe(false);
   });
@@ -56,6 +90,12 @@ describe("isLunoraSyncEnabled", () => {
   test("URL ?lunora-sync=off wins over localStorage on", () => {
     store.set(LUNORA_SYNC_FLAG_KEY, "on");
     location.search = "?lunora-sync=off";
+    expect(isLunoraSyncEnabled()).toBe(false);
+  });
+
+  test("stays off while local-data is on", () => {
+    store.set(LOCAL_DATA_FLAG_KEY, "on");
+    store.set(LUNORA_SYNC_FLAG_KEY, "on");
     expect(isLunoraSyncEnabled()).toBe(false);
   });
 });

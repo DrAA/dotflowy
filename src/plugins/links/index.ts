@@ -15,6 +15,7 @@ import {
   readSource,
 } from "../../components/inline-code";
 import { openUrlInFocusedTab } from "../../components/open-url";
+import { isLocalDataEnabled } from "../../data/flags";
 import {
   bareHttpUrl,
   encodeUrlForMarkdown,
@@ -196,6 +197,7 @@ const UNFURLING_CLASS = "link-unfurling";
 // `signal` wires the fetch up to be interruptible; nothing interrupts it per
 // node today (see the runFork site), so it runs to completion either way.
 function fetchLinkTitleE(url: string): Effect.Effect<string | null> {
+  if (isLocalDataEnabled()) return Effect.succeed(null);
   return Effect.tryPromise({
     try: async (signal) => {
       const res = await fetch(`/api/unfurl?url=${encodeURIComponent(url)}`, {

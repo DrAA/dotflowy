@@ -31,6 +31,46 @@ export function isMirrorsEnabled(): boolean {
   return MIRRORS_DEFAULT;
 }
 
+/** Persist the outline in this browser instead of the local Worker Durable Object. */
+export const LOCAL_DATA_FLAG_KEY = "dotflowy:flag:local-data";
+
+// Default OFF — outline lives on the backend machine (Wrangler local DO/SQLite
+// via `/api/nodes` + `/api/sync`) so every browser on that host sees the same
+// data. Opt in to browser-only storage via Settings / localStorage / URL.
+const LOCAL_DATA_DEFAULT = false;
+
+/**
+ * Whether outline + side-collections stay in this browser and never hit
+ * `/api/nodes`, `/api/kv`, `/api/media`, or `/api/sync`. Default OFF (backend
+ * on this machine is the product default).
+ *
+ * Enable: Settings (persists + reload), `"on"` in localStorage, or
+ * `?local-data=on`. Disable: Settings, `"off"` in localStorage, or
+ * `?local-data=off` (URL wins for that load; does not persist).
+ */
+export function isLocalDataEnabled(): boolean {
+  if (typeof window === "undefined") return LOCAL_DATA_DEFAULT;
+  try {
+    const q = new URLSearchParams(window.location.search).get("local-data");
+    if (q === "on" || q === "1") return true;
+    if (q === "off" || q === "0") return false;
+    const v = window.localStorage.getItem(LOCAL_DATA_FLAG_KEY);
+    if (v === "on") return true;
+    if (v === "off") return false;
+  } catch {
+    // localStorage / URLSearchParams can throw; fall back to the default.
+  }
+  return LOCAL_DATA_DEFAULT;
+}
+
+export function setLocalDataEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(LOCAL_DATA_FLAG_KEY, enabled ? "on" : "off");
+  } catch {
+    // Private mode — the in-memory flag still applies until reload.
+  }
+}
+
 /** ADR 0058 Phase-2: outline sync via Lunora shapes/mutators instead of custom DO. */
 export const LUNORA_SYNC_FLAG_KEY = "dotflowy:flag:lunora-sync";
 
@@ -51,6 +91,8 @@ const LUNORA_SYNC_DEFAULT = false;
  * `?lunora-sync=off` (URL wins for that load; does not persist).
  */
 export function isLunoraSyncEnabled(): boolean {
+  // Browser-only mode never opens a sync socket, Lunora included.
+  if (isLocalDataEnabled()) return false;
   if (typeof window === "undefined") return LUNORA_SYNC_DEFAULT;
   try {
     const q = new URLSearchParams(window.location.search).get("lunora-sync");

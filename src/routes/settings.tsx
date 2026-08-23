@@ -5,6 +5,7 @@ import {
   ClipboardCopyIcon,
   DownloadIcon,
   FileUpIcon,
+  HardDriveIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
@@ -35,6 +36,8 @@ import { Switch } from "../components/ui/switch";
 import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
+import { isLocalDataEnabled } from "../data/flags";
+import { setLocalDataMode } from "../data/local-data";
 import { outlineToMarkdown } from "../data/markdown";
 import { imageCountsByNode } from "../data/media";
 import { exportOpml } from "../data/opml-export";
@@ -250,6 +253,11 @@ function useSubscriptions(): Subscriptions {
   const [subs, setSubs] = useState<SubRow[]>([]);
 
   const reload = useCallback(() => {
+    if (isLocalDataEnabled()) {
+      setState("ready");
+      setSubs([]);
+      return () => {};
+    }
     let cancelled = false;
     setState("loading");
     subscription.list().then(
@@ -622,12 +630,54 @@ function ConnectionsSection({ plan }: { plan: PlanName | null }) {
 }
 
 function DataSection() {
+  const local = isLocalDataEnabled();
+  const [saving, setSaving] = useState(false);
+  const onToggle = useCallback(
+    (checked: boolean) => {
+      if (checked === local) return;
+      if (
+        !checked &&
+        !window.confirm(
+          "Use the backend on this machine? Sign in so browsers share one outline. Data already in this browser stays here and is not uploaded.",
+        )
+      ) {
+        return;
+      }
+      if (
+        checked &&
+        !window.confirm(
+          "Keep everything in this browser only? The outline in this tab is copied here and backend sync stops.",
+        )
+      ) {
+        return;
+      }
+      setSaving(true);
+      void setLocalDataMode(checked).catch(() => {
+        setSaving(false);
+        toast.error("Couldn't switch storage. Try again.");
+      });
+    },
+    [local],
+  );
   return (
     <Section
       title="Data"
       description="Your whole outline — export it or bring one in. These act on everything, not just the current view."
     >
       <RowGroup>
+        <SettingRow
+          icon={<HardDriveIcon />}
+          title="This browser only"
+          description="Off by default: the backend on this machine keeps one outline across browsers. On: store only in this browser (localStorage + IndexedDB)."
+          action={
+            <Switch
+              checked={local}
+              disabled={saving}
+              onCheckedChange={onToggle}
+              aria-label="This browser only"
+            />
+          }
+        />
         <SettingRow
           icon={<FileUpIcon />}
           title="Import OPML"
@@ -834,16 +884,18 @@ function SettingsPage() {
       </header>
 
       <div className="mx-auto flex max-w-2xl flex-col gap-10 px-4 py-8 sm:px-6">
-        <Section
-          title="Plan & billing"
-          description="Your plan, usage, and payment."
-        >
-          <PlanBilling {...subscriptions} />
-        </Section>
+        {!isLocalDataEnabled() && (
+          <Section
+            title="Plan & billing"
+            description="Your plan, usage, and payment."
+          >
+            <PlanBilling {...subscriptions} />
+          </Section>
+        )}
 
-        <AccountSection />
-        <BetaSection />
-        <ConnectionsSection plan={plan} />
+        {!isLocalDataEnabled() && <AccountSection />}
+        {!isLocalDataEnabled() && <BetaSection />}
+        {!isLocalDataEnabled() && <ConnectionsSection plan={plan} />}
         <DataSection />
         <AppearanceSection />
       </div>

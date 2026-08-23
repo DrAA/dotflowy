@@ -33,6 +33,7 @@ import { ThemeProvider } from "../components/theme-provider";
 import { Toaster } from "../components/ui/sonner";
 import { UpdateAvailableToast } from "../components/update-available";
 import { AccountPrefsController } from "../data/account-prefs";
+import { isLocalDataEnabled } from "../data/flags";
 import { hardReset, useSession } from "../lib/auth-client";
 import { FAVICON_DARK, FAVICON_LIGHT } from "../lib/favicon";
 import {
@@ -219,6 +220,11 @@ function RootComponent() {
 let firstUserId: string | null = null;
 
 function AuthGate({ children }: Readonly<{ children: ReactNode }>) {
+  if (isLocalDataEnabled()) return <>{children}</>;
+  return <CloudAuthGate>{children}</CloudAuthGate>;
+}
+
+function CloudAuthGate({ children }: Readonly<{ children: ReactNode }>) {
   const { data: session, isPending } = useSession();
   if (isPending) return null;
   if (!session) return <AuthScreen />;

@@ -8,7 +8,12 @@ import type { Node } from "./schema";
 
 import { createNodes, deleteNodes, updateNodes } from "./api";
 import { noteServerVersion } from "./app-version";
-import { isLunoraSyncEnabled, isMirrorsEnabled } from "./flags";
+import {
+  isLocalDataEnabled,
+  isLunoraSyncEnabled,
+  isMirrorsEnabled,
+} from "./flags";
+import { readLocalNodes, writeLocalNodes } from "./local-store";
 import { runPromise } from "./nodes-client-effect";
 import { makeSyncStream } from "./realtime";
 import { appRuntime } from "./runtime";
@@ -454,6 +459,18 @@ export const nodesCollection = createCollection({
         return () => {};
       }
 
+      // Local-only: hydrate from this browser and never open /api/sync.
+      if (isLocalDataEnabled()) {
+        begin();
+        for (const n of readLocalNodes()) {
+          write({ type: "insert", value: withNodeDefaults(n) });
+        }
+        commit();
+        markReady();
+        markSyncReady();
+        return () => {};
+      }
+
       // ADR 0058 flag-swap: Lunora owns outline sync. Keep this collection idle
       // (ready+empty) so e2e / default OFF path is unchanged; tree-store feeds
       // from the Lunora collection instead. Don't markSyncReady here — Lunora
@@ -628,12 +645,24 @@ export const nodesCollection = createCollection({
   // AND the rollback). A no-op toast for the node-limit case, already toasted
   // upstream.
   onInsert: async ({ transaction }) => {
+    if (isLocalDataEnabled()) {
+      await persistOrNotify(
+        Promise.resolve().then(() => persistLocalOutline()),
+      );
+      return { refetch: false };
+    }
     await persistOrNotify(
       createNodes(transaction.mutations.map((m) => m.modified as Node)),
     );
     return { refetch: false };
   },
   onUpdate: async ({ transaction }) => {
+    if (isLocalDataEnabled()) {
+      await persistOrNotify(
+        Promise.resolve().then(() => persistLocalOutline()),
+      );
+      return { refetch: false };
+    }
     await persistOrNotify(
       updateNodes(
         transaction.mutations.map((m) => ({
@@ -645,9 +674,20 @@ export const nodesCollection = createCollection({
     return { refetch: false };
   },
   onDelete: async ({ transaction }) => {
+    if (isLocalDataEnabled()) {
+      await persistOrNotify(
+        Promise.resolve().then(() => persistLocalOutline()),
+      );
+      return { refetch: false };
+    }
     await persistOrNotify(
       deleteNodes(transaction.mutations.map((m) => m.key as string)),
     );
     return { refetch: false };
   },
 });
+
+/** Snapshot the live outline into localStorage (local-data mode). */
+export function persistLocalOutline(): void {
+  writeLocalNodes(nodesCollection.toArray as Node[]);
+}

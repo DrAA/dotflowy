@@ -6,11 +6,14 @@ How Dotflowy stores, syncs, and renders an outline. Agent pointers live in
 
 ## The shape of the system
 
-Your outline is stored in a TanStack DB collection. By default that's backed by
-a per-user **Cloudflare Durable Object** (its colocated SQLite) through a
-Worker — writes go to `/api/nodes`, live reads over `/api/sync` (WebSocket) —
-so edits show up on your other tabs/devices without refocusing. See
-[the sync design](./adr/0008-sync-via-a-per-user-durable-object.md). The
+Your outline is stored in a TanStack DB collection. By default that's the
+**backend on this machine**: a per-user **Durable Object** (colocated SQLite)
+via Wrangler local bindings — writes go to `/api/nodes`, live reads over
+`/api/sync` (WebSocket) — so every browser on that host shares one outline.
+Nothing is required from Cloudflare's hosted cloud for local `bun run dev` /
+`cf:dev`. Opt in to **this browser only** (localStorage + IndexedDB for
+images; no `/api/nodes` / `/api/kv` / `/api/media` / `/api/sync`) in Settings.
+See [the sync design](./adr/0008-sync-via-a-per-user-durable-object.md). The
 flat-row data model means swapping the backend is a collection-options change,
 not a rewrite.
 

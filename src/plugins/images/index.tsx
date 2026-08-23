@@ -11,6 +11,7 @@ import {
   detachMedia,
   getMediaRows,
   mediaForNode,
+  mediaUrl,
   nodeHasImage,
   pickAndAttachImages,
   startMedia,
@@ -61,7 +62,7 @@ function NodeImages({
           <DialogTitle className="sr-only">Attached image</DialogTitle>
           {openRow && (
             <img
-              src={`/api/media/${openRow.id}`}
+              src={mediaUrl(openRow.id)}
               alt=""
               className="max-h-[85vh] w-full object-contain"
             />
@@ -83,7 +84,7 @@ function ImageBlock({
   onOpen?: () => void;
   onDetach?: () => void;
 }) {
-  const src = overlay?.url ?? (row ? `/api/media/${row.id}` : "");
+  const src = overlay?.url ?? (row ? mediaUrl(row.id) : "");
   const width = overlay?.width ?? row?.width ?? 0;
   const height = overlay?.height ?? row?.height ?? 0;
   return (

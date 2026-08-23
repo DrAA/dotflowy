@@ -208,6 +208,7 @@ export async function seedOutline(
   // Product default is Lunora ON; classic e2e mocks `/api/sync` only.
   await page.addInitScript(() => {
     window.localStorage.setItem("dotflowy:flag:lunora-sync", "off");
+    window.localStorage.setItem("dotflowy:flag:local-data", "off");
   });
 
   const echoDelayMs = opts.echoDelayMs ?? 0;
@@ -784,6 +785,7 @@ export async function seedOutlineLunora(
 
   await page.addInitScript(() => {
     window.localStorage.setItem("dotflowy:flag:lunora-sync", "on");
+    window.localStorage.setItem("dotflowy:flag:local-data", "off");
   });
 
   await page.route(
