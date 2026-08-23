@@ -26,6 +26,7 @@ import {
   scaffoldLabel,
   sortedInsertAfterId,
 } from "../src/data/date-links";
+import { imagePlaceholder } from "../src/data/media-placeholder";
 import { redactSpoilers } from "../src/data/spoiler";
 import {
   type TreeIndex,
@@ -1225,7 +1226,10 @@ export function redactSpoilerIndex(index: TreeIndex): TreeIndex {
 }
 
 /** Render flattened lines as the agent-facing text outline. */
-export function formatOutlineLines(lines: ReadonlyArray<OutlineLine>): string {
+export function formatOutlineLines(
+  lines: ReadonlyArray<OutlineLine>,
+  imageCounts?: ReadonlyMap<string, number>,
+): string {
   return lines
     .map((l) => {
       const indent = "  ".repeat(l.depth);
@@ -1235,7 +1239,8 @@ export function formatOutlineLines(lines: ReadonlyArray<OutlineLine>): string {
       if (l.mirrorOf) meta.push(`mirror of ${l.mirrorOf}`);
       if (l.capped) meta.push("cycle capped");
       if (!l.isTask && l.completed) meta.push("completed");
-      return `${indent}- ${check}${l.text || "(empty)"} (${meta.join(", ")})`;
+      const extra = imagePlaceholder(imageCounts?.get(l.mirrorOf ?? l.id) ?? 0);
+      return `${indent}- ${check}${l.text || "(empty)"}${extra} (${meta.join(", ")})`;
     })
     .join("\n");
 }

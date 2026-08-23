@@ -260,3 +260,18 @@ describe("round-trip: export -> import re-links mirrors (the acceptance test)", 
     expect(mirror.mirrorOf).toBe(source.id);
   });
 });
+
+describe("image placeholders", () => {
+  it("appends an image mention when imageCounts is provided, never a media URL", () => {
+    const idx = index([makeNode({ id: "a", text: "alpha" })]);
+    const plain = exportOpml(idx, null, { title: "t" });
+    expect(plain).toContain('text="alpha"');
+    expect(plain).not.toContain("[image]");
+    const withImg = exportOpml(idx, null, {
+      title: "t",
+      imageCounts: new Map([["a", 1]]),
+    });
+    expect(withImg).toContain('text="alpha [image]"');
+    expect(withImg).not.toContain("/api/media/");
+  });
+});

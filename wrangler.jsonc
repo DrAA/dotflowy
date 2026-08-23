@@ -111,6 +111,10 @@
       "binding": "BACKUPS",
       "bucket_name": "dotflowy-backups",
     },
+    {
+      "binding": "MEDIA",
+      "bucket_name": "dotflowy-media",
+    },
   ],
   // Daily backup sweep (09:00 UTC ≈ overnight US). The scheduled handler in
   // worker/index.ts runs runBackupSweep; test locally with

@@ -495,9 +495,26 @@ export class UserOutlineDO extends DurableObject<Env> {
 
   deleteNodes(ids: readonly string[]): void {
     this.broadcastChange(
-      this.ctx.storage.transactionSync(() =>
-        this.recordChange(ids.map((id) => this.deleteNodeRow(id))),
-      ),
+      this.ctx.storage.transactionSync(() => {
+        const ops = ids.map((id) => this.deleteNodeRow(id));
+        const deleted = new Set(ids);
+        const media = this.getKv("media") as {
+          id?: unknown;
+          nodeId?: unknown;
+        }[];
+        const drop: string[] = [];
+        for (const row of media) {
+          if (
+            typeof row?.id === "string" &&
+            typeof row.nodeId === "string" &&
+            deleted.has(row.nodeId)
+          ) {
+            drop.push(row.id);
+          }
+        }
+        if (drop.length) this.deleteKv("media", drop);
+        return this.recordChange(ops);
+      }),
     );
   }
 

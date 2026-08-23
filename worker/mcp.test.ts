@@ -30,6 +30,7 @@ interface FakeStore {
 function makeStore(
   seed: Node[] = [],
   kvRows: Array<{ key: string; nodeId: string }> = [],
+  mediaRows: unknown[] = [],
 ): FakeStore {
   const nodes = new Map(seed.map((n) => [n.id, n]));
   const kv = new Map(kvRows.map((r) => [r.key, r]));
@@ -44,8 +45,11 @@ function makeStore(
       }
       return batches.length;
     },
-    getKv: (collection) =>
-      collection === "daily-index" ? [...kv.values()] : [],
+    getKv: (collection) => {
+      if (collection === "daily-index") return [...kv.values()];
+      if (collection === "media") return mediaRows;
+      return [];
+    },
     getOrCreateKv: (collection, key, value) => {
       if (collection !== "daily-index")
         throw new Error(`unexpected kv collection ${collection}`);
@@ -302,6 +306,20 @@ describe("MCP tools", () => {
     );
     expect(hits).toContain("(id: a1)");
     expect(hits).toContain("in: alpha");
+  });
+
+  test("get_outline mentions hosted images without media URLs", async () => {
+    const { store } = makeStore(
+      fixture(),
+      [],
+      [
+        { id: "m1", nodeId: "a" },
+        { id: "m2", nodeId: "a" },
+      ],
+    );
+    const outline = toolText(await callTool(store, "get_outline", {}));
+    expect(outline).toContain("[image ×2]");
+    expect(outline).not.toContain("/api/media/");
   });
 
   test("add_node writes one atomic batch and reports the new id", async () => {

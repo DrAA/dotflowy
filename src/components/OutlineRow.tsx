@@ -22,7 +22,12 @@ import {
   useNode,
   useVisibleChildIds,
 } from "../data/tree-store";
-import { autoformat, slotsAt, useIsProtected } from "../plugins/registry";
+import {
+  autoformat,
+  pasteFiles,
+  slotsAt,
+  useIsProtected,
+} from "../plugins/registry";
 import { hasFoldingToken } from "../plugins/registry";
 import { BulletGlyph } from "./bullet-glyph";
 import { focusTextFromRowTap } from "./caret-place";
@@ -381,6 +386,18 @@ function RowChrome({
       data-selected={selectionFill ?? undefined}
       data-index={index}
       ref={measureRef}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files];
+        if (files.length === 0) return;
+        e.preventDefault();
+        pasteFiles(files, content.id, pluginCtx());
+      }}
       style={{
         position: "absolute",
         top: 0,
@@ -456,6 +473,7 @@ function RowChrome({
             spellCheck={false}
             aria-label={content.text.trim() || "Empty bullet"}
             aria-multiline="true"
+            data-blank={content.text.trim() ? undefined : true}
             data-completed={content.completed}
             onInput={(e) => {
               const el = e.currentTarget;
@@ -560,6 +578,12 @@ function RowChrome({
               slash.handleKeyDown(e);
             }}
           />
+          {/* Full-width under the text (Seam F `row:below`, ADR 0061). Inside
+              `.row-body` so an image-only bullet sits beside the dot, not on
+              a second line under an empty text box. */}
+          {slotsAt("row:below").map((slot) => (
+            <Fragment key={slot.id}>{slot.render(content, pluginCtx)}</Fragment>
+          ))}
         </div>
         {/* Trailing decoration zone (Seam F `row:after-text`, ADR 0031). Flex
             sibling of `.row-body`, hugs the trailing edge; dormant until a

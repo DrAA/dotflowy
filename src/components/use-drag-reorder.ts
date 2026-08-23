@@ -28,6 +28,10 @@ import { INDENT_PX } from "./OutlineRow";
  * `startDrag` arms a movement threshold on pointerdown, and `consumeClick`
  * lets the dot's click handler tell a real drag apart from a plain click (only
  * the latter should zoom).
+ *
+ * File drops (hosted images, ADR 0061) are a separate HTML5 `dragover`/`drop`
+ * on the row when `dataTransfer.types` includes `Files`. They never share this
+ * pointer gesture, so a screenshot drop cannot start a reorder.
  */
 
 // Movement (px) before a press becomes a drag. Below this, it's a click → zoom.

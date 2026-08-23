@@ -22,6 +22,7 @@ import { openFeedbackReport } from "../data/feedback";
 import { capture } from "../data/history";
 import { flattenInline } from "../data/inline-text";
 import { outlineToMarkdown } from "../data/markdown";
+import { imageCountsByNode } from "../data/media";
 import { toggleCollapsed } from "../data/mutations";
 import { exportOpml } from "../data/opml-export";
 import { runStructural } from "../data/structural";
@@ -69,7 +70,7 @@ export async function copyOutlineAsMarkdown() {
   const index = getTreeIndex();
   const rootId = getViewRootId();
   const rootIds = rootId ? [rootId] : childrenOf(index, null).map((n) => n.id);
-  const markdown = outlineToMarkdown(index, rootIds);
+  const markdown = outlineToMarkdown(index, rootIds, imageCountsByNode());
   if (!markdown) {
     toast("Nothing to copy");
     return;
@@ -111,6 +112,7 @@ export function exportOutlineAsOpml() {
     : `dotflowy-export-${date}.opml`;
   const opml = exportOpml(index, root ? root.id : null, {
     title: rootText || "dotflowy export",
+    imageCounts: imageCountsByNode(),
   });
   downloadTextFile(filename, "text/x-opml;charset=utf-8", opml);
 }

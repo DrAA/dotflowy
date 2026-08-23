@@ -19,7 +19,7 @@ import type { ClipboardEvent } from "react";
 import type { MdPastePlacement } from "../data/markdown-import";
 import type { PluginContext } from "../plugins/types";
 
-import { afterPaste, pasteReplacement } from "../plugins/registry";
+import { afterPaste, pasteFiles, pasteReplacement } from "../plugins/registry";
 import {
   decorate,
   getSelectionRange,
@@ -105,6 +105,9 @@ export function pasteIntoBullet(
   const cd = e.clipboardData;
   if (!cd) return null;
   e.preventDefault();
+
+  const files = [...cd.files];
+  if (files.length > 0 && pasteFiles(files, nodeId, getCtx())) return null;
 
   const literal = consumeLiteralArm();
   // A single trailing newline terminates the last line; it does not add an empty

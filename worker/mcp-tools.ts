@@ -24,6 +24,7 @@ import {
   scaffoldKeyKind,
   scaffoldLabel,
 } from "../src/data/date-links";
+import { countImagesByNode } from "../src/data/media-placeholder";
 import { exportOpml } from "../src/data/opml-export";
 import {
   OPML_MCP_MAX_NODES,
@@ -158,6 +159,16 @@ export const setClock = (now: number | null): void => {
 
 const KV_DAILY = "daily-index";
 const CONTAINER_KEY = "container";
+
+function asMediaNodeIds(raw: unknown[]): { nodeId: string }[] {
+  const out: { nodeId: string }[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const nodeId = (item as { nodeId?: unknown }).nodeId;
+    if (typeof nodeId === "string") out.push({ nodeId });
+  }
+  return out;
+}
 
 const DailyRowSchema = Schema.Struct({
   key: Schema.String,
@@ -778,7 +789,12 @@ export const tools: ReadonlyArray<ToolDef> = [
           }),
         );
         if (!result.lines.length) return "The outline is empty.";
-        const body = formatOutlineLines(result.lines);
+        const media = yield* Effect.tryPromise({
+          try: () => Promise.resolve(store.getKv("media")),
+          catch: toToolError,
+        });
+        const counts = countImagesByNode(asMediaNodeIds(media));
+        const body = formatOutlineLines(result.lines, counts);
         return result.truncated
           ? `${body}\n\n(truncated at ${MAX_OUTLINE_NODES} nodes — read a subtree via nodeId for more)`
           : body;

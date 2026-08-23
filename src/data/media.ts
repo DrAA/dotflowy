@@ -1,0 +1,312 @@
+import { queryCollectionOptions } from "@tanstack/query-db-collection";
+import { createCollection } from "@tanstack/react-db";
+import { Schema } from "effect";
+import { useSyncExternalStore } from "react";
+import { toast } from "sonner";
+
+import type { PluginContext } from "../plugins/types";
+
+import { capture, registerHistoryExtra } from "./history";
+import { kvDelete, kvFetch, kvPut, toKvKeys, toKvRows } from "./kv-api";
+import { queryClient } from "./query-client";
+import { trueSourceOf } from "./tree";
+import { getTreeIndex, subscribeTree } from "./tree-store";
+
+const KV = "media";
+
+const mediaSchema = Schema.Struct({
+  id: Schema.String,
+  nodeId: Schema.String,
+  contentType: Schema.String,
+  bytes: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+  createdAt: Schema.Number,
+});
+
+export type MediaRow = Schema.Schema.Type<typeof mediaSchema>;
+
+export const mediaCollection = createCollection(
+  queryCollectionOptions({
+    id: "media",
+    queryKey: ["kv", KV],
+    queryClient,
+    queryFn: () => kvFetch<MediaRow>(KV),
+    getKey: (row: MediaRow) => row.id,
+    schema: Schema.toStandardSchemaV1(mediaSchema),
+    onInsert: async ({ transaction }) => {
+      await kvPut(KV, toKvRows(transaction));
+      return { refetch: false };
+    },
+    onUpdate: async ({ transaction }) => {
+      await kvPut(KV, toKvRows(transaction));
+      return { refetch: false };
+    },
+    onDelete: async ({ transaction }) => {
+      await kvDelete(KV, toKvKeys(transaction));
+      return { refetch: false };
+    },
+  }),
+);
+
+const ACCEPT = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
+export function isAttachableImage(file: File): boolean {
+  if (ACCEPT.has(file.type)) return true;
+  const name = file.name.toLowerCase();
+  return (
+    file.type === "" &&
+    (name.endsWith(".png") ||
+      name.endsWith(".jpg") ||
+      name.endsWith(".jpeg") ||
+      name.endsWith(".gif") ||
+      name.endsWith(".webp") ||
+      name.endsWith(".avif"))
+  );
+}
+
+export type MediaOverlay = {
+  tempId: string;
+  nodeId: string;
+  url: string;
+  width: number;
+  height: number;
+};
+
+let overlays: MediaOverlay[] = [];
+const overlayListeners = new Set<() => void>();
+
+function emitOverlays(): void {
+  for (const l of overlayListeners) l();
+}
+
+function addOverlay(row: MediaOverlay): void {
+  overlays = [...overlays, row];
+  emitOverlays();
+}
+
+function removeOverlay(tempId: string): void {
+  const hit = overlays.find((o) => o.tempId === tempId);
+  if (hit) URL.revokeObjectURL(hit.url);
+  overlays = overlays.filter((o) => o.tempId !== tempId);
+  emitOverlays();
+}
+
+const EMPTY_ROWS: MediaRow[] = [];
+let rows: MediaRow[] = EMPTY_ROWS;
+const listeners = new Set<() => void>();
+let started = false;
+let restoring = false;
+
+function rebuild(): void {
+  rows = mediaCollection.toArray;
+  for (const l of listeners) l();
+}
+
+function restoreMediaSnapshot(data: unknown): void {
+  restoring = true;
+  try {
+    const next = Array.isArray(data) ? (data as MediaRow[]) : [];
+    const keep = new Set(next.map((r) => r.id));
+    for (const row of mediaCollection.toArray) {
+      if (!keep.has(row.id)) mediaCollection.delete(row.id);
+    }
+    for (const row of next) {
+      if (mediaCollection.has(row.id)) {
+        mediaCollection.update(row.id, (draft) => Object.assign(draft, row));
+      } else {
+        mediaCollection.insert({ ...row });
+      }
+    }
+  } finally {
+    restoring = false;
+  }
+}
+
+function gcOrphans(): void {
+  if (restoring) return;
+  const index = getTreeIndex();
+  for (const row of mediaCollection.toArray) {
+    if (!index.byId.has(row.nodeId)) mediaCollection.delete(row.id);
+  }
+}
+
+function ensureStarted(): void {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  mediaCollection.subscribeChanges(() => rebuild(), {
+    includeInitialState: true,
+  });
+  registerHistoryExtra({
+    snapshot: () => mediaCollection.toArray.map((r) => ({ ...r })),
+    restore: restoreMediaSnapshot,
+  });
+  subscribeTree(() => gcOrphans());
+}
+
+/** Kick the kv fetch + history extra + orphan GC. Idempotent. */
+export function startMedia(): void {
+  ensureStarted();
+}
+
+function subscribe(cb: () => void): () => void {
+  ensureStarted();
+  listeners.add(cb);
+  overlayListeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+    overlayListeners.delete(cb);
+  };
+}
+
+function getRows(): MediaRow[] {
+  ensureStarted();
+  return rows;
+}
+
+export function useMediaRows(): MediaRow[] {
+  return useSyncExternalStore(subscribe, getRows, () => EMPTY_ROWS);
+}
+
+export function useMediaOverlays(): MediaOverlay[] {
+  return useSyncExternalStore(
+    subscribe,
+    () => overlays,
+    (): MediaOverlay[] => [],
+  );
+}
+
+export function mediaForNode(
+  contentId: string,
+  all: readonly MediaRow[],
+): MediaRow[] {
+  return all.filter((r) => r.nodeId === contentId);
+}
+
+export function nodeHasImage(
+  contentId: string,
+  all: readonly MediaRow[],
+): boolean {
+  return all.some((r) => r.nodeId === contentId);
+}
+
+export function imageCountsByNode(): Map<string, number> {
+  ensureStarted();
+  const map = new Map<string, number>();
+  for (const row of mediaCollection.toArray) {
+    map.set(row.nodeId, (map.get(row.nodeId) ?? 0) + 1);
+  }
+  return map;
+}
+
+/** Live rows for non-React callers (filter predicates). Starts the collection. */
+export function getMediaRows(): MediaRow[] {
+  ensureStarted();
+  return mediaCollection.toArray;
+}
+
+async function measureImage(
+  file: File,
+): Promise<{ width: number; height: number }> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const size = { width: bmp.width, height: bmp.height };
+    bmp.close();
+    return size;
+  } catch {
+    return { width: 0, height: 0 };
+  }
+}
+
+/**
+ * Claim image files, capture undo, upload, insert kv rows. Returns false when
+ * none of the files are attachable images (so paste can fall through to text).
+ */
+export function attachImages(
+  files: File[],
+  nodeId: string,
+  ctx: PluginContext,
+): boolean {
+  const images = files.filter(isAttachableImage);
+  if (images.length === 0) return false;
+  const contentId = trueSourceOf(ctx.tree, nodeId);
+  capture(ctx.tree, nodeId);
+  void uploadAll(images, contentId);
+  return true;
+}
+
+async function uploadAll(files: File[], contentId: string): Promise<void> {
+  for (const file of files) {
+    const tempId = crypto.randomUUID();
+    const url = URL.createObjectURL(file);
+    const { width, height } = await measureImage(file);
+    addOverlay({ tempId, nodeId: contentId, url, width, height });
+    try {
+      const row = await postMedia(file, contentId, width, height);
+      mediaCollection.insert(row);
+    } catch (err) {
+      const msg =
+        err instanceof QuotaError
+          ? "Image is too large for your plan."
+          : "Couldn't attach that image.";
+      toast.error(msg);
+    } finally {
+      removeOverlay(tempId);
+    }
+  }
+}
+
+class QuotaError extends Error {
+  constructor() {
+    super("quota");
+    this.name = "QuotaError";
+  }
+}
+
+async function postMedia(
+  file: File,
+  nodeId: string,
+  width: number,
+  height: number,
+): Promise<MediaRow> {
+  const res = await fetch(`/api/media?nodeId=${encodeURIComponent(nodeId)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-image-width": String(width),
+      "x-image-height": String(height),
+    },
+    body: file,
+  });
+  if (res.status === 413) throw new QuotaError();
+  if (!res.ok) throw new Error(`upload ${res.status}`);
+  return (await res.json()) as MediaRow;
+}
+
+/** Detach one attachment (kv row only; R2 stays for undo). */
+export function detachMedia(id: string, ctx: PluginContext): void {
+  const row = mediaCollection.toArray.find((r) => r.id === id);
+  capture(ctx.tree, row?.nodeId ?? null);
+  if (mediaCollection.has(id)) mediaCollection.delete(id);
+}
+
+/** Open a hidden file picker and attach the chosen images. */
+export function pickAndAttachImages(nodeId: string, ctx: PluginContext): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/jpeg,image/png,image/gif,image/webp,image/avif";
+  input.multiple = true;
+  input.addEventListener("change", () => {
+    const files = [...(input.files ?? [])];
+    if (files.length) attachImages(files, nodeId, ctx);
+    input.remove();
+  });
+  input.click();
+}

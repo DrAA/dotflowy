@@ -347,6 +347,20 @@ export function pasteReplacement(input: PasteInput): string | null {
   return null;
 }
 
+/** First plugin to claim a file paste/drop wins. False => the core continues
+ *  with the string paste chain (or ignores a non-image drop). */
+export function pasteFiles(
+  files: File[],
+  nodeId: string,
+  ctx: PluginContext,
+): boolean {
+  if (files.length === 0) return false;
+  for (const spec of inputSpecs) {
+    if (spec!.onPasteFiles?.({ files, nodeId }, ctx)) return true;
+  }
+  return false;
+}
+
 /** Ask each plugin (array order) to rewrite the just-typed text; first non-null
  *  wins. Null => no autoformat applies and the core takes its normal path. */
 export function autoformat(input: AutoformatInput): AutoformatResult | null {

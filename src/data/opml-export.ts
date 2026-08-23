@@ -32,6 +32,7 @@ import {
   type HighlightColor,
 } from "./highlight";
 import { LINK_PATTERN, sanitizeLinkLabel } from "./links";
+import { imagePlaceholder } from "./media-placeholder";
 import { NODE_LINK_PATTERN, linkTargetId, linkedNodeLabel } from "./node-links";
 import { childrenOf, trueSourceOf, type TreeIndex } from "./tree";
 
@@ -45,6 +46,8 @@ export interface OpmlExportOptions {
   title: string;
   /** Origin for node-link `<a href>` projections. */
   appOrigin?: string;
+  /** Honest `[image]` mention per content id (ADR 0061). Never a media URL. */
+  imageCounts?: ReadonlyMap<string, number>;
 }
 
 // --- Escaping -------------------------------------------------------------------
@@ -259,6 +262,7 @@ interface ExportState {
   /** In-scope mirror sources that need an `id` attribute. */
   sourcesNeedingId: ReadonlySet<string>;
   lines: string[];
+  imageCounts?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -293,7 +297,8 @@ function emitNode(
     if (state.sourcesNeedingId.has(id)) attrs += ` id="${escapeXmlAttr(id)}"`;
     if (isMirror) attrs += ` _mirror="${escapeXmlAttr(contentId)}"`;
   }
-  attrs += ` text="${escapeXmlAttr(projectText(content.text, index, state.appOrigin))}"`;
+  const extra = imagePlaceholder(state.imageCounts?.get(contentId) ?? 0);
+  attrs += ` text="${escapeXmlAttr(projectText(content.text, index, state.appOrigin) + extra)}"`;
 
   const children = capped ? [] : childrenOf(index, contentId);
   const pad = INDENT.repeat(depth + 2); // inside <opml><body>
@@ -355,7 +360,13 @@ export function exportOpml(
     if (scopeIds.has(sourceId)) sourcesNeedingId.add(sourceId);
   }
 
-  const state: ExportState = { index, appOrigin, sourcesNeedingId, lines: [] };
+  const state: ExportState = {
+    index,
+    appOrigin,
+    sourcesNeedingId,
+    lines: [],
+    imageCounts: options.imageCounts,
+  };
   for (const id of rootIds) emitNode(state, id, 0, new Set(), false);
 
   return [

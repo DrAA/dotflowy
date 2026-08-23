@@ -28,6 +28,7 @@ import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import { outlineToMarkdown } from "../data/markdown";
+import { imageCountsByNode } from "../data/media";
 import { useNodeCount } from "../data/node-count";
 import { exportOpml } from "../data/opml-export";
 import { FREE_NODE_LIMIT, PLAN_LABELS, type PlanName } from "../data/plans";
@@ -53,7 +54,7 @@ export const Route = createFileRoute("/settings")({
 async function copyWholeOutlineMarkdown() {
   const index = getTreeIndex();
   const rootIds = childrenOf(index, null).map((n) => n.id);
-  const markdown = outlineToMarkdown(index, rootIds);
+  const markdown = outlineToMarkdown(index, rootIds, imageCountsByNode());
   if (!markdown) {
     toast("Nothing to copy yet");
     return;
@@ -72,7 +73,10 @@ function exportWholeOutlineOpml() {
     toast("Nothing to export yet");
     return;
   }
-  const opml = exportOpml(index, null, { title: "dotflowy export" });
+  const opml = exportOpml(index, null, {
+    title: "dotflowy export",
+    imageCounts: imageCountsByNode(),
+  });
   downloadTextFile(
     `dotflowy-export-${localDateKey()}.opml`,
     "text/x-opml;charset=utf-8",

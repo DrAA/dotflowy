@@ -31,6 +31,7 @@ import { sendEmail } from "./email";
 import { isSignupOpen, matchesSharedInviteCode } from "./identity";
 import { isRedeemableInvite, normalizeEmail, redeemInvite } from "./invites";
 import { wipeLunoraUserShard } from "./lunora-mcp-store";
+import { deleteMediaPrefix } from "./media";
 import { FOUNDING_SEAT_LIMIT, countFoundingSeats } from "./plan";
 
 /** The slice of the Worker env Better Auth needs. */
@@ -77,6 +78,9 @@ export interface AuthEnv {
    *  /api/nodes through, resolved here from the authenticated session's user.id
    *  (never a client-supplied id; the DO trust boundary, ADR 0014). */
   USER_OUTLINE: DurableObjectNamespace<UserOutlineDO>;
+  /** Hosted-image R2 (ADR 0061). Optional so auth unit tests that don't bind
+   *  R2 still construct; production wrangler always provides it. */
+  MEDIA?: R2Bucket;
   /** Lunora shard DO namespace (ADR 0058). Self-serve deletion wipes this
    *  alongside USER_OUTLINE — keyed by `user.id`, not resolveUserId. */
   SHARD: ShardNamespaceLike;
@@ -249,6 +253,7 @@ export function createAuth(
             env.USER_OUTLINE.idFromName(user.id),
           );
           await stub.wipe();
+          if (env.MEDIA) await deleteMediaPrefix(env.MEDIA, user.id);
           // Lunora shard (ADR 0058): same Better Auth user.id the browser/MCP
           // mutators use — NOT resolveUserId / 'default'. Throws on RPC failure
           // so deletion aborts before identity rows vanish (ADR 0051 posture).

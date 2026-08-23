@@ -11,6 +11,7 @@ import code from "./code";
 import daily from "./daily";
 import emphasis from "./emphasis";
 import highlight from "./highlight";
+import images from "./images";
 import links from "./links";
 import nodeLinks from "./node-links";
 import provenance from "./provenance";
@@ -35,4 +36,5 @@ export const plugins: PluginDef[] = [
   highlight,
   spoiler,
   daily,
+  images,
 ];

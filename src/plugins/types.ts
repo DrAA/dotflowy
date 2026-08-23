@@ -352,9 +352,21 @@ export interface AutoformatResult {
   before?(ctx: PluginContext): void;
 }
 
+export interface PasteFilesInput {
+  files: File[];
+  nodeId: string;
+}
+
 export interface InputSpec {
   /** Decide the replacement string for a paste, or null to defer. */
   onPaste?: (input: PasteInput) => string | null;
+  /**
+   * Claim a paste (or drop) that carries files. First plugin to return true
+   * owns the event; the core skips the string paste chain. Images (ADR 0061)
+   * use this so a screenshot never lands as a filename. Keep it cheap when
+   * the files aren't yours.
+   */
+  onPasteFiles?: (input: PasteFilesInput, ctx: PluginContext) => boolean;
   /**
    * Rewrite the text the user just typed -- a markdown-style shortcut like
    * `[]` -> task. Returns null to leave it untouched. The core owns the
@@ -449,13 +461,17 @@ export interface KeymapSpec {
 // checkbox, the daily badge). `after-text` slots trail it -- the budgeted
 // trailing decoration zone (ADR 0031): the core caps how much of the bullet
 // they may occupy (see NodeDecorations + `--node-deco-budget`), so an author
-// gets any component but the outline surface can't be crowded out. Both the
-// row bullet and the zoomed title expose both positions.
+// gets any component but the outline surface can't be crowded out. `below`
+// slots sit under the text row, full width, inside the measured <li> (hosted
+// images, ADR 0061) -- not clipped by the chip budget. Both the row bullet
+// and the zoomed title expose before-text, after-text, and below.
 export type SlotPosition =
   | "row:before-text"
   | "title:before-text"
   | "row:after-text"
-  | "title:after-text";
+  | "title:after-text"
+  | "row:below"
+  | "title:below";
 
 export interface SlotSpec {
   id: string;

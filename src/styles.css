@@ -906,7 +906,7 @@ h2.zoomed-title .row-body > .title-paragraph {
 
 /* Every before-text decoration (checkbox, badges, lock, provenance mark)
    floats; the 6px replaces the flex row's gap it no longer receives. */
-.row-body > :not(.node-text) {
+.row-body > :not(.node-text):not(.node-images) {
   float: left;
   margin-right: 6px;
 }
@@ -1305,6 +1305,56 @@ body.dragging-active * {
   display: flex;
   align-items: start;
   gap: 4px;
+}
+
+/* Hosted images under a bullet / zoomed title (ADR 0061). Full-width below the
+   text, not in the trailing chip budget. */
+.zoomed-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.node-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  clear: both;
+  width: 100%;
+  padding: 4px 0 8px;
+}
+
+/*
+ * Image-only bullet: hide the text line so the photo is the bullet. Focus
+ * restores the box if someone wants a caption.
+ */
+.row-body:has(.node-images) .node-text:not(:focus),
+.zoomed-title-block:has(.node-images) .node-text:not(:focus) {
+  min-height: 0;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.node-image {
+  position: relative;
+  max-width: 100%;
+}
+
+.node-image img {
+  display: block;
+  max-height: 240px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.node-image-detach {
+  position: absolute;
+  top: 4px;
+  right: 4px;
 }
 
 .zoomed-title-text {

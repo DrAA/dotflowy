@@ -415,6 +415,74 @@ export async function seedOutline(
     },
   );
 
+  const blobs = new Map<string, { bytes: Buffer; type: string }>();
+  await page.route(
+    (url) =>
+      url.pathname === "/api/media" || url.pathname.startsWith("/api/media/"),
+    async (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      const method = req.method();
+      if (method === "POST" && url.pathname === "/api/media") {
+        const nodeId = url.searchParams.get("nodeId") ?? "";
+        const body = req.postDataBuffer() ?? Buffer.alloc(0);
+        const id = crypto.randomUUID();
+        const headers = req.headers();
+        const width = Number(headers["x-image-width"] ?? 0);
+        const height = Number(headers["x-image-height"] ?? 0);
+        const contentType = "image/png";
+        const row = {
+          id,
+          nodeId,
+          contentType,
+          bytes: body.length,
+          width,
+          height,
+          createdAt: Date.now(),
+        };
+        blobs.set(id, { bytes: body, type: contentType });
+        ns("media").set(id, row);
+        return route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify(row),
+        });
+      }
+      const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      if (method === "GET") {
+        if (!ns("media").has(id)) {
+          return route.fulfill({
+            status: 404,
+            contentType: "application/json",
+            body: '{"error":"not found"}',
+          });
+        }
+        const blob = blobs.get(id);
+        if (!blob) {
+          return route.fulfill({
+            status: 404,
+            contentType: "application/json",
+            body: '{"error":"not found"}',
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: blob.type,
+          body: blob.bytes,
+        });
+      }
+      if (method === "DELETE") {
+        ns("media").delete(id);
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: '{"ok":true}',
+        });
+      }
+      return route.fulfill({ status: 405, body: "{}" });
+    },
+  );
+
   // The live client loads the outline over a WebSocket (/api/sync), not a GET.
   // Hold the socket so writes can echo their change frames back here; reply to
   // `hello` with a full snapshot at the current seq (a reconnect resumes from

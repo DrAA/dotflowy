@@ -108,6 +108,7 @@ import {
   dispatchPointerDown,
   dispatchPointerUp,
   keymapSpecs,
+  pasteFiles,
   pluginPreloads,
   slotsAt,
   useIsProtected,
@@ -2199,136 +2200,163 @@ function ZoomedTitle({
   );
 
   return (
-    <h2 className="zoomed-title">
-      {/* Block cell so a wrapped title flows UNDER the slot icons, mirroring
+    <div
+      className="zoomed-title-block"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files];
+        if (files.length === 0) return;
+        e.preventDefault();
+        pasteFiles(files, node.id, getCtx());
+      }}
+    >
+      <h2 className="zoomed-title">
+        {/* Block cell so a wrapped title flows UNDER the slot icons, mirroring
           the list row's .row-body (floated icons shorten only the first line
           box). A span, not a div -- an h2 only permits phrasing content. */}
-      <span className="row-body">
-        {beforeTextSlots.map((slot) => (
-          <Fragment key={slot.id}>{slot.render(node, getCtx)}</Fragment>
-        ))}
-        <span
-          ref={(el) => {
-            ref.current = el;
-            registerRef(node.id, el);
-          }}
-          className={`node-text zoomed-title-text${isPivot ? " vt-morph" : ""}`}
-          style={isPivot ? { viewTransitionName: "zoom-target" } : undefined}
-          contentEditable
-          suppressContentEditableWarning
-          spellCheck={false}
-          aria-label="Title"
-          aria-multiline="true"
-          data-completed={node.completed}
-          onInput={(e) => {
-            const el = e.currentTarget;
-            const text = readSource(el);
-            onTextChange(text);
-            slash.handleInput();
-            menus.handleInput();
-            // Re-decorate live, revealing the link under the caret. Suspended
-            // during IME composition; compositionend handles that case.
-            if (!composingRef.current) {
+        <span className="row-body">
+          {beforeTextSlots.map((slot) => (
+            <Fragment key={slot.id}>{slot.render(node, getCtx)}</Fragment>
+          ))}
+          <span
+            ref={(el) => {
+              ref.current = el;
+              registerRef(node.id, el);
+            }}
+            className={`node-text zoomed-title-text${isPivot ? " vt-morph" : ""}`}
+            style={isPivot ? { viewTransitionName: "zoom-target" } : undefined}
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck={false}
+            aria-label="Title"
+            aria-multiline="true"
+            data-blank={node.text.trim() ? undefined : true}
+            data-completed={node.completed}
+            onInput={(e) => {
+              const el = e.currentTarget;
+              const text = readSource(el);
+              onTextChange(text);
+              slash.handleInput();
+              menus.handleInput();
+              // Re-decorate live, revealing the link under the caret. Suspended
+              // during IME composition; compositionend handles that case.
+              if (!composingRef.current) {
+                decorate(el, text, getCaretOffset(el), true);
+                syncedRef.current = text;
+              }
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={(e) => {
+              composingRef.current = false;
+              const el = e.currentTarget;
+              const text = readSource(el);
+              onTextChange(text);
               decorate(el, text, getCaretOffset(el), true);
               syncedRef.current = text;
-            }
-          }}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={(e) => {
-            composingRef.current = false;
-            const el = e.currentTarget;
-            const text = readSource(el);
-            onTextChange(text);
-            decorate(el, text, getCaretOffset(el), true);
-            syncedRef.current = text;
-          }}
-          onPaste={(e) => {
-            const el = e.currentTarget;
-            const next = pasteIntoBullet(e, el, node.id, getCtx, onTextChange, {
-              // THE exception (ADR 0044): the title's siblings live outside the
-              // view, so inserting one would make it vanish. Remaining pasted
-              // roots become the title's prepended children instead.
-              placement: "child-prepend",
-              activeKey: node.id,
-              rowEl: el.closest(".zoomed-title"),
-              focus: {
-                setPendingFocus,
-                placeCaretHere: (text, offset) => {
-                  decorate(el, text, offset, true);
-                  setCaretOffset(el, offset);
-                  syncedRef.current = text;
+            }}
+            onPaste={(e) => {
+              const el = e.currentTarget;
+              const next = pasteIntoBullet(
+                e,
+                el,
+                node.id,
+                getCtx,
+                onTextChange,
+                {
+                  // THE exception (ADR 0044): the title's siblings live outside the
+                  // view, so inserting one would make it vanish. Remaining pasted
+                  // roots become the title's prepended children instead.
+                  placement: "child-prepend",
+                  activeKey: node.id,
+                  rowEl: el.closest(".zoomed-title"),
+                  focus: {
+                    setPendingFocus,
+                    placeCaretHere: (text, offset) => {
+                      decorate(el, text, offset, true);
+                      setCaretOffset(el, offset);
+                      syncedRef.current = text;
+                    },
+                  },
                 },
-              },
-            });
-            if (next !== null) syncedRef.current = next;
-          }}
-          // Copy/cut hand back the markdown SOURCE (a folded link's rendered
-          // text drops the url half). See copySourceSelection (ADR 0005).
-          onCopy={(e) => copySourceSelection(e, e.currentTarget)}
-          onCut={(e) => {
-            const el = e.currentTarget;
-            const next = cutSourceSelection(e, el, onTextChange);
-            if (next !== null) syncedRef.current = next;
-          }}
-          onFocus={(e) => {
-            // Caret and node selection are mutually exclusive (ADR 0018): focusing
-            // the title leaves selection mode.
-            clearSelection();
-            // Per-link reveal in the title (ADR 0005): watch the caret, and
-            // reveal the link it's currently on. Link-free is a no-op so the
-            // native caret stands.
-            const el = e.currentTarget;
-            caretWatchRef.current?.();
-            caretWatchRef.current = watchCaretReveal(
-              el,
-              () => composingRef.current,
-            );
-            // Deferred to the next frame so a CLICK at the title's end settles on
-            // the folded layout before the link expands; see revealLinkAtCaret.
-            if (!hasLink(node.text)) return;
-            revealLinkAtCaret(el, (t) => {
-              syncedRef.current = t;
-            });
-          }}
-          onBlur={(e) => {
-            slash.close();
-            menus.close();
-            const el = e.currentTarget;
-            caretWatchRef.current?.();
-            caretWatchRef.current = null;
-            const text = readSource(el);
-            // A protected node left empty heals: restore its name + shake/toast.
-            const restored = healProtectedText(node.id, text, el);
-            if (restored !== null) syncedRef.current = restored;
-            else if (hasLink(text)) {
-              decorate(el, text, null, false);
-              syncedRef.current = text;
-            }
-          }}
-          onKeyDown={(e) => {
-            // While a menu is open its Enter/Arrow/Escape/Tab are handled here;
-            // the title keymap above is suspended, so these are the sole
-            // consumers. Both no-op when closed. A caret menu (#, [[) wins over
-            // the `/` palette (they never co-open, but mirror OutlineRow's order).
-            if (menus.handleKeyDown(e)) return;
-            slash.handleKeyDown(e);
-          }}
-        />
-      </span>
-      {/* Trailing decoration zone for the zoomed title (Seam F
+              );
+              if (next !== null) syncedRef.current = next;
+            }}
+            // Copy/cut hand back the markdown SOURCE (a folded link's rendered
+            // text drops the url half). See copySourceSelection (ADR 0005).
+            onCopy={(e) => copySourceSelection(e, e.currentTarget)}
+            onCut={(e) => {
+              const el = e.currentTarget;
+              const next = cutSourceSelection(e, el, onTextChange);
+              if (next !== null) syncedRef.current = next;
+            }}
+            onFocus={(e) => {
+              // Caret and node selection are mutually exclusive (ADR 0018): focusing
+              // the title leaves selection mode.
+              clearSelection();
+              // Per-link reveal in the title (ADR 0005): watch the caret, and
+              // reveal the link it's currently on. Link-free is a no-op so the
+              // native caret stands.
+              const el = e.currentTarget;
+              caretWatchRef.current?.();
+              caretWatchRef.current = watchCaretReveal(
+                el,
+                () => composingRef.current,
+              );
+              // Deferred to the next frame so a CLICK at the title's end settles on
+              // the folded layout before the link expands; see revealLinkAtCaret.
+              if (!hasLink(node.text)) return;
+              revealLinkAtCaret(el, (t) => {
+                syncedRef.current = t;
+              });
+            }}
+            onBlur={(e) => {
+              slash.close();
+              menus.close();
+              const el = e.currentTarget;
+              caretWatchRef.current?.();
+              caretWatchRef.current = null;
+              const text = readSource(el);
+              // A protected node left empty heals: restore its name + shake/toast.
+              const restored = healProtectedText(node.id, text, el);
+              if (restored !== null) syncedRef.current = restored;
+              else if (hasLink(text)) {
+                decorate(el, text, null, false);
+                syncedRef.current = text;
+              }
+            }}
+            onKeyDown={(e) => {
+              // While a menu is open its Enter/Arrow/Escape/Tab are handled here;
+              // the title keymap above is suspended, so these are the sole
+              // consumers. Both no-op when closed. A caret menu (#, [[) wins over
+              // the `/` palette (they never co-open, but mirror OutlineRow's order).
+              if (menus.handleKeyDown(e)) return;
+              slash.handleKeyDown(e);
+            }}
+          />
+        </span>
+        {/* Trailing decoration zone for the zoomed title (Seam F
           `title:after-text`, ADR 0031) -- mirrors OutlineRow's `row:after-text`
           so the two render paths can't drift. Dormant until a trailing slot
           registers. */}
-      <NodeDecorations
-        node={node}
-        position="title:after-text"
-        getCtx={getCtx}
-      />
-      {slash.menu}
-      {menus.menu}
-    </h2>
+        <NodeDecorations
+          node={node}
+          position="title:after-text"
+          getCtx={getCtx}
+        />
+        {slash.menu}
+        {menus.menu}
+      </h2>
+      {slotsAt("title:below").map((slot) => (
+        <Fragment key={slot.id}>{slot.render(node, getCtx)}</Fragment>
+      ))}
+    </div>
   );
 }
 

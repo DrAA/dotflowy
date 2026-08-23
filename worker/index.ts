@@ -68,6 +68,7 @@ import {
   isLunoraOutlineEnabledForUser,
 } from "./lunora-mcp-store";
 import { handleMcp, mcpCorsPreflight } from "./mcp";
+import { handleMedia } from "./media";
 import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
 import { FREE_NODE_LIMIT, getPlan, nodeLimitForPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
@@ -124,6 +125,10 @@ interface Env extends LunoraEnv {
    *  admin restore-snapshot route reads them back. Lifecycle expiry is set on
    *  the bucket itself — see docs/runbooks/offsite-backup-r2.md. */
   BACKUPS: R2Bucket;
+  /** Hosted images under bullets (ADR 0061). Objects live at
+   *  `media/<userId>/<attachmentId>`; kv collection `media` holds the pointers.
+   *  Prefix-deleted on account wipe. */
+  MEDIA: R2Bucket;
   /** Per-user rate limiter for the link-title unfurl endpoint (ADR 0016). */
   UNFURL_LIMIT: RateLimit;
   /** Per-IP rate limiter for the public alpha-waitlist endpoint. */
@@ -169,6 +174,7 @@ const KV_COLLECTIONS = new Set([
   "changelog",
   "saved-queries",
   "account-prefs",
+  "media",
 ]);
 
 /**
@@ -1064,6 +1070,16 @@ function handleApiRequest(
       }
       yield* maybeSeed;
       return yield* handleKv(request, stub, collection);
+    }
+
+    if (
+      url.pathname === "/api/media" ||
+      url.pathname.startsWith("/api/media/")
+    ) {
+      yield* maybeSeed;
+      return yield* Effect.promise(() =>
+        handleMedia(request, url, stub, env, session.user.id),
+      );
     }
 
     return yield* Effect.fail(new RouteNotFound({ path: url.pathname }));

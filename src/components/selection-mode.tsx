@@ -27,6 +27,7 @@ import { paragraphCommand } from "../data/core-commands";
 import { isMirrorsEnabled } from "../data/flags";
 import { capture, drop } from "../data/history";
 import { outlineToMarkdown } from "../data/markdown";
+import { imageCountsByNode } from "../data/media";
 import {
   indentManyNodes,
   outdentManyNodes,
@@ -115,7 +116,11 @@ function makeSelectionOps({
   // Copy the selected roots' subtrees as a markdown bullet list (reuses the
   // ADR 0017 serializer verbatim). Read-only, so the selection persists.
   const copy = () => {
-    const md = outlineToMarkdown(getTreeIndex(), getSelectionRootIds());
+    const md = outlineToMarkdown(
+      getTreeIndex(),
+      getSelectionRootIds(),
+      imageCountsByNode(),
+    );
     if (!md) return;
     navigator.clipboard
       .writeText(md)

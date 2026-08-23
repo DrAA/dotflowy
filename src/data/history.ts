@@ -35,10 +35,33 @@ import { instanceIdForKey } from "./visible-order";
 
 interface Entry {
   nodes: Node[];
+  /** Side-collection snapshot (hosted images, ADR 0061). Null when no hook. */
+  extra: unknown;
   /** Node to focus after this entry is restored (the pre-action focus). */
   focusId: string | null;
   /** Coalesces consecutive same-tag captures (e.g. a typing run) into one. */
   tag: string | null;
+}
+
+/**
+ * Optional extra snapshot/restore (plugin side-collections). Media registers
+ * here so attach/detach ride Cmd+Z without stuffing pointers into `node.text`.
+ * History must not import the media module -- tests stay decoupled.
+ */
+export interface HistoryExtra {
+  snapshot(): unknown;
+  restore(data: unknown): void;
+}
+
+let extraHook: HistoryExtra | null = null;
+
+/** Install the side-collection history hook. Called once at media module load. */
+export function registerHistoryExtra(hook: HistoryExtra | null): void {
+  extraHook = hook;
+}
+
+function extraSnap(): unknown {
+  return extraHook?.snapshot() ?? null;
 }
 
 const undoStack: Entry[] = [];
@@ -100,7 +123,12 @@ export function capture(
 
   const top = undoStack[undoStack.length - 1];
   if (tag !== null && top && top.tag === tag) return;
-  undoStack.push({ nodes: snapshot(index), focusId, tag });
+  undoStack.push({
+    nodes: snapshot(index),
+    extra: extraSnap(),
+    focusId,
+    tag,
+  });
   if (undoStack.length > MAX_ENTRIES) undoStack.shift();
   // A fresh action forks the timeline: the forward history no longer applies.
   // Stash it first so a no-op that gets dropped can restore it.
@@ -162,6 +190,11 @@ export interface RestorePlan {
   focusId: string | null;
   /** Roll the stack bookkeeping back after a failed (rolled-back) apply. */
   revert: () => void;
+  /**
+   * Reapply the extra (media) snapshot. Classic slices already include this;
+   * the Lunora `restoreNodes` path skips slices and must call it itself.
+   */
+  extraRestore?: () => void;
 }
 
 /**
@@ -230,8 +263,18 @@ function planRestore(
     });
   }
 
+  const extraRestore = extraHook
+    ? () => extraHook!.restore(entry.extra)
+    : undefined;
+  if (extraRestore) {
+    slices.push(() => {
+      extraRestore();
+      applied += 1;
+    });
+  }
+
   return {
-    opCount: deletes.length + upserts.length,
+    opCount: deletes.length + upserts.length + (extraRestore ? 1 : 0),
     targetNodes: entry.nodes,
     slices,
     applied: () => applied,
@@ -245,6 +288,7 @@ function planRestore(
         ? entry.focusId
         : null,
     revert,
+    extraRestore,
   };
 }
 
@@ -260,7 +304,12 @@ export function undo(
   const entry = undoStack.pop();
   if (!entry) return null;
 
-  redoStack.push({ nodes: snapshot(index), focusId, tag: null });
+  redoStack.push({
+    nodes: snapshot(index),
+    extra: extraSnap(),
+    focusId,
+    tag: null,
+  });
   const overflow =
     redoStack.length > MAX_ENTRIES ? redoStack.shift() : undefined;
 
@@ -283,7 +332,12 @@ export function redo(
   const entry = redoStack.pop();
   if (!entry) return null;
 
-  undoStack.push({ nodes: snapshot(index), focusId, tag: null });
+  undoStack.push({
+    nodes: snapshot(index),
+    extra: extraSnap(),
+    focusId,
+    tag: null,
+  });
   const overflow =
     undoStack.length > MAX_ENTRIES ? undoStack.shift() : undefined;
 

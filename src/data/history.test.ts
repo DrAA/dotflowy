@@ -1,8 +1,15 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { Node } from "./tree";
 
-import { capture, drop, redo, RESTORE_SLICE_OPS, undo } from "./history";
+import {
+  capture,
+  drop,
+  redo,
+  registerHistoryExtra,
+  RESTORE_SLICE_OPS,
+  undo,
+} from "./history";
 import { buildTreeIndex, makeNode } from "./tree";
 import { rowKeyFor } from "./visible-order";
 
@@ -18,6 +25,7 @@ import { rowKeyFor } from "./visible-order";
 const EMPTY = buildTreeIndex([]);
 const RESET_IDX = buildTreeIndex([makeNode({ id: "__reset" })]);
 function resetHistory(): void {
+  registerHistoryExtra(null);
   while (undo(EMPTY)) {
     /* move every undo entry onto the redo stack */
   }
@@ -425,5 +433,27 @@ describe("sameNode field comparison boundaries", () => {
     const live = buildTreeIndex([makeNode(base)]);
     capture(snap, "n");
     expect(undo(live)!.opCount).toBe(0);
+  });
+});
+
+describe("history extra snapshot / restore", () => {
+  afterEach(() => registerHistoryExtra(null));
+
+  test("a registered extra adds one op even when the tree is unchanged", () => {
+    let restored: unknown;
+    registerHistoryExtra({
+      snapshot: () => [{ id: "m1" }],
+      restore: (data) => {
+        restored = data;
+      },
+    });
+    const idx = buildTreeIndex([makeNode({ id: "a" })]);
+    capture(idx, "a");
+    const plan = undo(idx)!;
+    expect(plan.opCount).toBe(1);
+    expect(plan.slices).toHaveLength(1);
+    expect(restored).toBeUndefined();
+    plan.slices[0]!();
+    expect(restored).toEqual([{ id: "m1" }]);
   });
 });

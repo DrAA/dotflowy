@@ -143,4 +143,19 @@ describe("outlineToMarkdown", () => {
 
     expect(outlineToMarkdown(index, ["ghost"])).toBe("");
   });
+
+  test("optional imageCounts append a placeholder and omit media URLs", () => {
+    const root = makeNode({ id: "root", text: "root" });
+    const index = buildTreeIndex([root]);
+    expect(outlineToMarkdown(index, ["root"])).toBe("- root");
+    expect(outlineToMarkdown(index, ["root"], new Map([["root", 1]]))).toBe(
+      "- root [image]",
+    );
+    expect(outlineToMarkdown(index, ["root"], new Map([["root", 2]]))).toBe(
+      "- root [image ×2]",
+    );
+    expect(
+      outlineToMarkdown(index, ["root"], new Map([["root", 1]])),
+    ).not.toContain("/api/media/");
+  });
 });

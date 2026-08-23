@@ -1266,6 +1266,30 @@ describe("reads", () => {
     );
   });
 
+  test("formatOutlineLines appends image placeholders; mirrors use the source id", () => {
+    const nodes = [
+      makeNode({ id: "a", text: "alpha" }),
+      makeNode({
+        id: "m",
+        text: "alpha",
+        mirrorOf: "a",
+        prevSiblingId: "a",
+      }),
+    ];
+    const result = flattenSubtree(index(nodes), null, {
+      maxDepth: 99,
+      maxNodes: 100,
+    });
+    if (result instanceof Error) throw result;
+    expect(formatOutlineLines(result.lines)).toBe(
+      "- alpha (id: a)\n- alpha (id: m, mirror of a)",
+    );
+    const counts = new Map([["a", 2]]);
+    expect(formatOutlineLines(result.lines, counts)).toBe(
+      "- alpha [image ×2] (id: a)\n- alpha [image ×2] (id: m, mirror of a)",
+    );
+  });
+
   test("searchNodes matches case-insensitively with a breadcrumb path", () => {
     const hits = searchNodes(index(fixture()), "ALPHA ONE", 10);
     expect(hits).toHaveLength(1);

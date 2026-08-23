@@ -77,6 +77,7 @@ export function runHistoryRestore(
           `${kind === "undo" ? "Undo" : "Redo"} failed. Nothing was changed.`,
         );
       });
+      plan.extraRestore?.();
       if (plan.focusId) setPendingFocus(plan.focusId);
       return;
     }
@@ -115,6 +116,7 @@ async function runLunoraRestore(
   await new Promise((resolve) => setTimeout(resolve, 0));
   try {
     const tx = lunora.store.mutators.restoreNodes({ userId, nodes });
+    plan.extraRestore?.();
     // Optimistic apply already flipped the collection; show full progress.
     openRestoreProgress?.({
       kind: "restoring",
