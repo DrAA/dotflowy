@@ -89,6 +89,8 @@
    * a glance. Tuned for light surfaces. */
   --mirror-source: oklch(0.58 0.13 250);
   --mirror-instance: oklch(0.6 0.16 300);
+  /* Outline column max width (device-local; see outline-width-provider.tsx). */
+  --outline-max-width: 720px;
 }
 
 .dark {

@@ -20,10 +20,17 @@ import { toast } from "sonner";
 import { DeleteAccountDialog } from "../components/delete-account-dialog";
 import { McpConnectDialog } from "../components/mcp-connect-dialog";
 import { openOpmlImport } from "../components/opml-import-opener";
+import {
+  OUTLINE_WIDTH_MAX,
+  OUTLINE_WIDTH_MIN,
+  OUTLINE_WIDTH_STEP,
+  useOutlineWidth,
+} from "../components/outline-width-provider";
 import { isEscapeBlockedByOverlay } from "../components/query-filter-nav";
 import { useTextSize, type TextSize } from "../components/text-size-provider";
 import { useTheme } from "../components/theme-provider";
 import { Button } from "../components/ui/button";
+import { Slider } from "../components/ui/slider";
 import { Switch } from "../components/ui/switch";
 import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
 import { localDateKey } from "../data/date-links";
@@ -671,6 +678,7 @@ function DataSection() {
 function AppearanceSection() {
   const { theme, setTheme } = useTheme();
   const { textSize, setTextSize } = useTextSize();
+  const { outlineWidth, setOutlineWidth } = useOutlineWidth();
   return (
     <Section title="Appearance">
       <RowGroup>
@@ -704,6 +712,29 @@ function AppearanceSection() {
             />
           }
         />
+        <div className="flex flex-col gap-2.5 bg-card px-4 py-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">
+                Outline width
+              </div>
+              <div className="mt-0.5 text-sm text-muted-foreground">
+                How wide the bullet list can get.
+              </div>
+            </div>
+            <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+              {outlineWidth} px
+            </span>
+          </div>
+          <Slider
+            aria-label="Outline width"
+            min={OUTLINE_WIDTH_MIN}
+            max={OUTLINE_WIDTH_MAX}
+            step={OUTLINE_WIDTH_STEP}
+            value={outlineWidth}
+            onValueChange={setOutlineWidth}
+          />
+        </div>
       </RowGroup>
     </Section>
   );

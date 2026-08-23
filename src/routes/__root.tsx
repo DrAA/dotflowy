@@ -23,6 +23,7 @@ import { MoveDialog } from "../components/move-dialog";
 import { NodeSwitcher } from "../components/node-switcher";
 import { OAuthCallbackErrorToast } from "../components/oauth-callback-error";
 import { OpmlImportDialog } from "../components/opml-import-dialog";
+import { OutlineWidthProvider } from "../components/outline-width-provider";
 import { QuickAdd } from "../components/quick-add";
 import { SettingsNavRegistrar } from "../components/settings-nav-registrar";
 import { ShowCompletedProvider } from "../components/show-completed-provider";
@@ -38,6 +39,7 @@ import {
   LEGACY_THEME_KEY,
   THEME_KEY,
   TEXT_SIZE_KEY,
+  OUTLINE_WIDTH_KEY,
 } from "../lib/storage-keys";
 import { TagColorStyles } from "../plugins/tags/tag-color-menu";
 import "../styles.css";
@@ -75,6 +77,20 @@ const noFlashTextSizeScript = `
     var s = localStorage.getItem('${TEXT_SIZE_KEY}');
     if (s === 'small' || s === 'large') {
       document.documentElement.setAttribute('data-text-size', s);
+    }
+  } catch (e) {}
+})();
+`;
+
+// Runs before first paint so the outline never flashes the default column
+// width then resizes. Mirrors outline-width-provider.tsx (same storage key +
+// CSS variable). 480–1600 matches the provider's allowed range.
+const noFlashOutlineWidthScript = `
+(function () {
+  try {
+    var n = parseInt(localStorage.getItem('${OUTLINE_WIDTH_KEY}'), 10);
+    if (n === n && n >= 480 && n <= 1600) {
+      document.documentElement.style.setProperty('--outline-max-width', n + 'px');
     }
   } catch (e) {}
 })();
@@ -148,35 +164,37 @@ function RootComponent() {
           <Outlet />
         ) : (
           <TextSizeProvider>
-            <AuthGate>
-              <AccountPrefsController />
-              {/* ADR 0058: no-op when lunora-sync flag OFF (default). */}
-              <LunoraSyncHost>
-                <ShowCompletedProvider>
-                  <Outlet />
-                  <NodeSwitcher />
-                  <QuickAdd />
-                  {/* Registers openSettings() so the node-limit toast's "Upgrade"
+            <OutlineWidthProvider>
+              <AuthGate>
+                <AccountPrefsController />
+                {/* ADR 0058: no-op when lunora-sync flag OFF (default). */}
+                <LunoraSyncHost>
+                  <ShowCompletedProvider>
+                    <Outlet />
+                    <NodeSwitcher />
+                    <QuickAdd />
+                    {/* Registers openSettings() so the node-limit toast's "Upgrade"
                     action can SPA-navigate to /settings from non-React code. */}
-                  <SettingsNavRegistrar />
-                  <MoveDialog />
-                  <OpmlImportDialog />
-                  <DeleteConfirmDialog />
-                  <HistoryRestoreDialog />
-                  <ChangelogDialog />
-                  <MirrorPlaces />
-                  <TagColorStyles />
-                  <SpotlightController />
-                  {/* A distinct mechanism from the changelog (ADR 0046): the
+                    <SettingsNavRegistrar />
+                    <MoveDialog />
+                    <OpmlImportDialog />
+                    <DeleteConfirmDialog />
+                    <HistoryRestoreDialog />
+                    <ChangelogDialog />
+                    <MirrorPlaces />
+                    <TagColorStyles />
+                    <SpotlightController />
+                    {/* A distinct mechanism from the changelog (ADR 0046): the
                     changelog says WHAT changed; this says THIS TAB is stale. */}
-                  <UpdateAvailableToast />
-                  {/* Inside the gate: surfaces a failed "Connect Google" round
+                    <UpdateAvailableToast />
+                    {/* Inside the gate: surfaces a failed "Connect Google" round
                     trip (signed-in). Signed-out failures render inline in
                     AuthScreen via the same consume helper. */}
-                  <OAuthCallbackErrorToast />
-                </ShowCompletedProvider>
-              </LunoraSyncHost>
-            </AuthGate>
+                    <OAuthCallbackErrorToast />
+                  </ShowCompletedProvider>
+                </LunoraSyncHost>
+              </AuthGate>
+            </OutlineWidthProvider>
           </TextSizeProvider>
         )}
         {/* Outside the gate so auth-screen errors can still toast. */}
@@ -264,6 +282,9 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
         />
         <script dangerouslySetInnerHTML={{ __html: noFlashThemeScript }} />
         <script dangerouslySetInnerHTML={{ __html: noFlashTextSizeScript }} />
+        <script
+          dangerouslySetInnerHTML={{ __html: noFlashOutlineWidthScript }}
+        />
         <HeadContent />
       </head>
       <body>

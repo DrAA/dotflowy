@@ -1,6 +1,7 @@
 export const THEME_KEY = "dotflowy:theme";
 export const SHOW_COMPLETED_KEY = "dotflowy:show-completed";
 export const TEXT_SIZE_KEY = "dotflowy:text-size";
+export const OUTLINE_WIDTH_KEY = "dotflowy:outline-width";
 export const SPOTLIGHT_KEY = "dotflowy:spotlight";
 
 export const LEGACY_THEME_KEY = "dotflowy-oss:theme";

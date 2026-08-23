@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { PluginContext } from "../plugins/types";
 
 import { subheaderSlots } from "../plugins/registry";
+import { OUTLINE_COLUMN_CLASS } from "./outline-width-provider";
 import { QueryFilterBar } from "./query-filter";
 import { SUBHEADER_EXPAND_MS } from "./subheader-expand";
 
@@ -127,7 +128,8 @@ export function Subheader({ getCtx }: { getCtx?: () => PluginContext }) {
           ref={contentRef}
           aria-label="Active filters"
           className={cn(
-            "mx-auto flex max-w-[720px] flex-wrap items-center gap-2",
+            OUTLINE_COLUMN_CLASS,
+            "flex flex-wrap items-center gap-2",
             open && "px-6 py-2 max-sm:px-4",
           )}
         >

@@ -1,11 +1,14 @@
 import { Fragment, type ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 import type { PluginContext } from "../plugins/types";
 
 import { headerSlots } from "../plugins/registry";
 import { BookmarkStar } from "./bookmarks";
 import { HeaderMoreMenu } from "./header-more-menu";
 import { CommandCenterButton } from "./node-switcher";
+import { OUTLINE_COLUMN_CLASS } from "./outline-width-provider";
 import { FilterButton } from "./query-filter";
 import { SpotlightIndicator } from "./spotlight-indicator";
 
@@ -34,8 +37,13 @@ export function Header({
   return (
     <header className="border-b bg-background">
       {/* Border spans the full viewport; inner row is centered to match the
-          720px outline content below. */}
-      <div className="mx-auto flex max-w-[720px] items-center justify-between gap-3 px-6 py-3 max-sm:px-4">
+          outline content below (width is `--outline-max-width`). */}
+      <div
+        className={cn(
+          OUTLINE_COLUMN_CLASS,
+          "flex items-center justify-between gap-3 px-6 py-3 max-sm:px-4",
+        )}
+      >
         <div className="min-w-0 flex-1">{children}</div>
         {/* Right cluster: the spotlight-on indicator leads (ADR 0033: awareness
             + off-switch), then plugin header slots (the daily Today button),

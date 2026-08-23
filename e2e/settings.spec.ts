@@ -206,6 +206,25 @@ test.describe("Settings page", () => {
     await expect(page.locator("html")).toHaveClass(/dark/);
   });
 
+  test("Appearance → outline width slider widens the bullet column", async ({
+    page,
+  }) => {
+    await seedOutline(page, TREE);
+    await mockFreePlan(page);
+    await page.goto("/settings");
+
+    const slider = page.getByRole("slider", { name: "Outline width" });
+    await expect(slider).toBeVisible();
+    await slider.fill("1000");
+
+    await page.goto("/");
+    await expect(nodeText(page, "alpha")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Outline" })).toHaveCSS(
+      "max-width",
+      "1000px",
+    );
+  });
+
   test("the More menu no longer holds the moved items", async ({ page }) => {
     await seedOutline(page, TREE);
     await mockFreePlan(page);

@@ -145,6 +145,7 @@ import { MirrorBadge } from "./mirror-chrome";
 import { MobileActionsBar, type MobileBarActions } from "./MobileActionsBar";
 import { openMoveDialog } from "./move-dialog-opener";
 import { NodeDecorations } from "./NodeDecorations";
+import { OUTLINE_COLUMN_CLASS } from "./outline-width-provider";
 import { OutlineLoading } from "./OutlineLoading";
 import { OutlineRow } from "./OutlineRow";
 import {
@@ -818,7 +819,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // Deep-linked to a node that no longer exists (and the store has loaded).
   if (rootId !== null && zoomedNode === null && hasNodes) {
     return (
-      <div className="mx-auto max-w-[720px] p-6 max-sm:px-4">
+      <div className={`${OUTLINE_COLUMN_CLASS} p-6 max-sm:px-4`}>
         <div className="outline-empty">
           That bullet doesn't exist. <Link to="/">Back to top</Link>.
         </div>
@@ -853,8 +854,8 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         aria-label="Outline"
         className={
           spotlight
-            ? "mx-auto max-w-[720px] p-6 max-sm:p-4"
-            : "mx-auto mb-[50vh] max-w-[720px] p-6 max-sm:p-4"
+            ? `${OUTLINE_COLUMN_CLASS} p-6 max-sm:p-4`
+            : `${OUTLINE_COLUMN_CLASS} mb-[50vh] p-6 max-sm:p-4`
         }
         onMouseDown={onContentMouseDown}
         onPointerDown={onContentPointerDown}
