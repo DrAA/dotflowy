@@ -278,6 +278,8 @@ export interface ViewContext {
 export interface ViewFilter {
   visibleIds: Set<string>;
   matchIds: Set<string>;
+  /** Non-negated free-text substrings to highlight in visible rows. */
+  highlightTerms?: readonly string[];
   /** Shown when `matchIds` is empty; plugin-owned copy (the tag filter today). */
   emptyMessage?: string;
 }

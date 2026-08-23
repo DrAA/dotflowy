@@ -6,9 +6,9 @@ import { seedOutline, type SeedNode } from "./fixtures";
 // chrome opened by Cmd+F / the header magnifier / the Cmd+K "Filter this view"
 // action. Live (debounced) filtering while composing; the raw query stays
 // RESIDENT in the input while `?q=` is active -- focused or not (the pill state
-// is dead). A trailing clear X. Escape toggles filter ↔ outline (Workflowy):
-// close the suggestion popover first, then return the caret to the last bullet
-// without clearing. The X / magnifier still wipe `?q=`.
+// is dead). A trailing clear X. Escape toggles search: from a bullet it opens
+// the filter when idle; when open it closes the suggestion popover first, then
+// clears `?q=` and collapses the bar.
 
 const TREE: SeedNode[] = [
   {
@@ -231,7 +231,7 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
     await expect(input(page)).toBeVisible();
   });
 
-  test("Escape ladder: close the popover, then return to the outline", async ({
+  test("Escape ladder: close the popover, then clear and exit search", async ({
     page,
   }) => {
     await load(page);
@@ -251,16 +251,47 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
     await expect(input(page)).toBeFocused();
     await expect(page).toHaveURL(/q=%23work/);
 
-    // Stage 2: Escape jumps to the outline. The query stays resident.
+    // Stage 2: Escape clears the filter and collapses the bar.
     await input(page).press("Escape");
-    await expect(input(page)).toBeVisible();
-    await expect(input(page)).toHaveValue("#work");
-    await expect(input(page)).not.toBeFocused();
-    await expect(page).toHaveURL(/q=%23work/);
+    await expect(input(page)).toHaveCount(0);
+    await expect(page).not.toHaveURL(/q=/);
     await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
   });
 
-  test("Escape from a bullet focuses the filter (query kept)", async ({
+  test("Escape from a bullet opens search when idle", async ({ page }) => {
+    await load(page);
+    await row(page, "milk").locator(".node-text").first().click();
+    await expect(input(page)).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(input(page)).toBeVisible();
+    await expect(input(page)).toBeFocused();
+    // Suggestions stay closed so a second Escape can exit (clean toggle).
+    await expect(page.locator('[role="listbox"]')).toHaveCount(0);
+  });
+
+  test("Escape opens search on fresh load without a bullet focused", async ({
+    page,
+  }) => {
+    // Fresh load often leaves focus on body/chrome, not a contentEditable. The
+    // window bubble listener must still open search (bullet capture never runs).
+    await load(page);
+    await expect(input(page)).toHaveCount(0);
+    await page.evaluate(() => {
+      const a = document.activeElement;
+      if (a instanceof HTMLElement) a.blur();
+    });
+    await expect(
+      row(page, "milk").locator(".node-text").first(),
+    ).not.toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(input(page)).toBeVisible();
+    await expect(input(page)).toBeFocused();
+    await expect(page.locator('[role="listbox"]')).toHaveCount(0);
+  });
+
+  test("Escape from a bullet exits search (clears the filter)", async ({
     page,
   }) => {
     await load(page);
@@ -272,17 +303,23 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
     await expect(input(page)).not.toBeFocused();
     await expect(page).toHaveURL(/q=%23work/);
 
-    // Outline Escape focuses search; suggestions stay closed so the next
-    // Escape can return (a 1:1 toggle). The query is not cleared.
+    // Outline Escape dismisses search when the filter is active.
+    await page.keyboard.press("Escape");
+    await expect(input(page)).toHaveCount(0);
+    await expect(page).not.toHaveURL(/q=/);
+    await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
+  });
+
+  test("Escape from a bullet toggles open then exit", async ({ page }) => {
+    await load(page);
+    await row(page, "milk").locator(".node-text").first().click();
+
     await page.keyboard.press("Escape");
     await expect(input(page)).toBeFocused();
-    await expect(input(page)).toHaveValue("#work");
-    await expect(page).toHaveURL(/q=%23work/);
     await expect(page.locator('[role="listbox"]')).toHaveCount(0);
 
     await page.keyboard.press("Escape");
-    await expect(input(page)).not.toBeFocused();
-    await expect(page).toHaveURL(/q=%23work/);
+    await expect(input(page)).toHaveCount(0);
     await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
   });
 

@@ -313,6 +313,31 @@ h2 span.protected-lock {
   opacity: 0.45;
 }
 
+/* `?q=` filter: highlight matching substrings (mirrors Cmd+K picker marks). */
+.node-text mark.search-match,
+.zoomed-title-text mark.search-match {
+  border-radius: 2px;
+  background-color: oklch(from var(--primary) l c h / 0.2);
+  padding: 0 1px;
+  color: inherit;
+}
+
+/*
+ * Completed / faded rows already sit at row opacity 0.4 (and completed text is
+ * struck through). A soft inherited mark disappears into that dim -- punch the
+ * matched span only: stronger fill + full-strength foreground, and drop the
+ * line-through on the hit so it stays readable.
+ */
+.outline-row[data-faded="true"] .node-text mark.search-match,
+.node-text[data-completed="true"] mark.search-match,
+.zoomed-title-text[data-completed="true"] mark.search-match {
+  background-color: oklch(from var(--primary) l c h / 0.55);
+  color: var(--foreground);
+  text-decoration: none;
+  /* Counter the row's 0.4 fade so the chip reads near full strength. */
+  filter: brightness(2.5);
+}
+
 /*
  * "Acted-upon" pulse. A row briefly tinted bg-card, fading back to transparent,
  * marks the bullet an action just landed on -- a node you dragged elsewhere, or

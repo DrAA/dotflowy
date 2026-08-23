@@ -31,10 +31,11 @@ import { filterOperatorInfos } from "../plugins/registry";
 import {
   addTermToFilter,
   bindQueryFilterNav,
+  escapeToggleFilterInput,
   focusLastContent,
   getFilterOpen,
   isEscapeBlockedByOverlay,
-  openFilterInput,
+  isFilterInputOpen,
   type OpenFilterOpts,
   setFilterInputController,
   setFilterOpen,
@@ -61,7 +62,8 @@ export { addTermToFilter };
 const DEBOUNCE_MS = 200;
 
 /** The `?q=` filter state + route writers. Reads route state directly (no bridge
- *  needed). Escape toggles search ↔ content (Workflowy); it does not clear. */
+ *  needed). Escape toggles search: opens when idle (including body/chrome focus
+ *  on fresh load); dismisses when open. */
 export function useQueryFilter() {
   const params = useParams({ strict: false });
   const rootId = params.nodeId ?? null;
@@ -76,10 +78,11 @@ export function useQueryFilter() {
 
   const clear = useCallback(() => writeQuery(""), []);
 
-  // Escape in the outline focuses the filter (Workflowy). Bullet caret Escape
-  // is handled in OutlineEditor capture (contentEditable never reaches bubble).
-  // This listener covers the rest (blurred outline, chrome). Overlays that own
-  // Escape -- dialogs, caret menus, node selection -- are skipped.
+  // Escape outside the filter input / bullet caret toggles search: open when
+  // idle (fresh load often leaves focus on body/chrome, not a bullet), dismiss
+  // when open. Bullet caret Escape is owned by OutlineEditor / OutlineRow
+  // capture (contentEditable never reaches bubble). Overlays that own Escape
+  // -- dialogs, caret menus, node selection -- skip.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -89,7 +92,10 @@ export function useQueryFilter() {
       const el = document.activeElement;
       if (
         el instanceof HTMLElement &&
-        (el.classList.contains("node-text") || el.closest(".node-text"))
+        (el.classList.contains("node-text") ||
+          el.closest(".node-text") ||
+          el.classList.contains("zoomed-title-text") ||
+          el.closest(".zoomed-title-text"))
       )
         return;
       if (
@@ -105,7 +111,9 @@ export function useQueryFilter() {
       )
         return;
       e.preventDefault();
-      openFilterInput({ skipSuggestions: true });
+      const wasOpen = isFilterInputOpen();
+      escapeToggleFilterInput();
+      if (wasOpen) focusLastContent();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -285,7 +293,7 @@ function SavedQueriesSection({
               onChange={(e) => setNameDraft(e.target.value)}
               onKeyDown={(e) => {
                 // Own Enter/Escape locally; never bubble to the filter input's
-                // ladder or the window Escape toggle.
+                // ladder or the window Escape dismiss.
                 e.stopPropagation();
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -468,11 +476,10 @@ export function QueryFilterBar() {
   // close (Escape closing the popover, clear, collapse, blur) must cancel it, or
   // it fires after the close and silently re-opens `popoverOpen` — which desyncs
   // Escape (the next press re-closes a popover the user already closed instead
-  // of returning to the outline).
+  // of dismissing search).
   const revealTimerRef = useRef<number | null>(null);
-  // Escape-from-outline focuses the filter without opening suggestions, so the
-  // next Escape can return to the last bullet (a 1:1 toggle). Cmd+F still
-  // reveals the cheat sheet.
+  // Escape-from-outline focuses the filter without suggestions so the next
+  // Escape can exit search (a clean toggle). Cmd+F still reveals the cheat sheet.
   const skipSuggestionsRef = useRef(false);
   const cancelDeferredReveal = useCallback(() => {
     if (revealTimerRef.current != null) {
@@ -833,17 +840,16 @@ export function QueryFilterBar() {
       return;
     }
     if (e.key === "Escape") {
-      // Stop propagation so the window-level toggle never also fires.
+      // Stop propagation so window-level dismiss never also fires.
       e.preventDefault();
       e.stopPropagation();
-      // (1) an open popover closes first; (2) else jump to the outline. The
-      // query stays -- Workflowy Escape is a focus switch, not a clear.
+      // (1) an open popover closes first; (2) else clear + leave search mode.
       if (showPopover) {
         cancelDeferredReveal();
         setPopoverOpen(false);
         return;
       }
-      collapse();
+      close();
       focusLastContent();
       return;
     }

@@ -13,6 +13,7 @@
 import type { Node, TreeIndex } from "./tree";
 
 import { flattenInline } from "./inline-text";
+import { extractHighlightTerms } from "./search-highlight";
 import { parseTags } from "./tags";
 import { childrenOf } from "./tree";
 
@@ -402,6 +403,8 @@ export function buildQueryFilter(
   for (const m of matched) revealSubtree(m);
 
   const result: QueryFilter = { visibleIds, matchIds };
+  const highlightTerms = extractHighlightTerms(query, operators);
+  if (highlightTerms.length > 0) result.highlightTerms = highlightTerms;
   if (matchIds.size === 0) {
     result.emptyMessage = `No matches for "${(query ?? "").trim()}" here.`;
   }
@@ -422,6 +425,8 @@ export function buildQueryFilter(
 export interface QueryFilter {
   visibleIds: Set<string>;
   matchIds: Set<string>;
+  /** Non-negated free-text substrings to highlight in visible rows. */
+  highlightTerms?: readonly string[];
   emptyMessage?: string;
 }
 

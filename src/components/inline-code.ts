@@ -23,6 +23,7 @@
 // it off `data-src` generically, so every consumer keeps speaking source
 // offsets -- with no per-token special-casing (the unlock in ADR 0001 D6).
 
+import type { SourceHighlightRange } from "../data/search-highlight";
 import type { El, WidgetEl } from "../plugins/types";
 
 import { hasFoldingToken, renderToken, tokenRegex } from "../plugins/registry";
@@ -41,6 +42,61 @@ function isWidgetEl(el: El | WidgetEl): el is WidgetEl {
 // HTML, so the selectionchange reflow becomes a cheap no-op.
 const renderCache = new WeakMap<HTMLElement, string>();
 
+const SEARCH_MARK_OPEN = '<mark class="search-match">';
+const SEARCH_MARK_CLOSE = "</mark>";
+
+function escapeSegmentWithHighlights(
+  text: string,
+  globalStart: number,
+  ranges: readonly SourceHighlightRange[] | undefined,
+): string {
+  if (!ranges?.length || !text) return escapeHtml(text);
+  const local: SourceHighlightRange[] = [];
+  for (const [s, e] of ranges) {
+    const ls = Math.max(0, s - globalStart);
+    const le = Math.min(text.length - 1, e - globalStart);
+    if (ls <= le && ls < text.length) local.push([ls, le]);
+  }
+  if (local.length === 0) return escapeHtml(text);
+  local.sort((a, b) => a[0] - b[0]);
+  let html = "";
+  let last = 0;
+  for (const [start, end] of local) {
+    if (start > last) html += escapeHtml(text.slice(last, start));
+    html +=
+      SEARCH_MARK_OPEN +
+      escapeHtml(text.slice(start, end + 1)) +
+      SEARCH_MARK_CLOSE;
+    last = end + 1;
+  }
+  if (last < text.length) html += escapeHtml(text.slice(last));
+  return html;
+}
+
+function patchTokenHtml(
+  html: string,
+  tokenStart: number,
+  sourceText: string,
+  ranges: readonly SourceHighlightRange[],
+): string {
+  let result = html;
+  const overlapping = ranges.filter(([, e]) => e >= tokenStart);
+  if (overlapping.length === 0) return result;
+  const sorted = [...overlapping].sort((a, b) => b[0] - a[0]);
+  for (const [s, e] of sorted) {
+    const subStart = Math.max(s, tokenStart);
+    const subEnd = Math.min(e, sourceText.length - 1);
+    if (subStart > subEnd) continue;
+    const sub = sourceText.slice(subStart, subEnd + 1);
+    const highlighted = escapeSegmentWithHighlights(sub, subStart, ranges);
+    const plain = escapeHtml(sub);
+    if (plain && result.includes(plain)) {
+      result = result.replace(plain, highlighted);
+    }
+  }
+  return result;
+}
+
 // Build the display HTML for a line of text. Walks link/code/tag tokens in
 // order, escaping the plain text between them (user input going into innerHTML)
 // and wrapping each token.
@@ -51,20 +107,32 @@ const renderCache = new WeakMap<HTMLElement, string>();
 // you can arrow/click in from either edge); otherwise it FOLDS to a clean <a>.
 // At most one link reveals -- the one under the caret. Code and tags keep their
 // source visible in both states. See ADR 0005 (per-link reveal).
-function inlineMarkupHtml(text: string, revealOffset: number | null): string {
+function inlineMarkupHtml(
+  text: string,
+  revealOffset: number | null,
+  highlightRanges?: readonly SourceHighlightRange[],
+): string {
   let html = "";
   let last = 0;
   for (const m of text.matchAll(tokenRegex)) {
     const start = m.index ?? 0;
     const tok = m[0];
     const end = start + tok.length;
-    html += escapeHtml(text.slice(last, start));
+    html += escapeSegmentWithHighlights(
+      text.slice(last, start),
+      last,
+      highlightRanges,
+    );
     // The plugin that owns this token returns a declarative descriptor; the
     // core escapes + serializes it, so a plugin never hands us raw HTML (D6).
-    html += serializeEl(renderToken(m, { revealOffset, start, end }));
+    let tokenHtml = serializeEl(renderToken(m, { revealOffset, start, end }));
+    if (highlightRanges?.length) {
+      tokenHtml = patchTokenHtml(tokenHtml, start, text, highlightRanges);
+    }
+    html += tokenHtml;
     last = end;
   }
-  html += escapeHtml(text.slice(last));
+  html += escapeSegmentWithHighlights(text.slice(last), last, highlightRanges);
   return html;
 }
 
@@ -197,8 +265,9 @@ export function decorate(
   text: string,
   revealOffset: number | null,
   preserveCaret: boolean,
+  highlightRanges?: readonly SourceHighlightRange[],
 ): void {
-  const html = inlineMarkupHtml(text, revealOffset);
+  const html = inlineMarkupHtml(text, revealOffset, highlightRanges);
   if (renderCache.get(el) === html) return;
   const offset = preserveCaret ? getCaretOffset(el) : -1;
   el.innerHTML = html;

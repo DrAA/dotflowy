@@ -127,7 +127,7 @@ test.describe("filter autocomplete (ADR 0047 §7)", () => {
     await expect(listbox(page).locator('[style*="--tag-red"]')).toBeVisible();
   });
 
-  test("Escape ladder: popover then outline, query kept (ADR 0047 §6)", async ({
+  test("Escape ladder: popover then clear and exit search", async ({
     page,
   }) => {
     await load(page);
@@ -142,11 +142,10 @@ test.describe("filter autocomplete (ADR 0047 §7)", () => {
     await expect(input(page)).toBeFocused();
     await expect(page).toHaveURL(/q=%23work/);
 
-    // Stage 2: jump to the outline; the query stays resident.
+    // Stage 2: clear the filter and leave search mode.
     await input(page).press("Escape");
-    await expect(input(page)).toHaveValue("#work");
-    await expect(input(page)).not.toBeFocused();
-    await expect(page).toHaveURL(/q=%23work/);
+    await expect(input(page)).toHaveCount(0);
+    await expect(page).not.toHaveURL(/q=/);
     await expect(row(page, "milk").locator(".node-text").first()).toBeFocused();
   });
 });

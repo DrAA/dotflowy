@@ -15,6 +15,7 @@ import type { NodeCommands } from "./node-commands";
 
 import { echoedTextFor } from "../data/collection";
 import { isMirrorsEnabled } from "../data/flags";
+import { computeSourceHighlightRanges } from "../data/search-highlight";
 import { useSelectionFill } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
 import {
@@ -51,7 +52,7 @@ import {
 import { applyPendingCaret } from "./pending-caret";
 import { healProtectedText } from "./protected-text";
 import { ProtectedLock } from "./protection";
-import { openFilterInput } from "./query-filter-nav";
+import { escapeToggleFilterInput } from "./query-filter-nav";
 import { useSlashMenu } from "./slash-menu";
 import { useBulletKeymap } from "./use-bullet-keymap";
 
@@ -222,6 +223,12 @@ function RowChrome({
   // open elsewhere); fade/match follow the CONTENT.
   const effectiveCollapsed = filter ? false : instance.collapsed;
   const isContext = filter ? !filter.matchIds.has(content.id) : false;
+  const highlightKey = filter?.highlightTerms?.join("\0") ?? "";
+  const searchHighlights =
+    isContext || !filter?.highlightTerms?.length
+      ? undefined
+      : computeSourceHighlightRanges(content.text, filter.highlightTerms);
+  const renderKey = `${content.text}\0${highlightKey}`;
   // The zoom morph (`view-transition-name: zoom-target`) must name exactly ONE
   // element -- the browser aborts the transition on a duplicate name. pivotId is
   // a node id, but it addresses the row by KEY, not content: a source and every
@@ -291,8 +298,8 @@ function RowChrome({
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el) return;
-    decorate(el, content.text, null, false);
-    syncedRef.current = content.text;
+    decorate(el, content.text, null, false, searchHighlights);
+    syncedRef.current = renderKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -330,19 +337,26 @@ function RowChrome({
   useEffect(() => {
     const el = textRef.current;
     if (!el || composingRef.current) return;
-    if (syncedRef.current === content.text) return;
+    if (syncedRef.current === renderKey) return;
     // Lunora owns the sticky optimistic hold across a missed shape poke. A DOM
     // prefix guard here swallowed legitimate shrinks such as undo-to-empty.
     if (
       document.activeElement === el &&
-      echoedTextFor(content.id) === content.text
+      echoedTextFor(content.id) === content.text &&
+      syncedRef.current?.startsWith(`${content.text}\0`)
     ) {
       return;
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
-    decorate(el, content.text, revealOffset, focused);
-    syncedRef.current = content.text;
+    decorate(
+      el,
+      content.text,
+      revealOffset,
+      focused,
+      focused ? undefined : searchHighlights,
+    );
+    syncedRef.current = renderKey;
   });
 
   // Unmount: tear down the caret-reveal watcher if it's still live. onBlur
@@ -570,8 +584,8 @@ function RowChrome({
               if (restored !== null) {
                 syncedRef.current = restored;
               } else if (hasFoldingToken(text)) {
-                decorate(el, text, null, false);
-                syncedRef.current = text;
+                decorate(el, text, null, false, searchHighlights);
+                syncedRef.current = `${text}\0${highlightKey}`;
               }
             }}
             onKeyDown={(e) => {
@@ -582,7 +596,7 @@ function RowChrome({
               if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                openFilterInput({ skipSuggestions: true });
+                escapeToggleFilterInput();
               }
             }}
           />

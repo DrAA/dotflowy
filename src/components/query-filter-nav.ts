@@ -96,6 +96,17 @@ export function toggleFilterInput() {
   else opener?.();
 }
 
+/** Dismiss search mode: clear `?q=` and collapse the filter row. No-op when
+ *  idle. Used by Escape (and the magnifier toggle-off path via {@link closer}). */
+export function closeFilterInput() {
+  closer?.();
+}
+
+/** Live open probe (summoned or active `?q=`). For key handlers outside React. */
+export function isFilterInputOpen() {
+  return isOpenProbe?.() ?? false;
+}
+
 // --- Reactive open-signal (ADR 0050) ----------------------------------------
 // `QueryFilterBar` owns whether the input is showing (`summoned || active`) in
 // local state, but `FilterButton` lives in the header and must LIGHT while the
@@ -127,15 +138,17 @@ export function getFilterOpen() {
   return filterOpen;
 }
 
-// --- Escape toggles search ↔ content (Workflowy) ----------------------------
-// Escape in the outline focuses the filter (query kept). Escape in the filter
-// (after the suggestion popover closes) returns the caret to the last bullet.
-// Clearing the query stays on the X / magnifier -- Escape is a focus switch.
+// --- Escape toggles search mode ---------------------------------------------
+// From a bullet (or other outline caret): Escape opens the filter when idle
+// (suggestions suppressed so a follow-up Escape can dismiss), and dismisses
+// (clear + collapse) when open. In the filter input, Escape closes the
+// suggestion popover first, then dismisses. Overlays (dialogs, caret menus,
+// node selection) own Escape first.
 
 let lastContentId: string | null = null;
 
 /** True when Escape belongs to an overlay (dialog, caret menu, node selection)
- *  rather than the filter ↔ outline toggle. */
+ *  rather than the filter toggle. */
 export function isEscapeBlockedByOverlay() {
   if (getSelectionState()) return true;
   if (document.querySelector('[role="listbox"]')) return true;
@@ -147,6 +160,14 @@ export function isEscapeBlockedByOverlay() {
     return true;
   }
   return false;
+}
+
+/** Escape from the outline: dismiss search when open, summon when idle
+ *  (suggestions skipped so the next Escape can exit). Callers must gate on
+ *  {@link isEscapeBlockedByOverlay} when listening outside caret menus. */
+export function escapeToggleFilterInput() {
+  if (isFilterInputOpen()) closeFilterInput();
+  else openFilterInput({ skipSuggestions: true });
 }
 
 /** Remember the focused bullet so Escape-from-search can land back on it. */

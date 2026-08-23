@@ -28,7 +28,12 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import type { PluginContext, SlotSpec, ViewContext } from "../plugins/types";
+import type {
+  PluginContext,
+  SlotSpec,
+  ViewContext,
+  ViewFilter,
+} from "../plugins/types";
 import type { NodeCommands } from "./node-commands";
 
 import { echoedTextFor } from "../data/collection";
@@ -58,6 +63,7 @@ import {
 } from "../data/mutations";
 import { flattenNodeText } from "../data/node-links";
 import { appRuntime } from "../data/runtime";
+import { computeSourceHighlightRanges } from "../data/search-highlight";
 import { bootstrapOutline } from "../data/seed";
 import { useSyncSelectionFillRows } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
@@ -165,7 +171,10 @@ import {
   guardProtected,
   ProtectedLock,
 } from "./protection";
-import { openFilterInput, isEscapeBlockedByOverlay } from "./query-filter-nav";
+import {
+  escapeToggleFilterInput,
+  isEscapeBlockedByOverlay,
+} from "./query-filter-nav";
 import { SelectionActionsMenu, useSelectionMode } from "./selection-mode";
 import {
   SelectionFormatToolbar,
@@ -503,7 +512,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     consumeClick,
   });
 
-  // Shift+Alt+↑/↓ (move), Alt+↓/↑ (zoom), and Escape (filter ↔ outline).
+  // Shift+Alt+↑/↓ (move), Alt+↓/↑ (zoom), and Escape (toggle search).
   // Window capture, not useHotkeys / a bubble listener: contentEditable
   // keydowns often never reach window bubble, and Chrome/Firefox steal focus
   // to the menu bar on Alt unless that keydown is preventDefaulted.
@@ -542,7 +551,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         if (isEscapeBlockedByOverlay()) return;
         e.preventDefault();
         e.stopPropagation();
-        openFilterInput({ skipSuggestions: true });
+        escapeToggleFilterInput();
         return;
       }
       const altDown =
@@ -992,6 +1001,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
                   registerRef={registerRef}
                   getCtx={pluginCtx}
                   setPendingFocus={commands.setPendingFocus}
+                  filter={filter}
                   onTextChange={(text) => setText(zoomedNode.id, text)}
                   onAddChild={() =>
                     runStructural(() => {
@@ -2143,6 +2153,7 @@ function ZoomedTitle({
   onAddChild,
   onArrowDown,
   setPendingFocus,
+  filter,
 }: {
   node: Node;
   isPivot: boolean;
@@ -2155,6 +2166,7 @@ function ZoomedTitle({
   onArrowDown: () => void;
   /** Hand the caret to the seam bullet a structural paste created (ADR 0044). */
   setPendingFocus: (key: string, offset: number) => void;
+  filter: ViewFilter | null;
 }) {
   const ref = useRef<HTMLSpanElement | null>(null);
   // Mirror OutlineRow's live inline-`code` decoration so a backtick run in the
@@ -2167,6 +2179,11 @@ function ZoomedTitle({
   // Reactive: a plugin's protection can load async (mirrors OutlineRow). See
   // ADR 0015.
   const protectedNode = useIsProtected(node.id);
+  const highlightKey = filter?.highlightTerms?.join("\0") ?? "";
+  const searchHighlights = filter?.highlightTerms?.length
+    ? computeSourceHighlightRanges(node.text, filter.highlightTerms)
+    : undefined;
+  const renderKey = `${node.text}\0${highlightKey}`;
 
   // Mirror "appears in N places" badge on the zoomed title too (ADR 0022, slice
   // 1d), so a mirrored node shows the chrome whether it's a list bullet or the
@@ -2206,18 +2223,28 @@ function ZoomedTitle({
   useEffect(() => {
     const el = ref.current;
     if (!el || composingRef.current) return;
-    if (syncedRef.current === node.text) return;
+    if (syncedRef.current === renderKey) return;
     // Same focused-skip as OutlineRow: don't paint a lagging/stale store over
     // local typing (classic echoedText + Lunora overlay gap).
     if (document.activeElement === el) {
-      if (echoedTextFor(node.id) === node.text) return;
+      if (
+        echoedTextFor(node.id) === node.text &&
+        syncedRef.current?.startsWith(`${node.text}\0`)
+      )
+        return;
       const dom = readSource(el);
       if (dom !== node.text && dom.startsWith(node.text)) return;
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
-    decorate(el, node.text, revealOffset, focused);
-    syncedRef.current = node.text;
+    decorate(
+      el,
+      node.text,
+      revealOffset,
+      focused,
+      focused ? undefined : searchHighlights,
+    );
+    syncedRef.current = renderKey;
   });
 
   // The `/` palette (Seam C) on the zoomed title too, mirroring OutlineRow --
@@ -2402,8 +2429,8 @@ function ZoomedTitle({
               const restored = healProtectedText(node.id, text, el);
               if (restored !== null) syncedRef.current = restored;
               else if (hasLink(text)) {
-                decorate(el, text, null, false);
-                syncedRef.current = text;
+                decorate(el, text, null, false, searchHighlights);
+                syncedRef.current = `${text}\0${highlightKey}`;
               }
             }}
             onKeyDown={(e) => {
@@ -2416,7 +2443,7 @@ function ZoomedTitle({
               if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                openFilterInput({ skipSuggestions: true });
+                escapeToggleFilterInput();
               }
             }}
           />
