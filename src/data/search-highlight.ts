@@ -269,14 +269,14 @@ export function findFlatMatchRanges(
   }
   if (ranges.length === 0) return [];
   ranges.sort((a, b) => a[0] - b[0]);
-  const merged: SourceHighlightRange[] = [ranges[0]!];
+  const merged: [number, number][] = [[ranges[0]![0], ranges[0]![1]]];
   for (let i = 1; i < ranges.length; i++) {
     const prev = merged[merged.length - 1]!;
     const cur = ranges[i]!;
     if (cur[0] <= prev[1] + 1) {
-      prev[1] = Math.max(prev[1], cur[1]);
+      merged[merged.length - 1] = [prev[0], Math.max(prev[1], cur[1])];
     } else {
-      merged.push(cur);
+      merged.push([cur[0], cur[1]]);
     }
   }
   return merged;
@@ -297,14 +297,14 @@ export function flatRangesToSourceRanges(
   }
   if (out.length === 0) return [];
   out.sort((a, b) => a[0] - b[0]);
-  const merged: SourceHighlightRange[] = [out[0]!];
+  const merged: [number, number][] = [[out[0]![0], out[0]![1]]];
   for (let i = 1; i < out.length; i++) {
     const prev = merged[merged.length - 1]!;
     const cur = out[i]!;
     if (cur[0] <= prev[1] + 1) {
-      prev[1] = Math.max(prev[1], cur[1]);
+      merged[merged.length - 1] = [prev[0], Math.max(prev[1], cur[1])];
     } else {
-      merged.push(cur);
+      merged.push([cur[0], cur[1]]);
     }
   }
   return merged;
