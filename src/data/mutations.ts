@@ -768,6 +768,141 @@ export function moveDown(
 }
 
 /**
+ * Move a contiguous sibling run up (node multi-selection's Shift+Alt+↑ -- ADR
+ * 0018). Swaps the whole run with the nearest visible sibling above the first
+ * root; at the top edge reparents every root into the uncle subtree in order.
+ * Returns true if anything moved. Wrap in `runStructural` (ADR 0009).
+ */
+export function moveManyUp(
+  index: TreeIndex,
+  rootIds: string[],
+  opts: MoveOpts = {},
+): boolean {
+  if (rootIds.length === 0) return false;
+  if (rootIds.length === 1) return moveUp(index, rootIds[0]!, opts);
+
+  const isVisible = opts.isVisible ?? (() => true);
+  const firstId = rootIds[0]!;
+  const lastId = rootIds[rootIds.length - 1]!;
+  const node = index.byId.get(firstId);
+  if (!node) return false;
+
+  const siblings = childrenOf(index, node.parentId);
+  const i = siblings.findIndex((n) => n.id === firstId);
+  if (i === -1) return false;
+
+  let vp: Node | null = null;
+  for (let j = i - 1; j >= 0; j--) {
+    if (isVisible(siblings[j]!)) {
+      vp = siblings[j]!;
+      break;
+    }
+  }
+
+  if (vp) {
+    // Swap the block with its predecessor: park vp after the run's last root.
+    return moveNode(index, vp.id, node.parentId, lastId);
+  }
+
+  const rootId = opts.rootId ?? null;
+  if (node.parentId === null || node.parentId === rootId) return false;
+  const parent = index.byId.get(node.parentId);
+  if (!parent?.prevSiblingId) return false;
+
+  const uncleId = parent.prevSiblingId;
+  const uncleContentId = opts.resolveMirror
+    ? trueSourceOf(index, uncleId)
+    : uncleId;
+  const uncleChildren = childrenOf(index, uncleContentId);
+  let after: string | null =
+    uncleChildren.length > 0
+      ? uncleChildren[uncleChildren.length - 1]!.id
+      : null;
+
+  const uncle = index.byId.get(uncleId);
+  let expandIds: readonly string[] = uncle?.collapsed ? [uncle.id] : [];
+
+  let moved = false;
+  for (const id of rootIds) {
+    const live = buildTreeIndex(getLiveNodes());
+    if (moveNode(live, id, uncleContentId, after, expandIds)) {
+      moved = true;
+      after = id;
+      expandIds = [];
+    }
+  }
+  return moved;
+}
+
+/**
+ * Move a contiguous sibling run down (node multi-selection's Shift+Alt+↓ -- ADR
+ * 0018). Swaps the whole run with the nearest visible sibling below the last
+ * root; at the bottom edge reparents every root into the aunt subtree in order.
+ * Returns true if anything moved. Wrap in `runStructural` (ADR 0009).
+ */
+export function moveManyDown(
+  index: TreeIndex,
+  rootIds: string[],
+  opts: MoveOpts = {},
+): boolean {
+  if (rootIds.length === 0) return false;
+  if (rootIds.length === 1) return moveDown(index, rootIds[0]!, opts);
+
+  const isVisible = opts.isVisible ?? (() => true);
+  const firstId = rootIds[0]!;
+  const lastId = rootIds[rootIds.length - 1]!;
+  const node = index.byId.get(firstId);
+  if (!node) return false;
+
+  const siblings = childrenOf(index, node.parentId);
+  const li = siblings.findIndex((n) => n.id === lastId);
+  if (li === -1) return false;
+
+  let vn: Node | null = null;
+  for (let j = li + 1; j < siblings.length; j++) {
+    if (isVisible(siblings[j]!)) {
+      vn = siblings[j]!;
+      break;
+    }
+  }
+
+  if (vn) {
+    const first = index.byId.get(firstId)!;
+    return moveNode(index, vn.id, node.parentId, first.prevSiblingId ?? null);
+  }
+
+  const rootId = opts.rootId ?? null;
+  if (node.parentId === null || node.parentId === rootId) return false;
+  const parent = index.byId.get(node.parentId);
+  if (!parent) return false;
+
+  const parentSiblings = childrenOf(index, parent.parentId);
+  const pi = parentSiblings.findIndex((n) => n.id === parent.id);
+  const aunt =
+    pi !== -1 && pi + 1 < parentSiblings.length
+      ? parentSiblings[pi + 1]!
+      : null;
+  if (!aunt) return false;
+
+  const auntContentId = opts.resolveMirror
+    ? trueSourceOf(index, aunt.id)
+    : aunt.id;
+  let expandIds: readonly string[] = aunt.collapsed ? [aunt.id] : [];
+  let after: string | null = null;
+
+  let moved = false;
+  for (const id of rootIds) {
+    const live = buildTreeIndex(getLiveNodes());
+    if (moveNode(live, id, auntContentId, after, expandIds)) {
+      moved = true;
+      after = id;
+      expandIds = [];
+    }
+  }
+  return moved;
+}
+
+/**
  * Move `nodeId` to be a child of `newParentId`, positioned immediately after
  * `afterSiblingId` (or as the first child when `afterSiblingId` is null). This
  * is the fused move that drag-and-drop performs: it changes parent AND sibling
