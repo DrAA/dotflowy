@@ -194,7 +194,8 @@ describe("parse(outlineToMarkdown(t)) === t", () => {
     for (let i = 0; i < 300; i++) {
       const forest = safeParagraphForest(next);
       if (forest.length === 0) continue;
-      expect(roundTrip(forest)).toEqual(forest);
+      // Paragraphs export with `- ` now; re-import lands as bullets (kind degrades).
+      expect(contentOnly(roundTrip(forest))).toEqual(contentOnly(forest));
     }
   });
 
@@ -279,16 +280,16 @@ describe("parse(outlineToMarkdown(t)) === t", () => {
     ]);
   });
 
-  test("a paragraph exports as a bare line, at every depth", () => {
+  test("a paragraph exports with `- `, at every depth", () => {
     const { index } = buildIndex([
       para("prose", [para("nested"), shape("kid")]),
     ]);
     expect(outlineToMarkdown(index, ["n0"])).toBe(
-      ["prose", "  nested", "  - kid"].join("\n"),
+      ["- prose", "  - nested", "  - kid"].join("\n"),
     );
-    expect(roundTrip([para("prose", [para("nested"), shape("kid")])])).toEqual([
-      para("prose", [para("nested"), shape("kid")]),
-    ]);
+    expect(
+      contentOnly(roundTrip([para("prose", [para("nested"), shape("kid")])])),
+    ).toEqual(contentOnly([para("prose", [para("nested"), shape("kid")])]));
   });
 
   test("a lookalike paragraph falls back to `- `, keeping every character", () => {
@@ -310,7 +311,7 @@ describe("parse(outlineToMarkdown(t)) === t", () => {
 
   test("a paragraph is never a task, even under a task parent", () => {
     const forest = [shape("job", [para("why it matters")], true, false)];
-    expect(roundTrip(forest)).toEqual(forest);
+    expect(contentOnly(roundTrip(forest))).toEqual(contentOnly(forest));
   });
 
   test("a pasted code fence survives being copied back out", () => {
@@ -394,14 +395,14 @@ describe("parseMarkdownForest", () => {
   test("headings drive nesting, and the shallowest normalizes to depth 0", () => {
     const forest = parseMarkdownForest("### Section\nbody\n#### Sub\nmore");
     expect(forestShape(forest)).toEqual([
-      shape("Section", [para("body"), shape("Sub", [para("more")])]),
+      shape("Section", [shape("body"), shape("Sub", [shape("more")])]),
     ]);
   });
 
   test("a skipped heading level clamps instead of jumping", () => {
     const forest = parseMarkdownForest("# A\n##### E\ntext");
     expect(forestShape(forest)).toEqual([
-      shape("A", [shape("E", [para("text")])]),
+      shape("A", [shape("E", [shape("text")])]),
     ]);
   });
 
@@ -448,8 +449,8 @@ describe("parseMarkdownForest", () => {
 
   test("a task marker needs its list marker (GFM), so bare `[ ] x` is text", () => {
     expect(forestShape(parseMarkdownForest("[ ] x\ny"))).toEqual([
-      para("[ ] x"),
-      para("y"),
+      shape("[ ] x"),
+      shape("y"),
     ]);
   });
 
@@ -469,11 +470,9 @@ describe("parseMarkdownForest", () => {
     // ADR 0044 rule 2: the heading grammar only fires at the start of a line's
     // content, before any marker, once. `>` is a marker, so `# A` survives as
     // literal text -- and re-exporting it (`- # A`) is a fixed point.
-    // A stripped blockquote line is marker-less, so it lands as a paragraph
-    // (ADR 0045); `- # A` on the way back out is still the fixed point.
     expect(forestShape(parseMarkdownForest("> # A\n> body"))).toEqual([
-      para("# A"),
-      para("body"),
+      shape("# A"),
+      shape("body"),
     ]);
   });
 
@@ -487,8 +486,7 @@ describe("parseMarkdownForest", () => {
       shape("  indented"),
       shape(""), // a blank line inside a fence is content
       shape("```"),
-      // Raw mode infers no kind, so only the line AFTER the fence is a paragraph.
-      para("after"),
+      shape("after"),
     ]);
   });
 
@@ -499,7 +497,7 @@ describe("parseMarkdownForest", () => {
       shape("~~~"),
       shape("```js"),
       shape("```"),
-      para("out"),
+      shape("out"),
     ]);
   });
 
@@ -579,7 +577,7 @@ describe("planMarkdownPaste", () => {
         text: "two",
         isTask: false,
         completed: false,
-        kind: "paragraph",
+        kind: null,
       },
       {
         id: "p1",
@@ -588,7 +586,7 @@ describe("planMarkdownPaste", () => {
         text: "three",
         isTask: false,
         completed: false,
-        kind: "paragraph",
+        kind: null,
       },
     ]);
     // The anchor's existing child follows the pasted one; the anchor's existing
@@ -639,14 +637,12 @@ describe("planMarkdownPaste", () => {
     });
   });
 
-  test("a marker-less line 1 makes the anchor a paragraph, only when head is empty", () => {
-    // The accepted consequence of ADR 0044's amendment: multi-line prose pastes
-    // land as paragraphs. Mid-sentence, the anchor stays whatever it was.
+  test("a marker-less line 1 never changes the anchor kind", () => {
     expect(plan("plain\nb")!.anchor).toEqual({
       text: "plain",
       isTask: null,
       completed: null,
-      kind: "paragraph",
+      kind: null,
     });
     expect(plan("plain\nb", "mid-sentence ")!.anchor).toEqual({
       text: "mid-sentence plain",

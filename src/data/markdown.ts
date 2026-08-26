@@ -9,16 +9,9 @@ import { childrenOf, type TreeIndex } from "./tree";
 const INDENT = "  ";
 
 /**
- * The line prefix for a node: a GFM task checkbox when it's a task, nothing at
- * all for a paragraph, else a plain bullet.
- *
- * A paragraph emits markdown's own paragraph syntax -- a bare line -- but ONLY
- * when that line reads back as the same paragraph (ADR 0044's amendment).
- * `- foo`, `# foo`, an empty paragraph, and anything the block grammar would
- * consume fall back to the `- ` prefix: every character kept, kind degrades to
- * bullet, idempotent. `text` is the line as it will actually be emitted (post
- * bible-ref projection), not `node.text` -- the guard has to see what the parser
- * will see. Kind outranks `isTask` here as it does in the renderer.
+ * The line prefix for a node: a GFM task checkbox when it's a task, else a
+ * plain bullet. Paragraph nodes also use `- ` -- marker-less paste lines are
+ * bullets, so bare-line export no longer round-trips paragraph kind.
  */
 function prefixFor(node: Node, text: string): string {
   if (node.kind === "paragraph") return paragraphRoundTrips(text) ? "" : "- ";
