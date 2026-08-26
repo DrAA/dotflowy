@@ -92,5 +92,14 @@ export function backupTargets(
   userIds: readonly string[],
   resolveDoName: (userId: string) => string,
 ): string[] {
-  return [...new Set(userIds.map(resolveDoName))];
+  const targets = new Set<string>();
+  for (const id of userIds) {
+    const resolved = resolveDoName(id);
+    targets.add(resolved);
+    // Owner-bridge gap: outline may still live under the raw user id DO until
+    // migrated into 'default'. Export both so the archive cron can pick the
+    // non-empty snapshot (resolveArchiveDoName in archive-backup-lib.ts).
+    if (resolved !== id) targets.add(id);
+  }
+  return [...targets];
 }

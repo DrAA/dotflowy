@@ -233,18 +233,6 @@ async function triggerBackupSweep(
   return exported;
 }
 
-/** Pick the DO snapshot to archive — prefer the export with the most nodes. */
-export function resolveArchiveDoName(
-  exported: readonly { doName: string; nodes: number }[],
-  explicitDoName: string,
-): string {
-  if (!exported.length) return explicitDoName;
-  const best = exported.reduce((a, row) => (row.nodes > a.nodes ? row : a));
-  const preferred = exported.find((row) => row.doName === explicitDoName);
-  if (preferred && preferred.nodes === best.nodes) return explicitDoName;
-  return best.doName;
-}
-
 async function wranglerR2Get(
   bucket: string,
   key: string,

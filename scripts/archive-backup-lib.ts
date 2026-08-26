@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the daily /var/archives backup cron
+ * Pure helpers for the daily ~/aai/aaflowy/backups archive cron
  * (scripts/archive-backup.ts). Converts operator R2 snapshots
  * (worker/backup.ts — nodes + kv metadata, no image bytes per ADR 0061)
  * into the user-facing content-backup shape (src/data/content-backup.ts)

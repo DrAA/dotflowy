@@ -92,10 +92,14 @@ describe("backupTargets", () => {
     expect(backupTargets(["u1", "owner", "u2"], resolve)).toEqual([
       "u1",
       "default",
+      "owner",
       "u2",
     ]);
-    // A stray literal 'default' row must not double-export the owner DO.
-    expect(backupTargets(["owner", "default"], resolve)).toEqual(["default"]);
+    // Owner-bridge: export both 'default' and the raw owner id when they differ.
+    expect(backupTargets(["owner", "default"], resolve)).toEqual([
+      "default",
+      "owner",
+    ]);
   });
 
   it("passes ids through an identity resolver untouched", () => {

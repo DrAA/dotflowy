@@ -722,7 +722,7 @@ function handleApiRequest(
       });
     }
 
-    // Localhost-only hook for the daily /var/archives cron
+    // Localhost-only hook for the daily ~/aai/aaflowy/backups cron
     // (scripts/archive-backup.ts). Wrangler's GET /__scheduled is swallowed by
     // the SPA asset fallback below, so the archive script POSTs here instead.
     // Set OWNER_USER_ID in .dev.vars so the owner's outline (pre-auth data in
