@@ -9,7 +9,16 @@ export function downloadTextFile(
   mime: string,
   text: string,
 ): void {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  downloadBlob(filename, mime, new Blob([text], { type: mime }));
+}
+
+/** Trigger a browser download of binary `data` as `filename`. */
+export function downloadBlob(
+  filename: string,
+  mime: string,
+  data: BlobPart,
+): void {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;

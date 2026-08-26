@@ -60,3 +60,13 @@ INVITE_CODES=dev-invite
 # prod: `wrangler secret put GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
+
+# Owner's Better Auth user.id. Maps that account to the `default` Durable Object
+# (where pre-auth outline data lives) and is required for daily archive backups
+# (deploy/archive-backup.sh) to sweep the real outline. Find via:
+#   sqlite3 .wrangler/state/v3/d1/.../....sqlite 'SELECT id FROM "user";'
+# OWNER_USER_ID=
+
+# Secret for POST /api/local/backup-sweep (scripts/archive-backup.ts). Unset =>
+# loopback-only. Set in self-hosted cron when wrangler rewrites the Host header.
+# ARCHIVE_SWEEP_SECRET=local-archive-sweep-dev

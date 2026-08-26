@@ -15,6 +15,7 @@ import {
 
 import { AuthScreen } from "../components/auth-screen";
 import { ChangelogDialog } from "../components/changelog-dialog";
+import { ContentBackupDialog } from "../components/content-backup-dialog";
 import { DeleteConfirmDialog } from "../components/delete-confirm-dialog";
 import { HistoryRestoreDialog } from "../components/history-restore";
 import { LunoraSyncHost } from "../components/lunora-sync-host";
@@ -179,6 +180,7 @@ function RootComponent() {
                     <SettingsNavRegistrar />
                     <MoveDialog />
                     <OpmlImportDialog />
+                    <ContentBackupDialog />
                     <DeleteConfirmDialog />
                     <HistoryRestoreDialog />
                     <ChangelogDialog />

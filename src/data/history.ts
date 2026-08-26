@@ -211,6 +211,23 @@ function sameNode(a: Node, b: Node): boolean {
 }
 
 /**
+ * Plan a full restore to an arbitrary node snapshot (backup import). The
+ * caller owns persistence; `revert` is a no-op because there is no stack entry.
+ */
+export function planRestoreToNodes(
+  index: TreeIndex,
+  targetNodes: readonly Node[],
+): RestorePlan {
+  const entry: Entry = {
+    nodes: targetNodes.map((n) => ({ ...n })),
+    extra: null,
+    focusId: null,
+    tag: null,
+  };
+  return planRestore(index, entry, () => {});
+}
+
+/**
  * Diff the live collection against `entry`'s snapshot into chunked apply
  * slices: delete rows added since, re-insert removed ones, overwrite changed
  * ones. Unchanged nodes are skipped -- the diff size is also what picks the

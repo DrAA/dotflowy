@@ -21,9 +21,11 @@ import {
   SunIcon,
 } from "lucide-react";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
 import type { CommandCenterAction } from "../data/command-center";
 
+import { exportContentBackupFile } from "../data/content-backup";
 import { openFeedbackReport } from "../data/feedback";
 import { isLocalDataEnabled } from "../data/flags";
 import { capture } from "../data/history";
@@ -31,6 +33,7 @@ import { toggleBookmark } from "../data/mutations";
 import { useTree } from "../data/useTree";
 import { signOutAndReload } from "../lib/auth-client";
 import { openChangelog } from "./changelog-opener";
+import { openContentBackupRestore } from "./content-backup-opener";
 import {
   copyOutlineAsMarkdown,
   exportOutlineAsOpml,
@@ -107,8 +110,36 @@ export function useGlobalActions(opts: {
         description: "Download the current view as an OPML file",
         icon: DownloadIcon,
         scope: "global",
-        keywords: ["export", "opml", "download", "file", "workflowy", "backup"],
+        keywords: ["export", "opml", "download", "file", "workflowy"],
         run: exportOutlineAsOpml,
+      },
+      {
+        id: "g:export-backup",
+        label: "Download backup",
+        description: "Compressed JSON backup with images",
+        icon: DownloadIcon,
+        scope: "global",
+        keywords: ["export", "backup", "download", "json", "gzip", "restore"],
+        run: () => {
+          void exportContentBackupFile()
+            .then(() => toast.success("Backup downloaded"))
+            .catch((err) => {
+              if (err instanceof Error && err.message === "empty") {
+                toast("Nothing to back up yet");
+                return;
+              }
+              toast.error("Couldn't create a backup. Try again.");
+            });
+        },
+      },
+      {
+        id: "g:restore-backup",
+        label: "Restore backup…",
+        description: "Replace the outline from a backup file",
+        icon: FileUpIcon,
+        scope: "global",
+        keywords: ["restore", "backup", "import", "json", "gzip"],
+        run: () => openContentBackupRestore(),
       },
       {
         id: "g:collapse-all",

@@ -18,6 +18,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
+import { openContentBackupRestore } from "../components/content-backup-opener";
 import { DeleteAccountDialog } from "../components/delete-account-dialog";
 import { McpConnectDialog } from "../components/mcp-connect-dialog";
 import { openOpmlImport } from "../components/opml-import-opener";
@@ -34,6 +35,7 @@ import { Button } from "../components/ui/button";
 import { Slider } from "../components/ui/slider";
 import { Switch } from "../components/ui/switch";
 import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
+import { exportContentBackupFile } from "../data/content-backup";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import { isLocalDataEnabled } from "../data/flags";
@@ -92,6 +94,19 @@ function exportWholeOutlineOpml() {
     "text/x-opml;charset=utf-8",
     opml,
   );
+}
+
+async function exportWholeOutlineBackup() {
+  try {
+    await exportContentBackupFile();
+    toast.success("Backup downloaded");
+  } catch (err) {
+    if (err instanceof Error && err.message === "empty") {
+      toast("Nothing to back up yet");
+      return;
+    }
+    toast.error("Couldn't create a backup. Try again.");
+  }
 }
 
 // --- Small presentational primitives -----------------------------------------
@@ -703,6 +718,34 @@ function DataSection() {
               onClick={exportWholeOutlineOpml}
             >
               Export
+            </Button>
+          }
+        />
+        <SettingRow
+          icon={<DownloadIcon />}
+          title="Backup (JSON)"
+          description="Download a compressed backup with your whole outline and attached images."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportWholeOutlineBackup()}
+            >
+              Download
+            </Button>
+          }
+        />
+        <SettingRow
+          icon={<FileUpIcon />}
+          title="Restore backup"
+          description="Replace your outline from a .aaflowy-backup.json.gz file."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openContentBackupRestore()}
+            >
+              Restore…
             </Button>
           }
         />

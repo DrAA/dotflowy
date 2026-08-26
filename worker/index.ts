@@ -48,6 +48,7 @@ import {
   backupPrefix,
   backupTargets,
   isBackupDateKey,
+  utcDateKey,
 } from "./backup";
 import {
   OWNER_DO_ID,
@@ -117,6 +118,9 @@ interface Env extends LunoraEnv {
    *  the owner's existing data carries over with zero copy. Everyone else
    *  routes to their own `user.id`. See resolveUserId. */
   OWNER_USER_ID?: string;
+  /** Shared secret for POST /api/local/backup-sweep (self-hosted archive cron).
+   *  Set in `.dev.vars`; unset => loopback-only. */
+  ARCHIVE_SWEEP_SECRET?: string;
   /** Owner key the legacy D1 rows are scoped under, read once during the
    *  one-time import into the owner's DO. Defaults to 'owner'. */
   APP_OWNER?: string;
@@ -718,6 +722,24 @@ function handleApiRequest(
       });
     }
 
+    // Localhost-only hook for the daily /var/archives cron
+    // (scripts/archive-backup.ts). Wrangler's GET /__scheduled is swallowed by
+    // the SPA asset fallback below, so the archive script POSTs here instead.
+    // Set OWNER_USER_ID in .dev.vars so the owner's outline (pre-auth data in
+    // the 'default' DO) is included in the sweep.
+    if (url.pathname === "/api/local/backup-sweep") {
+      if (!canRunLocalBackupSweep(request, env)) {
+        return yield* Effect.fail(new RouteNotFound({ path: url.pathname }));
+      }
+      if (request.method !== "POST") {
+        return json({ error: "method not allowed" }, 405);
+      }
+      const exported = yield* Effect.promise(() =>
+        runBackupSweep(env, Date.now()),
+      );
+      return json({ exported, date: utcDateKey(Date.now()) });
+    }
+
     // Alpha waitlist: POST is PUBLIC (submitters have no account yet) — must
     // sit before the session gate below; its hardening lives in handleWaitlist.
     // GET is the ADMIN view (the /admin/waitlist page): session + the
@@ -1073,21 +1095,63 @@ function handleApiRequest(
  * broken DO must not starve every user after it of their daily backup, so
  * each export is try/caught, reported to Sentry, and the sweep moves on.
  */
-async function runBackupSweep(env: Env, now: number): Promise<void> {
+export type BackupSweepExport = {
+  doName: string;
+  key: string;
+  nodes: number;
+  kv: number;
+};
+
+/** True when the request targets this Worker on loopback (local cron / archive). */
+function isLoopbackRequest(request: Request): boolean {
+  const hostHeader = (request.headers.get("host") ?? "")
+    .split(":")[0]
+    ?.toLowerCase();
+  const urlHost = new URL(request.url).hostname.toLowerCase();
+  const loopback = (h: string) =>
+    h === "127.0.0.1" || h === "localhost" || h === "[::1]";
+  return loopback(hostHeader) || loopback(urlHost);
+}
+
+/** Gate the self-hosted archive cron hook (404 when denied). */
+function canRunLocalBackupSweep(request: Request, env: Env): boolean {
+  const secret = env.ARCHIVE_SWEEP_SECRET?.trim();
+  if (secret) {
+    return request.headers.get("x-archive-sweep-secret") === secret;
+  }
+  return isLoopbackRequest(request);
+}
+
+async function runBackupSweep(
+  env: Env,
+  now: number,
+): Promise<BackupSweepExport[]> {
   const { results } = await env.DB.prepare('SELECT id FROM "user"').all<{
     id: string;
   }>();
-  const targets = backupTargets(
-    results.map((r) => r.id),
-    (id) => resolveUserId(id, env),
-  );
+  const userIds = results.map((r) => r.id);
+  const targets = [
+    ...new Set([
+      ...backupTargets(userIds, (id) => resolveUserId(id, env)),
+      ...userIds,
+      OWNER_DO_ID,
+    ]),
+  ];
+  const exported: BackupSweepExport[] = [];
   let failed = 0;
   for (const doName of targets) {
     try {
       const stub = env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(doName));
       const snapshot = await stub.exportSnapshot();
-      await env.BACKUPS.put(backupKey(doName, now), JSON.stringify(snapshot), {
+      const key = backupKey(doName, now);
+      await env.BACKUPS.put(key, JSON.stringify(snapshot), {
         httpMetadata: { contentType: "application/json" },
+      });
+      exported.push({
+        doName,
+        key,
+        nodes: snapshot.nodes.length,
+        kv: snapshot.kv.length,
       });
     } catch (err) {
       failed++;
@@ -1096,8 +1160,10 @@ async function runBackupSweep(env: Env, now: number): Promise<void> {
     }
   }
   console.log(
-    `backup sweep: ${targets.length - failed}/${targets.length} DOs exported`,
+    `backup sweep: ${exported.length}/${targets.length} DOs exported` +
+      (failed ? ` (${failed} failed)` : ""),
   );
+  return exported;
 }
 
 const handler = {

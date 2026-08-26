@@ -24,6 +24,7 @@
     "mint:mcp-token": "bun scripts/mint-mcp-token.ts",
     "invite": "bun scripts/invite.ts",
     "announce": "bun scripts/announce.ts",
+    "archive:backup": "bun scripts/archive-backup.ts",
     "deploy": "bun run build:cf && wrangler deploy",
     "gen:og": "bun scripts/gen-og.ts",
     "release": "bun scripts/release.ts",
