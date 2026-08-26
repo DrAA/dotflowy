@@ -131,6 +131,7 @@ import {
   DELETE_CONFIRM_THRESHOLD,
   openDeleteConfirm,
 } from "./delete-confirm-opener";
+import { classifyFocusedStoreSync, textPaintKey } from "./editable-sync";
 import { consumeFlashAfterNav, flashRow } from "./flash-node";
 import { Header } from "./Header";
 import { runHistoryRestore } from "./history-restore";
@@ -2220,20 +2221,27 @@ function ZoomedTitle({
     },
   ];
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el || composingRef.current) return;
     if (syncedRef.current === renderKey) return;
     // Same focused-skip as OutlineRow: don't paint a lagging/stale store over
-    // local typing (classic echoedText + Lunora overlay gap).
+    // local typing (classic echoedText + Lunora overlay gap). Layout, not
+    // passive: a delayed effect can rewind the caret one character when the
+    // next keystroke already landed. No prefix guard -- undo-to-empty would
+    // never apply (`"".startsWith` is always true).
     if (document.activeElement === el) {
-      if (
-        echoedTextFor(node.id) === node.text &&
-        syncedRef.current?.startsWith(`${node.text}\0`)
-      )
+      const decision = classifyFocusedStoreSync({
+        storeText: node.text,
+        liveText: getTreeIndex().byId.get(node.id)?.text,
+        echoedText: echoedTextFor(node.id),
+        syncedKey: syncedRef.current,
+      });
+      if (decision === "hold") return;
+      if (decision === "caught-up") {
+        syncedRef.current = renderKey;
         return;
-      const dom = readSource(el);
-      if (dom !== node.text && dom.startsWith(node.text)) return;
+      }
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
@@ -2349,7 +2357,7 @@ function ZoomedTitle({
               // during IME composition; compositionend handles that case.
               if (!composingRef.current) {
                 decorate(el, text, getCaretOffset(el), true);
-                syncedRef.current = text;
+                syncedRef.current = textPaintKey(text, highlightKey);
               }
             }}
             onCompositionStart={() => {
@@ -2361,7 +2369,7 @@ function ZoomedTitle({
               const text = readSource(el);
               onTextChange(text);
               decorate(el, text, getCaretOffset(el), true);
-              syncedRef.current = text;
+              syncedRef.current = textPaintKey(text, highlightKey);
             }}
             onPaste={(e) => {
               const el = e.currentTarget;
@@ -2383,12 +2391,13 @@ function ZoomedTitle({
                     placeCaretHere: (text, offset) => {
                       decorate(el, text, offset, true);
                       setCaretOffset(el, offset);
-                      syncedRef.current = text;
+                      syncedRef.current = textPaintKey(text, highlightKey);
                     },
                   },
                 },
               );
-              if (next !== null) syncedRef.current = next;
+              if (next !== null)
+                syncedRef.current = textPaintKey(next, highlightKey);
             }}
             // Copy/cut hand back the markdown SOURCE (a folded link's rendered
             // text drops the url half). See copySourceSelection (ADR 0005).
@@ -2396,7 +2405,8 @@ function ZoomedTitle({
             onCut={(e) => {
               const el = e.currentTarget;
               const next = cutSourceSelection(e, el, onTextChange);
-              if (next !== null) syncedRef.current = next;
+              if (next !== null)
+                syncedRef.current = textPaintKey(next, highlightKey);
             }}
             onFocus={(e) => {
               // Caret and node selection are mutually exclusive (ADR 0018): focusing
@@ -2415,7 +2425,7 @@ function ZoomedTitle({
               // the folded layout before the link expands; see revealLinkAtCaret.
               if (!hasLink(node.text)) return;
               revealLinkAtCaret(el, (t) => {
-                syncedRef.current = t;
+                syncedRef.current = textPaintKey(t, highlightKey);
               });
             }}
             onBlur={(e) => {
@@ -2427,10 +2437,11 @@ function ZoomedTitle({
               const text = readSource(el);
               // A protected node left empty heals: restore its name + shake/toast.
               const restored = healProtectedText(node.id, text, el);
-              if (restored !== null) syncedRef.current = restored;
+              if (restored !== null)
+                syncedRef.current = textPaintKey(restored, highlightKey);
               else if (hasLink(text)) {
                 decorate(el, text, null, false, searchHighlights);
-                syncedRef.current = `${text}\0${highlightKey}`;
+                syncedRef.current = textPaintKey(text, highlightKey);
               }
             }}
             onKeyDown={(e) => {

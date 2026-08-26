@@ -19,6 +19,7 @@ import { computeSourceHighlightRanges } from "../data/search-highlight";
 import { useSelectionFill } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
 import {
+  getTreeIndex,
   useMirrorCount,
   useNode,
   useVisibleChildIds,
@@ -32,6 +33,7 @@ import {
 import { hasFoldingToken } from "../plugins/registry";
 import { BulletGlyph } from "./bullet-glyph";
 import { focusTextFromRowTap } from "./caret-place";
+import { classifyFocusedStoreSync, textPaintKey } from "./editable-sync";
 import { flashRow } from "./flash-node";
 import {
   decorate,
@@ -334,18 +336,29 @@ function RowChrome({
   // that merely echoes the network back is a lagging/out-of-order echo of our
   // own keystrokes -- repainting it scrambles characters and jumps the caret
   // mid-type, so it's skipped; blur reconciles. See collection.ts `echoedText`.
-  useEffect(() => {
+  //
+  // useLayoutEffect: a passive useEffect can run AFTER the next keystroke has
+  // already hit the DOM, so a snapshot from the previous character would rewind
+  // the caret one place. Layout runs before the next input event. classifyFocused
+  // still holds a stale snapshot if live store has moved on, and holds an echo
+  // that lags the DOM (overlay/ack gap) without the old prefix guard that
+  // swallowed undo-to-empty.
+  useLayoutEffect(() => {
     const el = textRef.current;
     if (!el || composingRef.current) return;
     if (syncedRef.current === renderKey) return;
-    // Lunora owns the sticky optimistic hold across a missed shape poke. A DOM
-    // prefix guard here swallowed legitimate shrinks such as undo-to-empty.
-    if (
-      document.activeElement === el &&
-      echoedTextFor(content.id) === content.text &&
-      syncedRef.current?.startsWith(`${content.text}\0`)
-    ) {
-      return;
+    if (document.activeElement === el) {
+      const decision = classifyFocusedStoreSync({
+        storeText: content.text,
+        liveText: getTreeIndex().byId.get(content.id)?.text,
+        echoedText: echoedTextFor(content.id),
+        syncedKey: syncedRef.current,
+      });
+      if (decision === "hold") return;
+      if (decision === "caught-up") {
+        syncedRef.current = renderKey;
+        return;
+      }
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
@@ -499,7 +512,7 @@ function RowChrome({
                   af.before?.(pluginCtx());
                   commands.onTextChange(content.id, af.text);
                   decorate(el, af.text, af.caret, false);
-                  syncedRef.current = af.text;
+                  syncedRef.current = textPaintKey(af.text, highlightKey);
                   setCaretOffset(el, af.caret);
                   return;
                 }
@@ -509,7 +522,7 @@ function RowChrome({
               menus.handleInput();
               if (!composingRef.current) {
                 decorate(el, text, getCaretOffset(el), true);
-                syncedRef.current = text;
+                syncedRef.current = textPaintKey(text, highlightKey);
               }
             }}
             onCompositionStart={() => {
@@ -521,7 +534,7 @@ function RowChrome({
               const text = readSource(el);
               commands.onTextChange(content.id, text);
               decorate(el, text, getCaretOffset(el), true);
-              syncedRef.current = text;
+              syncedRef.current = textPaintKey(text, highlightKey);
             }}
             onPaste={(e) => {
               const el = e.currentTarget;
@@ -543,12 +556,13 @@ function RowChrome({
                     placeCaretHere: (text, offset) => {
                       decorate(el, text, offset, true);
                       setCaretOffset(el, offset);
-                      syncedRef.current = text;
+                      syncedRef.current = textPaintKey(text, highlightKey);
                     },
                   },
                 },
               );
-              if (next !== null) syncedRef.current = next;
+              if (next !== null)
+                syncedRef.current = textPaintKey(next, highlightKey);
             }}
             // Copy/cut hand back the markdown SOURCE (a folded link's rendered
             // text drops the url half). See copySourceSelection (ADR 0005).
@@ -558,7 +572,8 @@ function RowChrome({
               const next = cutSourceSelection(e, el, (t) =>
                 commands.onTextChange(content.id, t),
               );
-              if (next !== null) syncedRef.current = next;
+              if (next !== null)
+                syncedRef.current = textPaintKey(next, highlightKey);
             }}
             onFocus={(e) => {
               clearSelection();
@@ -570,7 +585,7 @@ function RowChrome({
               );
               if (!hasFoldingToken(content.text)) return;
               revealLinkAtCaret(el, (t) => {
-                syncedRef.current = t;
+                syncedRef.current = textPaintKey(t, highlightKey);
               });
             }}
             onBlur={(e) => {
@@ -582,10 +597,10 @@ function RowChrome({
               const text = readSource(el);
               const restored = healProtectedText(content.id, text, el);
               if (restored !== null) {
-                syncedRef.current = restored;
+                syncedRef.current = textPaintKey(restored, highlightKey);
               } else if (hasFoldingToken(text)) {
                 decorate(el, text, null, false, searchHighlights);
-                syncedRef.current = `${text}\0${highlightKey}`;
+                syncedRef.current = textPaintKey(text, highlightKey);
               }
             }}
             onKeyDown={(e) => {
