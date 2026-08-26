@@ -208,6 +208,35 @@ test.describe("Node multi-selection", () => {
     ]);
   });
 
+  test("Shift+Alt+Arrow moves the whole selected run among siblings", async ({
+    page,
+  }) => {
+    await load(page);
+    await focus(page, "b");
+    await page.keyboard.press("Shift+ArrowDown"); // enter -> [b]
+    await page.keyboard.press("Shift+ArrowDown"); // extend -> [b, c]
+
+    await page.keyboard.press("Shift+Alt+ArrowUp");
+    expect(await orderedTexts(page)).toEqual([
+      "bravo",
+      "charlie",
+      "alpha",
+      "delta",
+    ]);
+    await expect(li(page, "b")).toHaveAttribute("data-selected", "top");
+    await expect(li(page, "c")).toHaveAttribute("data-selected", "bottom");
+
+    await page.keyboard.press("Shift+Alt+ArrowDown");
+    expect(await orderedTexts(page)).toEqual([
+      "alpha",
+      "bravo",
+      "charlie",
+      "delta",
+    ]);
+    await expect(li(page, "b")).toHaveAttribute("data-selected", "top");
+    await expect(li(page, "c")).toHaveAttribute("data-selected", "bottom");
+  });
+
   test("Tab is a no-op when the run starts at the first child (nothing to indent under)", async ({
     page,
   }) => {
@@ -262,6 +291,25 @@ test.describe("Node multi-selection", () => {
     await expect(page.getByText("Copied as Markdown")).toBeVisible();
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     expect(clip).toBe("- alpha\n- bravo");
+  });
+
+  test("Cut as Markdown copies then deletes the selected roots", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await load(page);
+    await focus(page, "a");
+    await page.keyboard.press("Shift+ArrowDown"); // enter -> [a]
+    await page.keyboard.press("Shift+ArrowDown"); // extend -> [a, b]
+
+    await page.keyboard.press(`${MOD}+x`);
+    await expect(page.getByText("Cut as Markdown")).toBeVisible();
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clip).toBe("- alpha\n- bravo");
+    expect(await orderedTexts(page)).toEqual(["charlie", "delta"]);
+    // Focus lands on the surviving row below the deleted block.
+    await expect(focused(page)).toHaveText("charlie");
   });
 
   test("Backspace deletes the selected roots in one batch; undo restores", async ({

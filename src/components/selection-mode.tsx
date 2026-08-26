@@ -9,6 +9,7 @@ import {
   ClipboardCopyIcon,
   CopyPlusIcon,
   CornerUpRightIcon,
+  ScissorsIcon,
   Trash2Icon,
 } from "lucide-react";
 import {
@@ -21,6 +22,7 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import type { Node } from "../data/schema";
 import type { PluginContext } from "../plugins/types";
 
 import { paragraphCommand } from "../data/core-commands";
@@ -30,6 +32,8 @@ import { outlineToMarkdown } from "../data/markdown";
 import { imageCountsByNode } from "../data/media";
 import {
   indentManyNodes,
+  moveManyDown,
+  moveManyUp,
   outdentManyNodes,
   removeManyNodes,
 } from "../data/mutations";
@@ -89,11 +93,14 @@ interface SelectionModeArgs {
 
 export interface SelectionOps {
   copy: () => void;
+  cut: () => void;
   remove: () => void;
   move: () => void;
   mirror: () => void;
   indent: () => void;
   outdent: () => void;
+  moveUp: () => void;
+  moveDown: () => void;
   caretAbove: () => void;
   caretBelow: () => void;
   exitToCaret: () => void;
@@ -133,9 +140,10 @@ function makeSelectionOps({
   // row above the block (else the row below, else the view root). Protected
   // nodes (the daily container) are skipped + shaken, mirroring the single-node
   // delete guard; if every selected node is protected, nothing is removed and
-  // the selection stays.
-  const remove = () => {
-    const ids = getSelectionRootIds();
+  // the selection stays. Optional `rootIds` lets cut re-use this path after an
+  // async clipboard write without re-reading a possibly-cleared selection.
+  const remove = (rootIds?: string[]) => {
+    const ids = rootIds ?? getSelectionRootIds();
     if (ids.length === 0) return;
     const index = getTreeIndex();
     const protectedIds = ids.filter((id) => isProtected(id));
@@ -213,6 +221,24 @@ function makeSelectionOps({
     clearSelection();
   };
 
+  // Cut = copy-as-markdown, then delete. Clipboard write must succeed before
+  // anything is removed (a failed write must not drop subtrees). Ids are
+  // captured up front so a mid-flight selection clear (menu dismiss, click)
+  // can't turn a successful clipboard write into a no-op delete.
+  const cut = () => {
+    const ids = getSelectionRootIds();
+    if (ids.length === 0) return;
+    const md = outlineToMarkdown(getTreeIndex(), ids, imageCountsByNode());
+    if (!md) return;
+    navigator.clipboard
+      .writeText(md)
+      .then(() => {
+        toast.success("Cut as Markdown");
+        remove(ids);
+      })
+      .catch(() => toast.error("Couldn't cut to clipboard"));
+  };
+
   // Open the destination picker for the whole run (the dialog moves them as one
   // atomic batch). The dialog now owns the ids, so leave selection mode.
   const move = () => {
@@ -259,6 +285,34 @@ function makeSelectionOps({
     runStructural(() => {
       capture(getTreeIndex(), ids[0]!);
       if (outdentManyNodes(ids)) refreshSelection();
+      else drop();
+    });
+  };
+
+  const moveOpts = () => ({
+    isVisible: (n: Node) => !getViewIsHidden()(n),
+    rootId: getViewRootId(),
+    resolveMirror: isMirrorsEnabled(),
+  });
+
+  // Shift+Alt+↑/↓: reorder the whole run among siblings (Workflowy parity).
+  // The selection persists; refreshSelection re-derives its parent.
+  const moveUp = () => {
+    const ids = getSelectionRootIds();
+    if (ids.length === 0) return;
+    runStructural(() => {
+      capture(getTreeIndex(), ids[0]!);
+      if (moveManyUp(getTreeIndex(), ids, moveOpts())) refreshSelection();
+      else drop();
+    });
+  };
+
+  const moveDown = () => {
+    const ids = getSelectionRootIds();
+    if (ids.length === 0) return;
+    runStructural(() => {
+      capture(getTreeIndex(), ids[0]!);
+      if (moveManyDown(getTreeIndex(), ids, moveOpts())) refreshSelection();
       else drop();
     });
   };
@@ -319,11 +373,14 @@ function makeSelectionOps({
 
   return {
     copy,
+    cut,
     remove,
     move,
     mirror,
     indent,
     outdent,
+    moveUp,
+    moveDown,
     caretAbove,
     caretBelow,
     exitToCaret,
@@ -376,6 +433,11 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
         ops.copy();
         return;
       }
+      if (mod && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        ops.cut();
+        return;
+      }
       // Let other Cmd/Ctrl chords (undo, reload, ...) through untouched.
       if (mod) return;
       if (e.key === "Backspace" || e.key === "Delete") {
@@ -384,6 +446,16 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
         return;
       }
       // Alt+Shift+Arrow is move (Workflowy parity), not selection extend.
+      if (e.altKey && e.shiftKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        ops.moveUp();
+        return;
+      }
+      if (e.altKey && e.shiftKey && e.key === "ArrowDown") {
+        e.preventDefault();
+        ops.moveDown();
+        return;
+      }
       if (e.shiftKey && !e.altKey && e.key === "ArrowDown") {
         e.preventDefault();
         extendSelection("down");
@@ -456,10 +528,10 @@ type SelItem = MenuListItem & { run: () => void };
  * extension never focuses a row, so nothing else scrolls it).
  *
  * Reuses `SlashMenuList`'s look (no second menu style). Lists the core
- * Copy + Move + Delete, plus every plugin command that opted into `runMany` and
- * applies to at least one selected node. Mouse-driven (the while-selected arrows
- * are taken for caret motion); the two most-reached ops, Copy and Delete, also
- * have direct keys.
+ * Copy + Cut + Move + Delete, plus every plugin command that opted into
+ * `runMany` and applies to at least one selected node. Mouse-driven (the
+ * while-selected arrows are taken for caret motion); Copy, Cut, and Delete
+ * also have direct keys.
  */
 export function SelectionActionsMenu({
   ops,
@@ -527,9 +599,10 @@ export function SelectionActionsMenu({
     const item = items[i];
     if (!item) return;
     item.run();
-    // Copy is read-only and keeps the selection; everything else exits selection
-    // mode (the core ops already clear; a plugin runMany doesn't, so clear here).
-    if (item.id !== "sel-copy") clearSelection();
+    // Copy keeps the selection; Cut clears only after a successful clipboard
+    // write (inside ops.cut → remove). Everything else exits selection mode
+    // (the core ops already clear; a plugin runMany doesn't, so clear here).
+    if (item.id !== "sel-copy" && item.id !== "sel-cut") clearSelection();
   };
 
   return createPortal(
@@ -558,6 +631,13 @@ function buildItems(
       description: "Copy the selected nodes",
       icon: ClipboardCopyIcon,
       run: ops.copy,
+    },
+    {
+      id: "sel-cut",
+      label: "Cut as Markdown",
+      description: "Cut the selected nodes",
+      icon: ScissorsIcon,
+      run: ops.cut,
     },
     {
       id: "sel-move",

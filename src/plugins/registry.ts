@@ -390,8 +390,8 @@ export const commandSpecs: CommandSpec[] = plugins.flatMap(
 
 /** The plugin commands that opted into node multi-selection (ADR 0018) by
  *  defining `runMany`. The selection actions menu lists the core's own Copy +
- *  Delete + Move, then these (todos' To-do, daily's Send to Today). Array order
- *  preserved. */
+ *  Cut + Delete + Move, then these (todos' To-do, daily's Send to Today). Array
+ *  order preserved. */
 export const selectionCommandSpecs: CommandSpec[] = commandSpecs.filter(
   (c) => c.runMany,
 );
