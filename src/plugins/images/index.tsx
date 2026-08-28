@@ -87,6 +87,10 @@ function ImageBlock({
   const src = overlay?.url ?? (row ? mediaUrl(row.id) : "");
   const width = overlay?.width ?? row?.width ?? 0;
   const height = overlay?.height ?? row?.height ?? 0;
+  const ratio =
+    width > 0 && height > 0
+      ? { aspectRatio: `${width} / ${height}` }
+      : undefined;
   return (
     <div className="node-image">
       <button
@@ -95,18 +99,18 @@ function ImageBlock({
         onClick={onOpen}
         disabled={!onOpen}
       >
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          width={width || undefined}
-          height={height || undefined}
-          style={
-            width > 0 && height > 0
-              ? { aspectRatio: `${width} / ${height}` }
-              : undefined
-          }
-        />
+        {src ? (
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            width={width || undefined}
+            height={height || undefined}
+            style={ratio}
+          />
+        ) : (
+          <span className="node-image-pending" style={ratio} />
+        )}
       </button>
       {onDetach && (
         <Button

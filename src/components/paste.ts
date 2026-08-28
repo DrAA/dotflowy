@@ -85,6 +85,23 @@ export interface StructuralPasteTarget {
 }
 
 /**
+ * Image files on a paste. `clipboardData.files` is empty in some browsers
+ * (Safari, and Chrome when the image lives only on `items`); `getAsFile()`
+ * must run during the paste event, before DataTransfer is torn down.
+ */
+export function filesFromClipboard(cd: DataTransfer): File[] {
+  const listed = [...cd.files];
+  if (listed.length > 0) return listed;
+  const out: File[] = [];
+  for (const item of cd.items) {
+    if (item.kind !== "file") continue;
+    const file = item.getAsFile();
+    if (file) out.push(file);
+  }
+  return out;
+}
+
+/**
  * Handle a paste into a (focused) contentEditable bullet/title. Returns the new
  * source text on success (so the caller can update its synced-text ref), or
  * null if there was no clipboard to read.
@@ -106,7 +123,7 @@ export function pasteIntoBullet(
   if (!cd) return null;
   e.preventDefault();
 
-  const files = [...cd.files];
+  const files = filesFromClipboard(cd);
   if (files.length > 0 && pasteFiles(files, nodeId, getCtx())) return null;
 
   const literal = consumeLiteralArm();

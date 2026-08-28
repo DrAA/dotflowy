@@ -88,14 +88,20 @@ function openMediaDb(): Promise<IDBDatabase> {
 }
 
 export async function putLocalBlob(id: string, blob: Blob): Promise<void> {
+  // Copy into a plain Blob so IndexedDB doesn't store a clipboard File that
+  // structured-clones as empty (visible until reload, gone after).
+  const bytes = await blob.arrayBuffer();
+  const stored = new Blob([bytes], {
+    type: blob.type || "application/octet-stream",
+  });
   const db = await openMediaDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(MEDIA_STORE, "readwrite");
-    tx.objectStore(MEDIA_STORE).put(blob, id);
+    tx.objectStore(MEDIA_STORE).put(stored, id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("put blob"));
   });
-  rememberLocalMediaUrl(id, blob);
+  rememberLocalMediaUrl(id, stored);
 }
 
 export async function loadAllLocalBlobs(): Promise<Map<string, Blob>> {

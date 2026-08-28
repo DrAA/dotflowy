@@ -1368,7 +1368,8 @@ body.dragging-active * {
   max-width: 100%;
 }
 
-.node-image img {
+.node-image img,
+.node-image-pending {
   display: block;
   max-height: 240px;
   max-width: 100%;
@@ -1376,6 +1377,12 @@ body.dragging-active * {
   height: auto;
   object-fit: contain;
   border-radius: 6px;
+}
+
+.node-image-pending {
+  min-height: 80px;
+  min-width: 80px;
+  background: var(--muted);
 }
 
 .node-image-detach {

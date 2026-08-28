@@ -13,7 +13,6 @@ import {
   hydrateLocalMediaUrls,
   localMediaObjectUrl,
   putLocalBlob,
-  rememberLocalMediaUrl,
 } from "./local-store";
 import { queryClient } from "./query-client";
 import { trueSourceOf } from "./tree";
@@ -112,7 +111,10 @@ let started = false;
 let restoring = false;
 
 function rebuild(): void {
-  rows = mediaCollection.toArray;
+  // Slice so useSyncExternalStore sees a new snapshot when blob URLs hydrate
+  // without the kv rows changing (same toArray identity would skip the paint
+  // and leave <img src=""> after reload).
+  rows = mediaCollection.toArray.slice();
   for (const l of listeners) l();
 }
 
@@ -139,6 +141,9 @@ function restoreMediaSnapshot(data: unknown): void {
 function gcOrphans(): void {
   if (restoring) return;
   const index = getTreeIndex();
+  // Empty means "not loaded yet" or a snapshot truncate in flight — never a
+  // cue to drop every attachment. A truly empty outline GCs on the next insert.
+  if (index.byId.size === 0) return;
   for (const row of mediaCollection.toArray) {
     if (!index.byId.has(row.nodeId)) mediaCollection.delete(row.id);
   }
@@ -241,6 +246,25 @@ async function measureImage(
 }
 
 /**
+ * Copy bytes out of a paste/drop `File` in this turn. Clipboard DataTransfer
+ * files are only guaranteed readable if the read starts during the event;
+ * IndexedDB also structured-clones some clipboard Files into empty blobs, so
+ * the overlay looks fine until reload.
+ */
+export async function retainFileBytes(file: File): Promise<File> {
+  const bytes = await file.arrayBuffer();
+  return new File([bytes], file.name, {
+    type: file.type || "application/octet-stream",
+    lastModified: file.lastModified,
+  });
+}
+
+type PendingImage = {
+  preview: File;
+  held: Promise<File>;
+};
+
+/**
  * Claim image files, capture undo, upload, insert kv rows. Returns false when
  * none of the files are attachable images (so paste can fall through to text).
  */
@@ -253,17 +277,27 @@ export function attachImages(
   if (images.length === 0) return false;
   const contentId = trueSourceOf(ctx.tree, nodeId);
   capture(ctx.tree, nodeId);
-  void uploadAll(images, contentId);
+  // Kick off the byte copy before this handler returns so clipboard Files
+  // aren't detached after the paste/drop event.
+  const pending: PendingImage[] = images.map((preview) => ({
+    preview,
+    held: retainFileBytes(preview),
+  }));
+  void uploadAll(pending, contentId);
   return true;
 }
 
-async function uploadAll(files: File[], contentId: string): Promise<void> {
-  for (const file of files) {
+async function uploadAll(
+  files: PendingImage[],
+  contentId: string,
+): Promise<void> {
+  for (const { preview, held } of files) {
     const tempId = crypto.randomUUID();
-    const url = URL.createObjectURL(file);
-    const { width, height } = await measureImage(file);
+    const url = URL.createObjectURL(preview);
+    const { width, height } = await measureImage(preview);
     addOverlay({ tempId, nodeId: contentId, url, width, height });
     try {
+      const file = await held;
       const row = await postMedia(file, contentId, width, height);
       mediaCollection.insert(row);
     } catch (err) {
@@ -294,7 +328,6 @@ async function postMedia(
   if (isLocalDataEnabled()) {
     const id = crypto.randomUUID();
     await putLocalBlob(id, file);
-    rememberLocalMediaUrl(id, file);
     return {
       id,
       nodeId,

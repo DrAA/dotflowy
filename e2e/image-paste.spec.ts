@@ -77,3 +77,54 @@ test.describe("hosted image under a bullet", () => {
     expect(status).toBe(404);
   });
 });
+
+test.describe("browser-only image under a bullet", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:flag:local-data", "on");
+    });
+  });
+
+  test("paste PNG and survive reload", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText("Welcome to aaflowy")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const welcome = page
+      .locator("li.outline-node")
+      .filter({ hasText: "Welcome to aaflowy" })
+      .first();
+    const nodeText = welcome.locator(".node-text");
+    await nodeText.click();
+    await nodeText.evaluate((el, b64) => {
+      const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const file = new File([bin], "dot.png", { type: "image/png" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const event = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      });
+      Object.defineProperty(event, "clipboardData", { value: dt });
+      el.dispatchEvent(event);
+    }, PNG_1x1_B64);
+
+    const img = welcome.locator("img");
+    await expect(img).toBeVisible();
+    await expect(
+      welcome.getByRole("button", { name: "Remove image" }),
+    ).toBeVisible();
+
+    await page.reload();
+    const welcomeAgain = page
+      .locator("li.outline-node")
+      .filter({ hasText: "Welcome to aaflowy" })
+      .first();
+    await expect(welcomeAgain.locator("img")).toBeVisible();
+    await expect(
+      welcomeAgain.getByRole("button", { name: "Remove image" }),
+    ).toBeVisible();
+  });
+});
