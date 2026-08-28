@@ -1,10 +1,11 @@
-// Daily Notes plugin (ADR 0001). Each calendar day gets a node; a header button
-// jumps to today, creating it on first use. Built entirely on public seams plus
-// two new ones this feature introduced:
+// Daily Notes plugin (ADR 0001). Each calendar day gets a node; header buttons
+// jump to today / this week, creating them on first use. Built entirely on
+// public seams plus two new ones this feature introduced:
 //
-//   - Seam F (header): the "Today" button (ADR 0002) -- node-less chrome.
+//   - Seam F (header): the "This week" + "Today" buttons (ADR 0002) --
+//     node-less chrome.
 //   - Seam F (subheader): the week calendar strip (ADR 0054) -- day-to-day
-//     navigation, shown only when zoomed on a day note.
+//     navigation, shown when zoomed on a day or week note.
 //   - Protected nodes: the "Daily" container can't be deleted (ADR 0015).
 //   - Seam F (row): the date badge on each day note.
 //   - Seam A + B (ADR 0038): the `[[YYYY-MM-DD]]` date token -- a chip whose
@@ -24,9 +25,11 @@ import {
   CalendarArrowDownIcon,
   CalendarDaysIcon,
   CalendarPlusIcon,
+  CalendarRangeIcon,
   Loader2Icon,
   SunIcon,
 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -37,6 +40,7 @@ import type { WidgetEl } from "../types";
 import {
   DATE_LINK_PATTERN,
   PROTECTED_SCAFFOLD_KINDS,
+  dayKeyToWeekKey,
   monthLabel,
   parseDateLink,
   scaffoldKeyKind,
@@ -79,7 +83,6 @@ import {
   getOrCreateScaffold,
   goToDate,
 } from "./get-or-create";
-import { useDailyNavigationPending } from "./pending";
 import { formatWeekRange, formatWeekRelative } from "./scaffold";
 import { WeekCalendar } from "./week-calendar";
 
@@ -141,10 +144,10 @@ function dateWidget(tok: string, key: string): WidgetEl {
   };
 }
 
-// --- header slot: the "Today" button ----------------------------------------
+// --- header slots: "This week" + "Today" ------------------------------------
 
 function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
-  const pending = useDailyNavigationPending();
+  const [pending, setPending] = useState(false);
   const navigate = useNavigate();
   return (
     <Button
@@ -154,6 +157,7 @@ function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
       aria-busy={pending}
       data-daily-nav-pending={pending ? "" : undefined}
       onClick={() => {
+        if (pending) return;
         const ctx = getCtx();
         // The Today button is a write-intent surface (ADR 0041): seed an entry
         // line and route to the day with focus=last so the caret lands on it.
@@ -161,15 +165,20 @@ function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
         // route -- the on-load focus mechanism needs a pivotless navigation.
         ctx.run(
           Effect.promise(async () => {
-            const dayId = await getOrCreateDay(localDateKey(), {
-              seedEntryLine: true,
-            });
-            if (!dayId) return; // getOrCreateDay owns the generic toast now (F3)
-            navigate({
-              to: "/$nodeId",
-              params: { nodeId: dayId },
-              search: { focus: "last" },
-            });
+            setPending(true);
+            try {
+              const dayId = await getOrCreateDay(localDateKey(), {
+                seedEntryLine: true,
+              });
+              if (!dayId) return; // getOrCreateDay owns the generic toast now (F3)
+              navigate({
+                to: "/$nodeId",
+                params: { nodeId: dayId },
+                search: { focus: "last" },
+              });
+            } finally {
+              setPending(false);
+            }
           }),
         );
       }}
@@ -180,6 +189,53 @@ function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
         <CalendarDaysIcon />
       )}
       <span className="sr-only">Today&apos;s daily note</span>
+    </Button>
+  );
+}
+
+function ThisWeekButton({ getCtx }: { getCtx: () => PluginContext }) {
+  const [pending, setPending] = useState(false);
+  const navigate = useNavigate();
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      disabled={pending}
+      aria-busy={pending}
+      data-daily-nav-pending={pending ? "" : undefined}
+      onClick={() => {
+        if (pending) return;
+        const ctx = getCtx();
+        // Scaffold-only (ADR 0057): mint Daily > Y > M > W without a day child.
+        // Not a write-intent surface -- no seed line, no focus=last. Navigate
+        // the route like Today so the zoom is a pivotless navigation.
+        ctx.run(
+          Effect.promise(async () => {
+            setPending(true);
+            try {
+              const weekKey = dayKeyToWeekKey(localDateKey());
+              if (!weekKey) return;
+              const weekId = await getOrCreateScaffold(weekKey, {
+                failureToast: "Couldn't open this week's note",
+              });
+              if (!weekId) return;
+              navigate({
+                to: "/$nodeId",
+                params: { nodeId: weekId },
+              });
+            } finally {
+              setPending(false);
+            }
+          }),
+        );
+      }}
+    >
+      {pending ? (
+        <Loader2Icon className="animate-spin" />
+      ) : (
+        <CalendarRangeIcon />
+      )}
+      <span className="sr-only">This week&apos;s note</span>
     </Button>
   );
 }
@@ -317,19 +373,25 @@ export default definePlugin({
     },
   ],
 
-  // Seam F (header): jump to today, creating it on first use. Reads ctx lazily.
+  // Seam F (header): jump to this week / today, creating on first use.
+  // Array order is left-to-right in the header cluster: week sits left of today.
+  // Reads ctx lazily.
   headerSlots: [
+    {
+      id: "daily-this-week",
+      render: (getCtx) => <ThisWeekButton getCtx={getCtx} />,
+    },
     {
       id: "daily-today",
       render: (getCtx) => <TodayButton getCtx={getCtx} />,
     },
   ],
 
-  // Seam F (subheader): the week calendar strip (ADR 0054). Renders ONLY when
-  // the zoom root reverse-maps to a `YYYY-MM-DD` day key; null everywhere else,
-  // so the subheader band collapses on non-day pages. The strip resolves the
-  // route reactively itself -- `getCtx` is used only at event time (the pill's
-  // seed-free `goToDate`).
+  // Seam F (subheader): the week calendar strip (ADR 0054). Renders when the
+  // zoom root reverse-maps to a day OR week scaffold key; null everywhere else
+  // (home, plain nodes, year/month pages), so the band collapses there. The
+  // strip resolves the route reactively itself -- `getCtx` is used only at
+  // event time (the pill's seed-free `goToDate`).
   subheaderSlots: [
     {
       id: "daily-week-calendar",

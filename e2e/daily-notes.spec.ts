@@ -24,6 +24,9 @@ function modifier() {
 const todayButton = (page: Page) =>
   page.getByRole("button", { name: "Today's daily note" });
 
+const thisWeekButton = (page: Page) =>
+  page.getByRole("button", { name: "This week's note" });
+
 // A daily node's id is a generated UUID, so locate rows by their visible text.
 const rowWithText = (page: Page, t: string) =>
   page.locator("li[data-node-id] > .outline-row", { hasText: t });
@@ -147,6 +150,40 @@ test.describe("daily notes", () => {
     // Today's badge wears the distinct (primary) treatment -- the data hook the
     // variant swap sets only when the key is today.
     await expect(badge).toHaveAttribute("data-daily-today", "");
+  });
+
+  test("This week creates the week scaffold and zooms in without minting today", async ({
+    page,
+  }) => {
+    await load(page);
+
+    const weekBtn = thisWeekButton(page);
+    await expect(weekBtn).toBeVisible();
+
+    // Lives immediately left of the Today button in the header cluster.
+    const weekBox = await weekBtn.boundingBox();
+    const todayBox = await todayButton(page).boundingBox();
+    expect(weekBox!.x).toBeLessThan(todayBox!.x);
+
+    await weekBtn.click();
+
+    await expect(page).toHaveURL(/\/[^/]+$/);
+    await expect(page).not.toHaveURL(/\/$/);
+
+    const { weekKey } = todayChain();
+    await expect(page.locator("h2.zoomed-title .node-text")).toHaveText(
+      weekLabel(weekKey),
+    );
+    const titleBadge = page.locator("h2.zoomed-title [data-daily-week]");
+    await expect(titleBadge).toBeVisible();
+    await expect(titleBadge).toContainText("This week");
+    await expect(titleBadge).toHaveAttribute("data-daily-this-week", "");
+    await expect(page.getByTestId("week-calendar")).toBeVisible();
+
+    await goHome(page);
+    await expect(rowLi(page, weekLabel(weekKey))).toBeVisible();
+    // Scaffold-only mint (ADR 0057): no day child was created.
+    await expect(page.locator("[data-daily-today]")).toHaveCount(0);
   });
 
   test("/today seeds an entry line and lands the caret on it (write-intent, ADR 0041)", async ({

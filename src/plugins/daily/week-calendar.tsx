@@ -1,5 +1,5 @@
-// Week calendar strip (ADR 0054): a subheader band shown ONLY when zoomed on a
-// daily day note, for one-click day-to-day navigation.
+// Week calendar strip (ADR 0054): a subheader band shown when zoomed on a
+// daily day note or a week scaffold node, for one-click day-to-day navigation.
 //
 // Adapted from iconiqui's week-calendar
 // (https://iconiqui.com/display-and-content/week-calendar), MIT licensed. This is
@@ -58,23 +58,26 @@ export function WeekCalendar({ getCtx }: { getCtx: () => PluginContext }) {
   const params = useParams({ strict: false });
   const rootId = params.nodeId ?? null;
   // Reactive: the zoom root's scaffold key (null unless it maps to a scaffold
-  // node). The strip only shows for a DAY -- week/month/year/container pages and
-  // non-daily pages get nothing ("which day is selected?" has no answer there).
+  // node). The strip shows for a DAY (that day selected) or a WEEK (no day
+  // selected -- every pill is a jump). Month/year/container pages and non-daily
+  // pages get nothing.
   const scaffoldKey = useScaffoldKey(rootId ?? "");
-  const dayKey =
-    scaffoldKey && scaffoldKeyKind(scaffoldKey) === "day" ? scaffoldKey : null;
+  const kind = scaffoldKey ? scaffoldKeyKind(scaffoldKey) : null;
+  const dayKey = kind === "day" ? scaffoldKey : null;
+  const weekPageKey = kind === "week" ? scaffoldKey : null;
 
   const reduceMotion = useReducedMotion();
-  // Ephemeral paging offset from the zoomed day's week (ADR 0054, decision 5):
-  // reset whenever the zoomed day changes so the strip re-centers on route change.
-  // Layout effect: the strip stays mounted across day switches, so the reset must
-  // land before paint or a paged offset flashes the wrong week on day switch.
+  // Ephemeral paging offset from the zoomed day's/week's week (ADR 0054,
+  // decision 5): reset whenever the zoomed page changes so the strip re-centers
+  // on route change. Layout effect: the strip stays mounted across day switches,
+  // so the reset must land before paint or a paged offset flashes the wrong week
+  // on day switch.
   const [offset, setOffset] = useState(0);
   useLayoutEffect(() => {
     setOffset(0);
-  }, [dayKey]);
+  }, [dayKey, weekPageKey]);
 
-  const baseWeek = dayKey ? dayKeyToWeekKey(dayKey) : null;
+  const baseWeek = weekPageKey ?? (dayKey ? dayKeyToWeekKey(dayKey) : null);
   const visibleWeek = useMemo(() => {
     if (!baseWeek) return null;
     if (offset === 0) return baseWeek;
@@ -87,9 +90,9 @@ export function WeekCalendar({ getCtx }: { getCtx: () => PluginContext }) {
   );
   const withContent = useDaysWithContent(days);
 
-  // Guard AFTER every hook (rules of hooks): render nothing on a non-day page, so
-  // the subheader band collapses.
-  if (!dayKey || !visibleWeek || days.length !== 7) return null;
+  // Guard AFTER every hook (rules of hooks): render nothing on a non-day /
+  // non-week page, so the subheader band collapses.
+  if (!baseWeek || !visibleWeek || days.length !== 7) return null;
 
   const today = localDateKey();
   const monthKey = weekKeyToMonthKey(visibleWeek);

@@ -30,7 +30,7 @@ export function MonthPickerButton({
   onPicked,
 }: {
   monthKey: string;
-  selectedDayKey: string;
+  selectedDayKey: string | null;
   getCtx: () => PluginContext;
   /** Called after a day is chosen (caller resets week-strip offset). */
   onPicked: () => void;
@@ -113,7 +113,7 @@ export function MonthPickerButton({
         </div>
         <ul className="grid grid-cols-7 gap-0.5">
           {cells.map(({ key, inMonth }) => {
-            const selected = key === selectedDayKey;
+            const selected = selectedDayKey !== null && key === selectedDayKey;
             const isToday = key === today;
             const hasContent = withContent.has(key);
             const dayOfMonth = Number(key.slice(8, 10));

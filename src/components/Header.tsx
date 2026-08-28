@@ -23,9 +23,9 @@ import { SpotlightIndicator } from "./spotlight-indicator";
  * with the bullets below it.
  *
  * `getCtx` is OutlineEditor's PluginContext factory, threaded down so plugin
- * header slots (Seam F-header) can act on the tree/nav -- the daily "Today"
- * button uses it to create-and-navigate. Optional so the header still renders
- * if ever mounted without an editor.
+ * header slots (Seam F-header) can act on the tree/nav -- the daily "This week"
+ * and "Today" buttons use it to create-and-navigate. Optional so the header
+ * still renders if ever mounted without an editor.
  */
 export function Header({
   children,
@@ -46,7 +46,7 @@ export function Header({
       >
         <div className="min-w-0 flex-1">{children}</div>
         {/* Right cluster: the spotlight-on indicator leads (ADR 0033: awareness
-            + off-switch), then plugin header slots (the daily Today button),
+            + off-switch), then plugin header slots (this-week + Today buttons),
             then the focused-node action (BookmarkStar renders itself + its
             trailing divider only when zoomed), then the filter magnifier (ADR
             0047 §6: summons the `?q=` filter, not the switcher) and the ⌘

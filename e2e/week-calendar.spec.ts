@@ -76,7 +76,7 @@ function sampleBandHeights(page: Page, ms = 400): Promise<number[]> {
 }
 
 test.describe("week calendar strip (ADR 0054)", () => {
-  test("shows on a day node, and NOT on a non-daily node or a week scaffold node", async ({
+  test("shows on a day node and a week scaffold node, not on a non-daily node", async ({
     page,
   }) => {
     await load(
@@ -123,9 +123,12 @@ test.describe("week calendar strip (ADR 0054)", () => {
     await clientNavigate(page, "/alpha");
     await expect(strip(page)).toHaveCount(0);
 
-    // A WEEK scaffold node: no strip ("which day is selected?" has no answer).
+    // A WEEK scaffold node: the strip is present (same ISO week), but no day
+    // pill is selected -- every pill is a jump onto that day.
     await clientNavigate(page, "/the-week");
-    await expect(strip(page)).toHaveCount(0);
+    await expect(strip(page)).toBeVisible();
+    await expect(page.getByTestId("week-calendar-weeknum")).toHaveText(WEEKNUM);
+    await expect(strip(page).locator("[data-selected]")).toHaveCount(0);
   });
 
   test("clicking another day navigates to that day's node", async ({
