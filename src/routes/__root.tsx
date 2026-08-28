@@ -17,6 +17,7 @@ import { AuthScreen } from "../components/auth-screen";
 import { ChangelogDialog } from "../components/changelog-dialog";
 import { ContentBackupDialog } from "../components/content-backup-dialog";
 import { DeleteConfirmDialog } from "../components/delete-confirm-dialog";
+import { DocumentTitle } from "../components/document-title";
 import { HistoryRestoreDialog } from "../components/history-restore";
 import { LunoraSyncHost } from "../components/lunora-sync-host";
 import { MirrorPlaces } from "../components/mirror-places";
@@ -35,6 +36,7 @@ import { Toaster } from "../components/ui/sonner";
 import { UpdateAvailableToast } from "../components/update-available";
 import { AccountPrefsController } from "../data/account-prefs";
 import { isLocalDataEnabled } from "../data/flags";
+import { APP_TITLE } from "../lib/app-title";
 import { hardReset, useSession } from "../lib/auth-client";
 import { FAVICON_DARK, FAVICON_LIGHT } from "../lib/favicon";
 import {
@@ -99,7 +101,6 @@ const noFlashOutlineWidthScript = `
 `;
 
 const APP_URL = "https://app.dotflowy.com";
-const APP_TITLE = "aaflowy";
 const APP_DESCRIPTION =
   "Room to think. Get everything out of your head, shape it when you're ready, and find it when it matters.";
 const OG_IMAGE = `${APP_URL}/og.png`;
@@ -169,6 +170,7 @@ function RootComponent() {
             <OutlineWidthProvider>
               <AuthGate>
                 <AccountPrefsController />
+                <DocumentTitle />
                 {/* ADR 0058: no-op when lunora-sync flag OFF (default). */}
                 <LunoraSyncHost>
                   <ShowCompletedProvider>
