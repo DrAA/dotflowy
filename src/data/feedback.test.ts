@@ -13,7 +13,7 @@ describe("buildFeedbackUrl", () => {
   test("points at the repo's new-issue page with the bug label by default", () => {
     const url = new URL(buildFeedbackUrl(env));
     expect(url.origin + url.pathname).toBe(
-      "https://github.com/cameronapak/dotflowy/issues/new",
+      "https://github.com/RealTimElito/aaflowy/issues/new",
     );
     expect(url.searchParams.get("labels")).toBe("bug");
   });

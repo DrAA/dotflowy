@@ -7,10 +7,10 @@ import { Logo } from "@/components/Logo";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { cn } from "@/lib/utils";
 
-// Single source of truth for the outbound links. Handle is `cameronapak`.
+// Single source of truth for the outbound links. Handle is `RealTimElito`.
 export const APP_URL = "https://app.dotflowy.com";
-export const GITHUB_URL = "https://github.com/cameronapak/dotflowy";
-const GITHUB_API = "https://api.github.com/repos/cameronapak/dotflowy";
+export const GITHUB_URL = "https://github.com/RealTimElito/aaflowy";
+const GITHUB_API = "https://api.github.com/repos/RealTimElito/aaflowy";
 const X_URL = "https://x.com/cameronpak";
 
 function useGithubStars() {
