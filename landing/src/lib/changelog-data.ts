@@ -15,7 +15,7 @@ export { releases };
 export const latestVersion: string | null = releases[0]?.version ?? null;
 
 /** GitHub Releases — feed + permanent per-version URLs (ADR 0046). */
-export const RELEASES_URL = "https://github.com/cameronapak/dotflowy/releases";
+export const RELEASES_URL = "https://github.com/RealTimElito/aaflowy/releases";
 
 /** The reader's axis, straight off the bump type (ADR 0046). */
 export const BUMP_LABEL: Record<Bump, string> = {

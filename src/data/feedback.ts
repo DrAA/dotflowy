@@ -12,7 +12,7 @@
  * `openFeedbackReport` gathers the real environment and opens the tab.
  */
 
-const ISSUES_NEW_URL = "https://github.com/cameronapak/dotflowy/issues/new";
+const ISSUES_NEW_URL = "https://github.com/RealTimElito/aaflowy/issues/new";
 
 export type FeedbackEnv = {
   /** The page the user is on when they hit "report" (`window.location.href`). */

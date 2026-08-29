@@ -21,4 +21,4 @@ export { releases };
 export const latestVersion: string | null = releases[0]?.version ?? null;
 
 /** Where the public, crawlable, feed-carrying changelog lives (ADR 0046). */
-export const RELEASES_URL = "https://github.com/cameronapak/dotflowy/releases";
+export const RELEASES_URL = "https://github.com/RealTimElito/aaflowy/releases";
