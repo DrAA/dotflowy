@@ -32,6 +32,7 @@ import { getTreeIndex } from "../data/tree-store";
 import { getViewRootId } from "../data/view-state";
 import { signOutAndReload } from "../lib/auth-client";
 import { openChangelog } from "./changelog-opener";
+import { HeaderTooltip } from "./header-tooltip";
 import { useShowCompleted } from "./show-completed-provider";
 import { setSpotlightEnabled, useSpotlightEnabled } from "./spotlight-mode";
 import { Button } from "./ui/button";
@@ -195,28 +196,25 @@ export function HeaderMoreMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title={unseen > 0 ? "More — what's new" : "More"}
-            className="relative"
-          >
-            <MoreHorizontalIcon />
-            {unseen > 0 && (
-              <span
-                data-changelog-dot=""
-                aria-hidden="true"
-                className="absolute top-1 right-1 size-2 rounded-full bg-primary ring-2 ring-background"
-              />
-            )}
-            <span className="sr-only">
-              More actions{unseen > 0 ? " (new releases available)" : ""}
-            </span>
-          </Button>
-        }
-      />
+      <HeaderTooltip label={unseen > 0 ? "More — what's new" : "More"}>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm" className="relative">
+              <MoreHorizontalIcon />
+              {unseen > 0 && (
+                <span
+                  data-changelog-dot=""
+                  aria-hidden="true"
+                  className="absolute top-1 right-1 size-2 rounded-full bg-primary ring-2 ring-background"
+                />
+              )}
+              <span className="sr-only">
+                More actions{unseen > 0 ? " (new releases available)" : ""}
+              </span>
+            </Button>
+          }
+        />
+      </HeaderTooltip>
       <DropdownMenuContent align="end" className="min-w-44">
         <DropdownMenuItem onClick={() => void copyOutlineAsMarkdown()}>
           <ClipboardCopyIcon />

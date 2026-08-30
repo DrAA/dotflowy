@@ -4,6 +4,7 @@ import { BookmarkIcon } from "lucide-react";
 import { capture } from "../data/history";
 import { toggleBookmark } from "../data/mutations";
 import { useTree } from "../data/useTree";
+import { HeaderTooltip } from "./header-tooltip";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 
@@ -35,23 +36,27 @@ export function BookmarkStar() {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        data-state={isBookmarked ? "on" : "off"}
-        className="data-[state=on]:bg-muted data-[state=on]:text-foreground"
-        aria-pressed={isBookmarked}
-        onClick={() => {
-          // One undo step; no focus change (bookmarking isn't an edit).
-          capture(index, null);
-          toggleBookmark(current.id, !isBookmarked);
-        }}
+      <HeaderTooltip
+        label={isBookmarked ? "Remove bookmark" : "Bookmark this view"}
       >
-        <BookmarkIcon className={isBookmarked ? "fill-current" : ""} />
-        <span className="sr-only">
-          {isBookmarked ? "Remove bookmark" : "Bookmark this view"}
-        </span>
-      </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          data-state={isBookmarked ? "on" : "off"}
+          className="data-[state=on]:bg-muted data-[state=on]:text-foreground"
+          aria-pressed={isBookmarked}
+          onClick={() => {
+            // One undo step; no focus change (bookmarking isn't an edit).
+            capture(index, null);
+            toggleBookmark(current.id, !isBookmarked);
+          }}
+        >
+          <BookmarkIcon className={isBookmarked ? "fill-current" : ""} />
+          <span className="sr-only">
+            {isBookmarked ? "Remove bookmark" : "Bookmark this view"}
+          </span>
+        </Button>
+      </HeaderTooltip>
       <Separator orientation="vertical" />
     </>
   );

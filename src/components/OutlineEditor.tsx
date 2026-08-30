@@ -134,6 +134,7 @@ import {
 import { classifyFocusedStoreSync, textPaintKey } from "./editable-sync";
 import { consumeFlashAfterNav, flashRow } from "./flash-node";
 import { Header } from "./Header";
+import { HeaderTooltip } from "./header-tooltip";
 import { runHistoryRestore } from "./history-restore";
 import { exposeHotkeyManagerForDev } from "./hotkey-devtools";
 import {
@@ -2543,17 +2544,20 @@ function BreadcrumbTrail({
       data-compact={isMobile ? "" : undefined}
     >
       {/* Zooming out: the current root is the pivot (title -> list item). */}
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        onClick={() => {
-          if (rootId === null) return;
-          onNavigate(null, rootId);
-        }}
-      >
-        <HomeIcon />
-      </Button>
+      <HeaderTooltip label="Home">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Home"
+          onClick={() => {
+            if (rootId === null) return;
+            onNavigate(null, rootId);
+          }}
+        >
+          <HomeIcon />
+        </Button>
+      </HeaderTooltip>
       {rootId &&
         lead.map((ancestor) => (
           <Crumb

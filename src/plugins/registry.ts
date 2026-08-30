@@ -457,7 +457,7 @@ export function slotsAt(position: SlotPosition): readonly SlotSpec[] {
 // --- Seam F (header): node-less chrome slots --------------------------------
 
 /** Every plugin's header slots, in array order. The core renders these into the
- *  header's action cluster (the daily "Today" button). */
+ *  header's action cluster (the daily Calendar / This week / Today buttons). */
 export const headerSlots: HeaderSlotSpec[] = plugins.flatMap(
   (p) => p.headerSlots ?? [],
 );

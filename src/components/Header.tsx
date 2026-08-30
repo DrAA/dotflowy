@@ -11,6 +11,7 @@ import { CommandCenterButton } from "./node-switcher";
 import { OUTLINE_COLUMN_CLASS } from "./outline-width-provider";
 import { FilterButton } from "./query-filter";
 import { SpotlightIndicator } from "./spotlight-indicator";
+import { TooltipProvider } from "./ui/tooltip";
 
 /**
  * App header row: breadcrumb trail on the left (passed as children, since it's
@@ -23,9 +24,9 @@ import { SpotlightIndicator } from "./spotlight-indicator";
  * with the bullets below it.
  *
  * `getCtx` is OutlineEditor's PluginContext factory, threaded down so plugin
- * header slots (Seam F-header) can act on the tree/nav -- the daily "This week"
- * and "Today" buttons use it to create-and-navigate. Optional so the header
- * still renders if ever mounted without an editor.
+ * header slots (Seam F-header) can act on the tree/nav -- the daily Calendar
+ * picker, This week, and Today buttons. Optional so the header still renders if
+ * ever mounted without an editor.
  */
 export function Header({
   children,
@@ -38,35 +39,37 @@ export function Header({
     <header className="border-b bg-background">
       {/* Border spans the full viewport; inner row is centered to match the
           outline content below (width is `--outline-max-width`). */}
-      <div
-        className={cn(
-          OUTLINE_COLUMN_CLASS,
-          "flex items-center justify-between gap-3 px-6 py-3 max-sm:px-4",
-        )}
-      >
-        <div className="min-w-0 flex-1">{children}</div>
-        {/* Right cluster: the spotlight-on indicator leads (ADR 0033: awareness
-            + off-switch), then plugin header slots (this-week + Today buttons),
-            then the focused-node action (BookmarkStar renders itself + its
-            trailing divider only when zoomed), then the filter magnifier (ADR
-            0047 §6: summons the `?q=` filter, not the switcher) and the ⌘
-            command-center button beside it (ADR 0034), and finally the "More"
-            overflow holding the secondary set-once actions (theme, text size,
-            show completed, sign out) -- which also carries the unread changelog
-            signal (ADR 0046): a quiet notification dot on the trigger rather
-            than a loud header CTA. See header-more-menu.tsx. */}
-        <div className="flex shrink-0 items-center gap-1">
-          <SpotlightIndicator />
-          {getCtx &&
-            headerSlots.map((s) => (
-              <Fragment key={s.id}>{s.render(getCtx)}</Fragment>
-            ))}
-          <BookmarkStar />
-          <FilterButton />
-          <CommandCenterButton />
-          <HeaderMoreMenu />
+      <TooltipProvider delay={400}>
+        <div
+          className={cn(
+            OUTLINE_COLUMN_CLASS,
+            "flex items-center justify-between gap-3 px-6 py-3 max-sm:px-4",
+          )}
+        >
+          <div className="min-w-0 flex-1">{children}</div>
+          {/* Right cluster: the spotlight-on indicator leads (ADR 0033: awareness
+            + off-switch), then plugin header slots (calendar + this-week +
+            Today buttons), then the focused-node action (BookmarkStar renders
+            itself + its trailing divider only when zoomed), then the filter
+            magnifier (ADR 0047 §6: summons the `?q=` filter, not the switcher)
+            and the ⌘ command-center button beside it (ADR 0034), and finally
+            the "More" overflow holding the secondary set-once actions (theme,
+            text size, show completed, sign out) -- which also carries the
+            unread changelog signal (ADR 0046): a quiet notification dot on the
+            trigger rather than a loud header CTA. See header-more-menu.tsx. */}
+          <div className="flex shrink-0 items-center gap-1">
+            <SpotlightIndicator />
+            {getCtx &&
+              headerSlots.map((s) => (
+                <Fragment key={s.id}>{s.render(getCtx)}</Fragment>
+              ))}
+            <BookmarkStar />
+            <FilterButton />
+            <CommandCenterButton />
+            <HeaderMoreMenu />
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
     </header>
   );
 }

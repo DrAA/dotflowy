@@ -1,9 +1,10 @@
 // Daily Notes plugin (ADR 0001). Each calendar day gets a node; header buttons
-// jump to today / this week, creating them on first use. Built entirely on
+// jump to this week / today, and open the month calendar. Built entirely on
 // public seams plus two new ones this feature introduced:
 //
-//   - Seam F (header): the "This week" + "Today" buttons (ADR 0002) --
-//     node-less chrome.
+//   - Seam F (header): the "Calendar" + "This week" + "Today" buttons
+//     (ADR 0002) -- node-less chrome. Calendar opens the month picker
+//     (ADR 0055) from any view.
 //   - Seam F (subheader): the week calendar strip (ADR 0054) -- day-to-day
 //     navigation, shown when zoomed on a day or week note.
 //   - Protected nodes: the "Daily" container can't be deleted (ADR 0015).
@@ -19,11 +20,12 @@
 // -- NOT routed through `NodeCommands`, whose capture/pending-focus semantics are
 // editor-edit concerns a get-or-create that navigates away doesn't want.
 
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { Effect } from "effect";
 import {
   CalendarArrowDownIcon,
   CalendarDaysIcon,
+  CalendarIcon,
   CalendarPlusIcon,
   CalendarRangeIcon,
   Loader2Icon,
@@ -33,7 +35,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
-import { Badge, Button } from "@/plugins/kit";
+import {
+  Badge,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/plugins/kit";
 
 import type { WidgetEl } from "../types";
 
@@ -83,6 +91,7 @@ import {
   getOrCreateScaffold,
   goToDate,
 } from "./get-or-create";
+import { MonthPickerButton } from "./month-picker";
 import { formatWeekRange, formatWeekRelative } from "./scaffold";
 import { WeekCalendar } from "./week-calendar";
 
@@ -144,52 +153,95 @@ function dateWidget(tok: string, key: string): WidgetEl {
   };
 }
 
-// --- header slots: "This week" + "Today" ------------------------------------
+// --- header slots: "Calendar" + "This week" + "Today" -----------------------
+
+function CalendarButton({ getCtx }: { getCtx: () => PluginContext }) {
+  const params = useParams({ strict: false });
+  const rootId = params.nodeId ?? null;
+  const scaffoldKey = useScaffoldKey(rootId ?? "");
+  const kind = scaffoldKey ? scaffoldKeyKind(scaffoldKey) : null;
+  const selectedDayKey = kind === "day" ? scaffoldKey : null;
+  const today = localDateKey();
+  const monthKey = (selectedDayKey ?? today).slice(0, 7);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex" />}>
+        <MonthPickerButton
+          monthKey={monthKey}
+          selectedDayKey={selectedDayKey}
+          getCtx={getCtx}
+          pickerTestId="header-calendar-picker"
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Calendar"
+              data-testid="header-calendar"
+            >
+              <CalendarIcon />
+              <span className="sr-only">Calendar</span>
+            </Button>
+          }
+        />
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Calendar</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      disabled={pending}
-      aria-busy={pending}
-      data-daily-nav-pending={pending ? "" : undefined}
-      onClick={() => {
-        if (pending) return;
-        const ctx = getCtx();
-        // The Today button is a write-intent surface (ADR 0041): seed an entry
-        // line and route to the day with focus=last so the caret lands on it.
-        // Unlike a date chip (which zooms via goToDate), this navigates the
-        // route -- the on-load focus mechanism needs a pivotless navigation.
-        ctx.run(
-          Effect.promise(async () => {
-            setPending(true);
-            try {
-              const dayId = await getOrCreateDay(localDateKey(), {
-                seedEntryLine: true,
-              });
-              if (!dayId) return; // getOrCreateDay owns the generic toast now (F3)
-              navigate({
-                to: "/$nodeId",
-                params: { nodeId: dayId },
-                search: { focus: "last" },
-              });
-            } finally {
-              setPending(false);
-            }
-          }),
-        );
-      }}
-    >
-      {pending ? (
-        <Loader2Icon className="animate-spin" />
-      ) : (
-        <CalendarDaysIcon />
-      )}
-      <span className="sr-only">Today&apos;s daily note</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={pending}
+            aria-busy={pending}
+            data-daily-nav-pending={pending ? "" : undefined}
+            onClick={() => {
+              if (pending) return;
+              const ctx = getCtx();
+              // The Today button is a write-intent surface (ADR 0041): seed an
+              // entry line and route to the day with focus=last so the caret
+              // lands on it. Unlike a date chip (which zooms via goToDate), this
+              // navigates the route -- the on-load focus mechanism needs a
+              // pivotless navigation.
+              ctx.run(
+                Effect.promise(async () => {
+                  setPending(true);
+                  try {
+                    const dayId = await getOrCreateDay(localDateKey(), {
+                      seedEntryLine: true,
+                    });
+                    if (!dayId) return; // getOrCreateDay owns the generic toast
+                    navigate({
+                      to: "/$nodeId",
+                      params: { nodeId: dayId },
+                      search: { focus: "last" },
+                    });
+                  } finally {
+                    setPending(false);
+                  }
+                }),
+              );
+            }}
+          />
+        }
+      >
+        {pending ? (
+          <Loader2Icon className="animate-spin" />
+        ) : (
+          <CalendarDaysIcon />
+        )}
+        <span className="sr-only">Today&apos;s daily note</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Today</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -197,46 +249,54 @@ function ThisWeekButton({ getCtx }: { getCtx: () => PluginContext }) {
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      disabled={pending}
-      aria-busy={pending}
-      data-daily-nav-pending={pending ? "" : undefined}
-      onClick={() => {
-        if (pending) return;
-        const ctx = getCtx();
-        // Scaffold-only (ADR 0057): mint Daily > Y > M > W without a day child.
-        // Not a write-intent surface -- no seed line, no focus=last. Navigate
-        // the route like Today so the zoom is a pivotless navigation.
-        ctx.run(
-          Effect.promise(async () => {
-            setPending(true);
-            try {
-              const weekKey = dayKeyToWeekKey(localDateKey());
-              if (!weekKey) return;
-              const weekId = await getOrCreateScaffold(weekKey, {
-                failureToast: "Couldn't open this week's note",
-              });
-              if (!weekId) return;
-              navigate({
-                to: "/$nodeId",
-                params: { nodeId: weekId },
-              });
-            } finally {
-              setPending(false);
-            }
-          }),
-        );
-      }}
-    >
-      {pending ? (
-        <Loader2Icon className="animate-spin" />
-      ) : (
-        <CalendarRangeIcon />
-      )}
-      <span className="sr-only">This week&apos;s note</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={pending}
+            aria-busy={pending}
+            data-daily-nav-pending={pending ? "" : undefined}
+            onClick={() => {
+              if (pending) return;
+              const ctx = getCtx();
+              // Scaffold-only (ADR 0057): mint Daily > Y > M > W without a day
+              // child. Not a write-intent surface -- no seed line, no
+              // focus=last. Navigate the route like Today so the zoom is a
+              // pivotless navigation.
+              ctx.run(
+                Effect.promise(async () => {
+                  setPending(true);
+                  try {
+                    const weekKey = dayKeyToWeekKey(localDateKey());
+                    if (!weekKey) return;
+                    const weekId = await getOrCreateScaffold(weekKey, {
+                      failureToast: "Couldn't open this week's note",
+                    });
+                    if (!weekId) return;
+                    navigate({
+                      to: "/$nodeId",
+                      params: { nodeId: weekId },
+                    });
+                  } finally {
+                    setPending(false);
+                  }
+                }),
+              );
+            }}
+          />
+        }
+      >
+        {pending ? (
+          <Loader2Icon className="animate-spin" />
+        ) : (
+          <CalendarRangeIcon />
+        )}
+        <span className="sr-only">This week&apos;s note</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">This week</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -373,10 +433,13 @@ export default definePlugin({
     },
   ],
 
-  // Seam F (header): jump to this week / today, creating on first use.
-  // Array order is left-to-right in the header cluster: week sits left of today.
-  // Reads ctx lazily.
+  // Seam F (header): month calendar picker, this week, today. Array order is
+  // left-to-right: calendar, then week, then today. Reads ctx lazily.
   headerSlots: [
+    {
+      id: "daily-calendar",
+      render: (getCtx) => <CalendarButton getCtx={getCtx} />,
+    },
     {
       id: "daily-this-week",
       render: (getCtx) => <ThisWeekButton getCtx={getCtx} />,

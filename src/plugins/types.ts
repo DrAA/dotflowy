@@ -698,7 +698,7 @@ export interface PluginDef {
   keymap?: KeymapSpec[];
   /** Seam F: row render slots (the todos checkbox). */
   slots?: SlotSpec[];
-  /** Seam F (header): node-less header chrome (the daily "Today" button). */
+  /** Seam F (header): node-less header chrome (the daily Calendar / Today buttons). */
   headerSlots?: HeaderSlotSpec[];
   /** Seam F (subheader): contextual chrome below the header (the tag filter). */
   subheaderSlots?: SubheaderSlotSpec[];

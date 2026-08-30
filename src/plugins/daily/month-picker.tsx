@@ -3,7 +3,7 @@
 
 import { Effect } from "effect";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/plugins/kit";
@@ -28,12 +28,17 @@ export function MonthPickerButton({
   selectedDayKey,
   getCtx,
   onPicked,
+  trigger,
+  pickerTestId = "week-calendar-month-picker",
 }: {
   monthKey: string;
   selectedDayKey: string | null;
   getCtx: () => PluginContext;
   /** Called after a day is chosen (caller resets week-strip offset). */
-  onPicked: () => void;
+  onPicked?: () => void;
+  /** Icon (or other) trigger. Default: the week-strip month-year label. */
+  trigger?: ReactElement;
+  pickerTestId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(monthKey);
@@ -57,20 +62,24 @@ export function MonthPickerButton({
         if (next) setViewMonth(monthKey);
       }}
     >
-      <PopoverTrigger
-        type="button"
-        data-testid="week-calendar-month"
-        aria-label={`Open calendar for ${monthYear}`}
-        className="truncate rounded-md px-1 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-      >
-        {monthYear}
-      </PopoverTrigger>
+      {trigger ? (
+        <PopoverTrigger render={trigger} />
+      ) : (
+        <PopoverTrigger
+          type="button"
+          data-testid="week-calendar-month"
+          aria-label={`Open calendar for ${monthYear}`}
+          className="truncate rounded-md px-1 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          {monthYear}
+        </PopoverTrigger>
+      )}
       <PopoverContent
         align="center"
         side="bottom"
         sideOffset={6}
         className="w-[min(18rem,calc(100vw-2rem))] p-2"
-        data-testid="week-calendar-month-picker"
+        data-testid={pickerTestId}
       >
         <div className="mb-2 flex items-center gap-1">
           <button
@@ -139,7 +148,7 @@ export function MonthPickerButton({
                       );
                     }
                     setOpen(false);
-                    onPicked();
+                    onPicked?.();
                   }}
                   className={cn(
                     "relative flex w-full flex-col items-center gap-0.5 rounded-md px-0.5 py-1 text-xs transition-colors",

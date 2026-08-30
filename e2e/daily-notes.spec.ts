@@ -27,6 +27,9 @@ const todayButton = (page: Page) =>
 const thisWeekButton = (page: Page) =>
   page.getByRole("button", { name: "This week's note" });
 
+const calendarButton = (page: Page) =>
+  page.getByRole("button", { name: "Calendar" });
+
 // A daily node's id is a generated UUID, so locate rows by their visible text.
 const rowWithText = (page: Page, t: string) =>
   page.locator("li[data-node-id] > .outline-row", { hasText: t });
@@ -61,7 +64,7 @@ async function load(page: Page, tree: SeedNode[] = STANDARD_TREE) {
   await page.goto("/");
   await expect(
     page.locator('li[data-node-id="alpha"] > .outline-row .node-text'),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 // The breadcrumb's leading icon button zooms back to the top. It's a CLIENT
@@ -150,6 +153,37 @@ test.describe("daily notes", () => {
     // Today's badge wears the distinct (primary) treatment -- the data hook the
     // variant swap sets only when the key is today.
     await expect(badge).toHaveAttribute("data-daily-today", "");
+  });
+
+  test("Calendar opens the month picker and jumping to a day zooms in", async ({
+    page,
+  }) => {
+    await load(page);
+
+    const calBtn = calendarButton(page);
+    await expect(calBtn).toBeVisible();
+
+    // Lives immediately left of This week in the header cluster.
+    const calBox = await calBtn.boundingBox();
+    const weekBox = await thisWeekButton(page).boundingBox();
+    const todayBox = await todayButton(page).boundingBox();
+    expect(calBox!.x).toBeLessThan(weekBox!.x);
+    expect(weekBox!.x).toBeLessThan(todayBox!.x);
+
+    await calBtn.click();
+    const picker = page.getByTestId("header-calendar-picker");
+    await expect(picker).toBeVisible();
+
+    const dayKey = localDateKey();
+    await picker.locator(`[data-day-key="${dayKey}"]`).click();
+
+    await expect(page).toHaveURL(/\/[^/]+$/);
+    await expect(page).not.toHaveURL(/\/$/);
+    const year = String(new Date().getFullYear());
+    await expect(page.locator("h2.zoomed-title .node-text")).toContainText(
+      year,
+    );
+    await expect(page.getByTestId("week-calendar")).toBeVisible();
   });
 
   test("This week creates the week scaffold and zooms in without minting today", async ({

@@ -1,5 +1,6 @@
 import { FocusIcon } from "lucide-react";
 
+import { HeaderTooltip } from "./header-tooltip";
 import { setSpotlightEnabled, useSpotlightEnabled } from "./spotlight-mode";
 import { Button } from "./ui/button";
 
@@ -40,17 +41,18 @@ export function SpotlightIndicator() {
   if (!enabled) return null;
 
   return (
-    <Button
-      variant="default"
-      size="icon-sm"
-      data-spotlight-indicator=""
-      aria-pressed
-      aria-label="Turn off spotlight mode"
-      title="Spotlight mode is on — click to turn off"
-      onClick={() => setSpotlightEnabled(false)}
-    >
-      <FocusIcon />
-      <span className="sr-only">Spotlight</span>
-    </Button>
+    <HeaderTooltip label="Turn off spotlight">
+      <Button
+        variant="default"
+        size="icon-sm"
+        data-spotlight-indicator=""
+        aria-pressed
+        aria-label="Turn off spotlight mode"
+        onClick={() => setSpotlightEnabled(false)}
+      >
+        <FocusIcon />
+        <span className="sr-only">Spotlight</span>
+      </Button>
+    </HeaderTooltip>
   );
 }

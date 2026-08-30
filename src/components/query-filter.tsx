@@ -28,6 +28,7 @@ import { normalizeQuery } from "../data/saved-queries-core";
 import { collectTagCorpus } from "../data/tags";
 import { getTreeIndex } from "../data/tree-store";
 import { filterOperatorInfos } from "../plugins/registry";
+import { HeaderTooltip } from "./header-tooltip";
 import {
   addTermToFilter,
   bindQueryFilterNav,
@@ -148,20 +149,22 @@ export function FilterButton() {
     () => false,
   );
   return (
-    <Button
-      variant={active ? "default" : "ghost"}
-      size="icon-sm"
-      // Muted "engaged" state in the open-but-empty window; the `default`
-      // variant above takes over (solid) the moment a query bites (ADR 0050).
-      className={cn(open && !active && "bg-muted text-foreground")}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => toggleFilterInput()}
-      aria-label="Filter this view"
-      aria-pressed={open}
-    >
-      <Search />
-      <span className="sr-only">Filter this view</span>
-    </Button>
+    <HeaderTooltip label="Filter">
+      <Button
+        variant={active ? "default" : "ghost"}
+        size="icon-sm"
+        // Muted "engaged" state in the open-but-empty window; the `default`
+        // variant above takes over (solid) the moment a query bites (ADR 0050).
+        className={cn(open && !active && "bg-muted text-foreground")}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => toggleFilterInput()}
+        aria-label="Filter this view"
+        aria-pressed={open}
+      >
+        <Search />
+        <span className="sr-only">Filter this view</span>
+      </Button>
+    </HeaderTooltip>
   );
 }
 

@@ -38,6 +38,7 @@ import {
   searchAnnotation,
 } from "../plugins/registry";
 import { useGlobalActions } from "./command-actions";
+import { HeaderTooltip } from "./header-tooltip";
 import { McpConnectDialog } from "./mcp-connect-dialog";
 import {
   setNodeSwitcherOpener,
@@ -540,15 +541,17 @@ function SwitcherDialog({
  *  glyph beside it as the touch (and desktop) entry point. */
 export function CommandCenterButton() {
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      onClick={() => openNodeSwitcher()}
-      aria-label="Command center"
-    >
-      <CommandIcon />
-      <span className="sr-only">Command center</span>
-    </Button>
+    <HeaderTooltip label="Command center">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => openNodeSwitcher()}
+        aria-label="Command center"
+      >
+        <CommandIcon />
+        <span className="sr-only">Command center</span>
+      </Button>
+    </HeaderTooltip>
   );
 }
 
