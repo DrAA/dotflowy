@@ -1,47 +1,76 @@
 import { toast } from "sonner";
 
-import { isNodesLimitError } from "./nodes-client-effect";
+import {
+  isNodesLimitError,
+  isRetriableNodesError,
+} from "./nodes-client-effect";
 
 /**
- * The shared "your write didn't land" signal for the core outline path (#230).
+ * User-visible signals when outline persistence fails or is deferred.
  *
- * Both write seams fail by rejecting a promise that TanStack DB turns into an
- * optimistic ROLLBACK — the structural batch (`runStructural`, structural.ts)
- * and the field/insert/delete handlers (collection.ts). Before this, that
- * rejection was swallowed (structural) or merely re-thrown into the void (the
- * handlers), so a failed edit just vanished with no word to the user. This puts
- * one honest toast on that path: the edit was undone, here's why.
- *
- * Two deliberate shapes:
- *  - **Skips `NodesLimitError`.** The free-tier node ceiling (#170) is already
- *    surfaced by `persistStructuralBatch`'s dedicated upgrade toast, and it
- *    re-throws — so this would double-toast it. That case is NOT a mystery
- *    failure; it has its own copy.
- *  - **Fixed toast `id`.** A coalesced burst of field generations (or a rapid
- *    run of structural edits) that all fail offline collapses into ONE notice,
- *    not N stacked toasts. Sonner de-dupes on the id.
+ * Retriable failures (transport, timeout, 5xx) enqueue in `write-queue.ts` and
+ * keep optimistic edits on screen. Non-retriable failures (node limit, most 4xx)
+ * still roll back via TanStack DB's throw-on-failure contract.
  */
-export function notifySaveFailed(err: unknown): void {
+
+const QUEUED_TOAST_ID = "persist-queued";
+
+/** Warn that edits are kept locally and will retry — not rolled back. */
+export function notifyPersistQueued(pendingCount: number): void {
+  if (pendingCount <= 0) {
+    toast.dismiss(QUEUED_TOAST_ID);
+    return;
+  }
+  toast.warning("Changes not saved yet", {
+    id: QUEUED_TOAST_ID,
+    description: `${pendingCount === 1 ? "1 edit is" : `${pendingCount} edits are`} waiting to sync. Check your connection — we'll retry automatically.`,
+    duration: Infinity,
+  });
+}
+
+/** A permanent failure while flushing the queue or a non-retriable write error. */
+export function notifyPersistFailed(err: unknown): void {
   if (isNodesLimitError(err)) return;
   toast.error("Couldn't save your changes", {
     id: "save-failed",
     description:
-      "Your recent edits were undone. Check your connection and try again.",
+      "Some edits couldn't be synced. Check your connection and try again.",
   });
 }
 
+/** @deprecated Use notifyPersistFailed — kept for call sites not yet migrated. */
+export const notifySaveFailed = notifyPersistFailed;
+
 /**
- * Await a write promise, and if it rejects, surface the rollback via
- * `notifySaveFailed` before RE-THROWING — the throw is load-bearing: it's what
- * triggers TanStack DB's optimistic rollback, so the failure must propagate.
- * The collection field/insert/delete handlers wrap their persistence call in
- * this so all three share one failure seam (#230).
+ * Await a write promise. Retriable failures are handled by the caller (queue
+ * + resolve); this surfaces permanent failures and re-throws for rollback.
  */
 export async function persistOrNotify<T>(p: Promise<T>): Promise<T> {
   try {
     return await p;
   } catch (err) {
-    notifySaveFailed(err);
+    if (isRetriableNodesError(err)) throw err;
+    notifyPersistFailed(err);
+    throw err;
+  }
+}
+
+/**
+ * Await a write promise; on retriable failure run `onQueue` and return without
+ * throwing so TanStack DB keeps the optimistic edit.
+ */
+export async function persistOrQueue<T>(
+  p: Promise<T>,
+  onQueue: () => void,
+): Promise<T> {
+  try {
+    return await p;
+  } catch (err) {
+    if (isRetriableNodesError(err)) {
+      onQueue();
+      return undefined as T;
+    }
+    notifyPersistFailed(err);
     throw err;
   }
 }

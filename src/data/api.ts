@@ -3,14 +3,17 @@ import { Effect, Semaphore } from "effect";
 import type { ChangeOp } from "./realtime";
 import type { Node } from "./schema";
 
+import { nodesCollection } from "./collection";
 import {
   createNodesE,
   deleteNodesE,
+  isRetriableNodesError,
   type NodesError,
   runPromise,
   sendBatchE,
   updateNodesE,
 } from "./nodes-client-effect";
+import { enqueueWrite } from "./write-queue";
 
 /**
  * Throw-based client for the /api/nodes Worker (which routes to the user's
@@ -140,6 +143,7 @@ let currentGen: FieldGen | null = null;
  * even a free-permit (synchronous) acquire drains a populated map.
  */
 function startFieldFlush(gen: FieldGen): Promise<void> {
+  let capturedUpdates: { id: string; changes: Partial<Node> }[] = [];
   const flush = fieldSem.withPermits(1)(
     Effect.flatMap(Effect.yieldNow, () =>
       Effect.suspend(() => {
@@ -147,15 +151,24 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
         // so new callers open a fresh generation, and snapshot the merge.
         if (currentGen === gen) currentGen = null;
         if (gen.pending.size === 0) return Effect.void;
-        const updates = [...gen.pending].map(([id, changes]) => ({
+        capturedUpdates = [...gen.pending].map(([id, changes]) => ({
           id,
           changes,
         }));
-        return updateNodesE(updates);
+        return updateNodesE(capturedUpdates);
       }),
     ),
   );
-  return runPromise(flush);
+  return runPromise(flush).catch((err) => {
+    if (isRetriableNodesError(err) && capturedUpdates.length > 0) {
+      enqueueWrite(
+        { kind: "field", updates: capturedUpdates },
+        nodesCollection.toArray as Node[],
+      );
+      return;
+    }
+    throw err;
+  });
 }
 
 export function updateNodes(

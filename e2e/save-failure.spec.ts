@@ -7,13 +7,13 @@ const text = (page: Page, id: string) =>
   page.locator(`li[data-node-id="${id}"] > .outline-row .node-text`);
 
 // Every visible bullet's raw text in document order (empty new bullets show as
-// ""), so a rolled-back insert is observable by the count returning to normal.
+// ""), so a queued insert stays visible instead of rolling back.
 const orderedTexts = (page: Page) =>
   page.locator(".outline-row .node-text").allTextContents();
 
-const saveFailedToast = (page: Page) =>
+const persistQueuedToast = (page: Page) =>
   page.locator("[data-sonner-toast]", {
-    hasText: "Couldn't save your changes",
+    hasText: "Changes not saved yet",
   });
 
 // Drop the caret at the end of a bullet (Home/End/arrows are unreliable in
@@ -33,8 +33,8 @@ async function caretAtEnd(page: Page, id: string) {
   });
 }
 
-test.describe("Save failure surfaces a toast and rolls back (#230)", () => {
-  test("a failed structural write toasts and reverts the optimistic bullet", async ({
+test.describe("Save failure queues edits and warns (#230)", () => {
+  test("a failed structural write toasts and keeps the optimistic bullet", async ({
     page,
   }) => {
     test.skip(
@@ -53,13 +53,51 @@ test.describe("Save failure surfaces a toast and rolls back (#230)", () => {
     await caretAtEnd(page, "alpha");
     await page.keyboard.press("Enter");
 
-    // The failure toast appears...
-    await expect(saveFailedToast(page)).toBeVisible({ timeout: 10_000 });
+    // The warning toast appears...
+    await expect(persistQueuedToast(page)).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.locator('[data-testid="save-status-indicator"][data-ok="false"]'),
+    ).toBeVisible();
 
-    // ...and the optimistic new bullet rolls back: the visible order returns to
-    // exactly what it was before the Enter (no stray empty bullet survives).
+    // ...and the optimistic new bullet stays: one more row than before.
     await expect
-      .poll(() => orderedTexts(page), { timeout: 10_000 })
-      .toEqual(before);
+      .poll(() => orderedTexts(page).then((t) => t.length), {
+        timeout: 10_000,
+      })
+      .toBe(before.length + 1);
+  });
+
+  test("queued edits survive a reload while still offline", async ({
+    page,
+  }) => {
+    test.skip(
+      isE2eLunora(),
+      "injects a failure into the classic structural transport",
+    );
+    await seedOutline(page, STANDARD_TREE, { failStructuralWrites: true });
+    await page.goto("/");
+    await expect(text(page, "alpha")).toBeVisible();
+
+    const before = await orderedTexts(page);
+    await caretAtEnd(page, "alpha");
+    await page.keyboard.press("Enter");
+
+    await expect(persistQueuedToast(page)).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(() => orderedTexts(page).then((t) => t.length), {
+        timeout: 10_000,
+      })
+      .toBe(before.length + 1);
+
+    // Reload before the network path succeeds — queue + snapshot live in
+    // localStorage and should repaint the extra bullet after bootstrap.
+    await page.reload();
+    await expect(text(page, "alpha")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => orderedTexts(page).then((t) => t.length), {
+        timeout: 15_000,
+      })
+      .toBe(before.length + 1);
+    await expect(persistQueuedToast(page)).toBeVisible({ timeout: 10_000 });
   });
 });

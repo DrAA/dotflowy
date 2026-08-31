@@ -82,6 +82,19 @@ export function isNodesLimitError(err: unknown): err is NodesLimitError {
   return err instanceof NodesLimitError;
 }
 
+/** Should a failed outline write be queued for retry instead of rolled back?
+ *  Transport drops, timeouts, and 5xx/429 are transient; node-limit and other
+ *  4xx are permanent for this edit. */
+export function isRetriableNodesError(err: unknown): boolean {
+  if (isNodesLimitError(err)) return false;
+  if (err instanceof NodesTransportError) return true;
+  if (err instanceof NodesTimeoutError) return true;
+  if (err instanceof NodesResponseError) {
+    return err.status >= 500 || err.status === 429;
+  }
+  return false;
+}
+
 export type NodesError =
   | NodesTransportError
   | NodesResponseError

@@ -13,10 +13,18 @@ import {
   waitForSeqE,
 } from "./collection";
 import { isLocalDataEnabled, isLunoraSyncEnabled } from "./flags";
-import { NodesLimitError, runPromise } from "./nodes-client-effect";
-import { notifySaveFailed } from "./save-failure";
+import {
+  isNodesLimitError,
+  isRetriableNodesError,
+  runPromise,
+} from "./nodes-client-effect";
+import { notifyPersistFailed } from "./save-failure";
 import { chainDisagreements } from "./sibling-chain";
 import { buildTreeIndex, childrenOf } from "./tree";
+import { enqueueWrite } from "./write-queue";
+
+/** TanStack DB keeps direct-transaction overlays until sync echoes (ADR 0010). */
+const DIRECT_TX = { __tanstack_db_direct: true as const };
 
 /**
  * Send one structural batch and hold until its echo — the shared mutationFn body
@@ -31,7 +39,7 @@ async function persistStructuralBatch(ops: ChangeOp[]): Promise<void> {
       persistBatchE(ops).pipe(Effect.flatMap(({ seq }) => waitForSeqE(seq))),
     );
   } catch (err) {
-    if (err instanceof NodesLimitError) {
+    if (isNodesLimitError(err)) {
       toast.error(
         `Free plan limit reached (${err.limit.toLocaleString()} bullets)`,
         {
@@ -47,6 +55,13 @@ async function persistStructuralBatch(ops: ChangeOp[]): Promise<void> {
           },
         },
       );
+    }
+    if (isRetriableNodesError(err)) {
+      enqueueWrite(
+        { kind: "structural", ops },
+        nodesCollection.toArray as Node[],
+      );
+      return;
     }
     throw err;
   }
@@ -79,13 +94,9 @@ async function persistStructuralBatch(ops: ChangeOp[]): Promise<void> {
  */
 export function runStructural<T>(body: () => T): T {
   const { result, persisted } = runStructuralTracked(body);
-  // Nobody awaits the outcome here — a failed batch already rolls the
-  // transaction back — but the edit vanishing silently is the #230 bug. Surface
-  // the rollback with the shared save-failure toast (which skips the node-limit
-  // case, already toasted by persistStructuralBatch, to avoid a double notice).
-  // This also marks the derived promise handled, so an offline structural write
-  // never trips an unhandled-rejection report.
-  persisted.catch(notifySaveFailed);
+  // Non-retriable failures still roll back — surface them. Retriable ones
+  // enqueue inside persistStructuralBatch and keep the optimistic edit.
+  persisted.catch(notifyPersistFailed);
   return result;
 }
 
@@ -121,6 +132,7 @@ export function runStructuralTracked<T>(body: () => T): {
 
   let result!: T;
   const tx = createTransaction({
+    metadata: DIRECT_TX,
     mutationFn: async ({ transaction }) => {
       const ops = transaction.mutations.map(toChangeOp);
       // A captured-but-no-op command (e.g. indent at the top of a list) makes no
@@ -185,6 +197,7 @@ export async function runStructuralSliced(
   }
   const tx = createTransaction({
     autoCommit: false,
+    metadata: DIRECT_TX,
     mutationFn: async ({ transaction }) => {
       const ops = transaction.mutations.map(toChangeOp);
       if (ops.length === 0) return;

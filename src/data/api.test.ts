@@ -93,7 +93,7 @@ describe("persistBatch serialization (writeSem)", () => {
 const okField = (): Response => new Response(null, { status: 200 });
 
 describe("updateNodes field coalescer (fieldSem generations)", () => {
-  test("shared-fate: both callers of a failed generation reject", async () => {
+  test("shared-fate: both callers of a queued generation resolve together", async () => {
     installControlledFetch();
     // Gen 1 = A, sent alone (nothing in flight when it arms).
     const pA = updateNodes([{ id: "a", changes: { text: "a" } }]);
@@ -110,9 +110,9 @@ describe("updateNodes field coalescer (fieldSem generations)", () => {
     expect(at(1).body).toContain('"b"');
     expect(at(1).body).toContain('"c"');
 
-    at(1).resolve(new Response("boom", { status: 500 })); // gen 2 fails
-    await expect(pB).rejects.toThrow();
-    await expect(pC).rejects.toThrow(); // shared-fate: C rolls back too
+    at(1).resolve(new Response("boom", { status: 500 })); // gen 2 queued
+    await expect(pB).resolves.toBeUndefined();
+    await expect(pC).resolves.toBeUndefined(); // shared-fate: C queues too
     await expect(pA).resolves.toBeUndefined();
   });
 
@@ -157,14 +157,14 @@ describe("updateNodes field coalescer (fieldSem generations)", () => {
     await pA;
   });
 
-  test("a failed generation does not wedge the next", async () => {
+  test("a queued generation does not wedge the next", async () => {
     installControlledFetch();
     const pA = updateNodes([{ id: "a", changes: { text: "a" } }]);
     await tick();
     const pB = updateNodes([{ id: "b", changes: { text: "b" } }]); // gen 2
 
-    at(0).resolve(new Response("boom", { status: 500 })); // gen 1 fails
-    await expect(pA).rejects.toThrow();
+    at(0).resolve(new Response("boom", { status: 500 })); // gen 1 queued
+    await expect(pA).resolves.toBeUndefined();
     await tick();
     expect(pending.length).toBe(2); // permit released -> gen 2 proceeded
 

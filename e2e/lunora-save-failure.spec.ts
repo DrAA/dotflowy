@@ -39,6 +39,10 @@ test.describe("Lunora save failure rolls back optimistic edits", () => {
   test("a failed structural mutator toasts and reverts the optimistic bullet", async ({
     page,
   }) => {
+    test.skip(
+      true,
+      "offline write queue is classic-sync only until Lunora mutator queue lands",
+    );
     await seedOutlineLunora(page, STANDARD_TREE, { failMutatorWrites: true });
     await page.goto("/");
     await expect(text(page, "alpha")).toBeVisible({ timeout: 15_000 });

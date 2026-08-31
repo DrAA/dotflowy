@@ -10,6 +10,7 @@ import { HeaderMoreMenu } from "./header-more-menu";
 import { CommandCenterButton } from "./node-switcher";
 import { OUTLINE_COLUMN_CLASS } from "./outline-width-provider";
 import { FilterButton } from "./query-filter";
+import { SaveStatusIndicator } from "./save-status-indicator";
 import { SpotlightIndicator } from "./spotlight-indicator";
 import { TooltipProvider } from "./ui/tooltip";
 
@@ -58,6 +59,7 @@ export function Header({
             unread changelog signal (ADR 0046): a quiet notification dot on the
             trigger rather than a loud header CTA. See header-more-menu.tsx. */}
           <div className="flex shrink-0 items-center gap-1">
+            <SaveStatusIndicator />
             <SpotlightIndicator />
             {getCtx &&
               headerSlots.map((s) => (

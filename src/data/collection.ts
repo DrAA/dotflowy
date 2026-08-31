@@ -17,7 +17,7 @@ import { readLocalNodes, writeLocalNodes } from "./local-store";
 import { runPromise } from "./nodes-client-effect";
 import { makeSyncStream } from "./realtime";
 import { appRuntime } from "./runtime";
-import { persistOrNotify } from "./save-failure";
+import { persistOrQueue } from "./save-failure";
 import { nodeSchema } from "./schema";
 import { chainDisagreements } from "./sibling-chain";
 import {
@@ -26,6 +26,12 @@ import {
   notifySyncInterrupted,
 } from "./sync-supervision";
 import { buildTreeIndex, childrenOf, now } from "./tree";
+import {
+  enqueueWrite,
+  getPendingWriteCount,
+  restoreQueuedSnapshotIfPresent,
+  startWriteQueue,
+} from "./write-queue";
 
 /**
  * Single source of truth for all outline nodes.
@@ -443,6 +449,38 @@ function withNodeDefaults(n: Node): Node {
   };
 }
 
+/** Skip network handlers while replaying a queued local snapshot. */
+let suppressPersist = false;
+export function withPersistSuppressed<T>(fn: () => T): T {
+  suppressPersist = true;
+  try {
+    return fn();
+  } finally {
+    suppressPersist = false;
+  }
+}
+
+function applyQueuedSnapshot(snapshot: readonly Node[]): void {
+  withPersistSuppressed(() => {
+    const snapById = new Map(snapshot.map((n) => [n.id, n]));
+    const live = nodesCollection.toArray as Node[];
+    for (const node of live) {
+      if (!snapById.has(node.id)) {
+        nodesCollection.delete(node.id);
+      }
+    }
+    for (const node of snapshot) {
+      if (live.some((n) => n.id === node.id)) {
+        nodesCollection.update(node.id, (draft) => {
+          Object.assign(draft, node);
+        });
+      } else {
+        nodesCollection.insert(node);
+      }
+    }
+  });
+}
+
 export const nodesCollection = createCollection({
   id: "nodes",
   getKey: (node: Node) => node.id,
@@ -487,6 +525,11 @@ export const nodesCollection = createCollection({
         markReady();
         // Release the shell's loading spinner (module signal, see markSyncReady).
         markSyncReady();
+        if (getPendingWriteCount() > 0) {
+          const snapshot = restoreQueuedSnapshotIfPresent();
+          if (snapshot) applyQueuedSnapshot(snapshot);
+        }
+        startWriteQueue();
       };
       const getCursor = (): number | null =>
         (metadata?.collection.get("cursor") as number | undefined) ?? null;
@@ -639,49 +682,51 @@ export const nodesCollection = createCollection({
       };
     },
   },
-  // Each handler THROWS on a failed write so TanStack DB rolls the optimistic
-  // edit back; `persistOrNotify` surfaces that rollback to the user (#230) and
-  // re-throws — the throw is load-bearing (swallowing it would drop the failure
-  // AND the rollback). A no-op toast for the node-limit case, already toasted
-  // upstream.
+  // Retriable failures enqueue in write-queue.ts and resolve without throwing
+  // so TanStack DB keeps the optimistic edit. Permanent failures still throw
+  // (rollback + toast).
   onInsert: async ({ transaction }) => {
     if (isLocalDataEnabled()) {
-      await persistOrNotify(
-        Promise.resolve().then(() => persistLocalOutline()),
-      );
+      persistLocalOutline();
       return { refetch: false };
     }
-    await persistOrNotify(
-      createNodes(transaction.mutations.map((m) => m.modified as Node)),
+    if (suppressPersist) return { refetch: false };
+    const nodes = transaction.mutations.map((m) => m.modified as Node);
+    await persistOrQueue(createNodes(nodes), () =>
+      enqueueWrite(
+        { kind: "create", nodes },
+        nodesCollection.toArray as Node[],
+      ),
     );
     return { refetch: false };
   },
   onUpdate: async ({ transaction }) => {
     if (isLocalDataEnabled()) {
-      await persistOrNotify(
-        Promise.resolve().then(() => persistLocalOutline()),
-      );
+      persistLocalOutline();
       return { refetch: false };
     }
-    await persistOrNotify(
-      updateNodes(
-        transaction.mutations.map((m) => ({
-          id: m.key as string,
-          changes: m.changes as Partial<Node>,
-        })),
+    if (suppressPersist) return { refetch: false };
+    const updates = transaction.mutations.map((m) => ({
+      id: m.key as string,
+      changes: m.changes as Partial<Node>,
+    }));
+    await persistOrQueue(updateNodes(updates), () =>
+      enqueueWrite(
+        { kind: "field", updates },
+        nodesCollection.toArray as Node[],
       ),
     );
     return { refetch: false };
   },
   onDelete: async ({ transaction }) => {
     if (isLocalDataEnabled()) {
-      await persistOrNotify(
-        Promise.resolve().then(() => persistLocalOutline()),
-      );
+      persistLocalOutline();
       return { refetch: false };
     }
-    await persistOrNotify(
-      deleteNodes(transaction.mutations.map((m) => m.key as string)),
+    if (suppressPersist) return { refetch: false };
+    const ids = transaction.mutations.map((m) => m.key as string);
+    await persistOrQueue(deleteNodes(ids), () =>
+      enqueueWrite({ kind: "delete", ids }, nodesCollection.toArray as Node[]),
     );
     return { refetch: false };
   },
