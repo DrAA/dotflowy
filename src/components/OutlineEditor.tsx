@@ -100,7 +100,11 @@ import {
   useSyncViewState,
 } from "../data/view-state";
 import { scrollRowIntoView, setVirtualNav } from "../data/virtual-nav";
-import { findVisibleNeighbor, instanceIdForKey } from "../data/visible-order";
+import {
+  findFocusAfterComplete,
+  findVisibleNeighbor,
+  instanceIdForKey,
+} from "../data/visible-order";
 import { useIsMobile } from "../hooks/use-mobile";
 import { DailyNavigationProgress } from "../plugins/daily/navigation-progress";
 import {
@@ -2036,14 +2040,67 @@ function useNodeCommands({
           });
         },
 
-        onToggleCompleted: (id, completed) => {
+        onToggleCompleted: (id, completed, opts) => {
           // A protected node can't be marked done (completing it would strike
           // through its whole subtree). This funnel catches every completion path
           // (Mod+Enter / Mod+D on a bullet OR the zoomed title, the todos
           // checkbox). Un-marking (completed=false) is always allowed. See ADR 0015.
           if (completed && guardProtected(id, "complete", rowOf(id))) return;
-          capture(getTreeIndex(), id);
+          const idx = getTreeIndex();
+          const node = idx.byId.get(id);
+          if (!node) return;
+          capture(idx, id);
+
+          // Complete-and-advance (Workflowy): land on the next visible row. The
+          // neighbor is resolved BEFORE the write so hide-completed can treat
+          // this content as already pruned (children would otherwise be the
+          // "next" row and then vanish with the parent). Opt out with
+          // `{ advance: false }` for non-gesture completes (typing `[x]`).
+          let focusTarget: string | null = null;
+          if (completed && opts?.advance !== false) {
+            const mirrorsOn = isMirrorsEnabled();
+            const rootId = getViewRootId();
+            const isHidden = getViewIsHidden();
+            // Zoom title stays mounted even when completed; only list rows drop
+            // out under hide-completed.
+            const willHide =
+              id !== rootId && isHidden({ ...node, completed: true });
+            const focused = findFocusedId();
+            let fromKey = id;
+            if (focused) {
+              const focusedInstance = instanceIdForKey(focused);
+              const focusedContent = mirrorsOn
+                ? (idx.byId.get(focusedInstance)?.mirrorOf ?? focusedInstance)
+                : focusedInstance;
+              if (focusedContent === id || focusedInstance === id) {
+                fromKey = focused;
+              }
+            }
+            focusTarget = findFocusAfterComplete(
+              idx,
+              rootId,
+              fromKey,
+              id,
+              willHide,
+              isHidden,
+              getViewFilter(),
+              mirrorsOn,
+            );
+          }
+
           toggleCompleted(id, completed);
+
+          if (focusTarget) {
+            pendingFocus.current = focusTarget;
+            pendingFocusAtStart.current = true;
+            const el = refs.get(focusTarget);
+            if (el) {
+              el.focus();
+              placeCaretAtStart(el);
+            } else {
+              scrollRowIntoView(focusTarget);
+            }
+          }
         },
 
         onSetTask: (id, isTask) => {

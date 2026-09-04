@@ -5,6 +5,7 @@ import { buildTreeIndex, makeNode } from "./tree";
 import {
   buildVisibleRows,
   contentIdForKey,
+  findFocusAfterComplete,
   findVisibleNeighbor,
   focusKeyAfterEdit,
   instanceIdForKey,
@@ -459,5 +460,63 @@ describe("caret nav under an active ?q= filter (render parity, ADR 0047)", () =>
   test("no filter (null) keeps today's unfiltered behavior byte-for-byte", () => {
     expect(findVisibleNeighbor(index, null, "K", "down", show)).toBe("B");
     expect(lastVisibleDescendant(index, "P2", show)).toBe("P2");
+  });
+});
+
+describe("findFocusAfterComplete", () => {
+  // A
+  //   A1
+  //   A2
+  // B
+  // C
+  const tree = [
+    makeNode({ id: "A", prevSiblingId: null }),
+    makeNode({ id: "B", prevSiblingId: "A" }),
+    makeNode({ id: "C", prevSiblingId: "B" }),
+    makeNode({ id: "A1", parentId: "A", prevSiblingId: null }),
+    makeNode({ id: "A2", parentId: "A", prevSiblingId: "A1" }),
+  ];
+  const index = buildTreeIndex(tree);
+
+  test("with the row staying visible, advance is plain down-neighbor", () => {
+    expect(findFocusAfterComplete(index, null, "A", "A", false, show)).toBe(
+      "A1",
+    );
+    expect(findFocusAfterComplete(index, null, "B", "B", false, show)).toBe(
+      "C",
+    );
+    expect(
+      findFocusAfterComplete(index, null, "C", "C", false, show),
+    ).toBeNull();
+  });
+
+  test("when hide-completed will drop the row, skip its subtree", () => {
+    // Completing A would hide A + A1 + A2; next survivor is B (not A1).
+    expect(
+      findFocusAfterComplete(index, null, "A", "A", true, hideCompleted),
+    ).toBe("B");
+    expect(
+      findFocusAfterComplete(index, null, "A1", "A1", true, hideCompleted),
+    ).toBe("A2");
+  });
+
+  test("when hide-completed drops the last row, fall back upward", () => {
+    expect(
+      findFocusAfterComplete(index, null, "C", "C", true, hideCompleted),
+    ).toBe("B");
+  });
+
+  test("zoomed: completing the last child falls back to the title", () => {
+    expect(
+      findFocusAfterComplete(index, "A", "A2", "A2", true, hideCompleted),
+    ).toBe("A1");
+    // Only child left under A once A2 is gone from a one-child view:
+    const alone = buildTreeIndex([
+      makeNode({ id: "A", prevSiblingId: null }),
+      makeNode({ id: "A1", parentId: "A", prevSiblingId: null }),
+    ]);
+    expect(
+      findFocusAfterComplete(alone, "A", "A1", "A1", true, hideCompleted),
+    ).toBe("A");
   });
 });

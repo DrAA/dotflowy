@@ -151,8 +151,11 @@ export function buildNodeVerbActions(
       scope: "node",
       keywords: ["complete", "done", "check", "todo"],
       run: () => {
-        commands.onToggleCompleted(id, !node.completed);
-        focusNode(id);
+        // Completing advances focus to the next row (onToggleCompleted); only
+        // un-completing needs an explicit focus restore after the overlay closes.
+        const wasCompleted = node.completed;
+        commands.onToggleCompleted(id, !wasCompleted);
+        if (wasCompleted) focusNode(id);
       },
     },
   ];

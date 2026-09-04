@@ -302,6 +302,78 @@ export function findVisibleNeighbor(
 }
 
 /**
+ * The row KEY to focus after marking `contentId` completed. Always prefers the
+ * next visible row (Workflowy-style "complete and advance"). When hide-completed
+ * will drop the completed bullet (and its subtree) out of the render, the next
+ * row is chosen from the *post-hide* sequence so focus never lands on a child
+ * that disappears with its parent; if nothing survives below, fall back upward
+ * (including the zoom title). When the completed row stays visible, only advance
+ * downward — stay put at the bottom. Pure.
+ *
+ * `fromKey` is the render address of the row the user completed (bare id, or a
+ * mirror path key). `willHide` is whether Seam G will prune this content once
+ * `completed` flips — callers probe `isHidden({ ...node, completed: true })`
+ * and exclude the zoom root (the title stays mounted even when completed).
+ */
+export function findFocusAfterComplete(
+  index: TreeIndex,
+  rootId: string | null,
+  fromKey: string,
+  contentId: string,
+  willHide: boolean,
+  isHidden: (n: Node) => boolean,
+  filter: QueryFilter | null = null,
+  mirrorsEnabled = false,
+): string | null {
+  if (!willHide) {
+    return findVisibleNeighbor(
+      index,
+      rootId,
+      fromKey,
+      "down",
+      isHidden,
+      filter,
+      mirrorsEnabled,
+    );
+  }
+
+  // Treat the just-completed content as already hidden so the walk skips its
+  // whole subtree (same as render: a hidden node takes its children with it).
+  const hiddenAfter = (n: Node) => n.id === contentId || isHidden(n);
+  const before = buildVisibleRows(
+    index,
+    rootId,
+    isHidden,
+    filter,
+    mirrorsEnabled,
+  );
+  const beforeSeq = rootId
+    ? [rootId, ...before.map((r) => r.key)]
+    : before.map((r) => r.key);
+  const after = buildVisibleRows(
+    index,
+    rootId,
+    hiddenAfter,
+    filter,
+    mirrorsEnabled,
+  );
+  const afterSet = new Set(
+    rootId ? [rootId, ...after.map((r) => r.key)] : after.map((r) => r.key),
+  );
+  const i = beforeSeq.indexOf(fromKey);
+  if (i === -1) return null;
+  for (let j = i + 1; j < beforeSeq.length; j++) {
+    const key = beforeSeq[j]!;
+    if (afterSet.has(key)) return key;
+  }
+  for (let j = i - 1; j >= 0; j--) {
+    const key = beforeSeq[j]!;
+    if (afterSet.has(key)) return key;
+  }
+  return null;
+}
+
+/**
  * The render key to focus after a structural edit (insert / move) inside a mirror
  * (ADR 0022, Stage 2c). A source descendant windows into EVERY instance, so a node
  * id can address several rows; focus must land in the instance the user was

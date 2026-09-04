@@ -73,8 +73,46 @@ test.describe("todos plugin", () => {
     await page.keyboard.press(`${MOD}+Enter`);
     await expect(text(page, "a")).toHaveAttribute("data-completed", "true");
 
+    // Completing advances to the next bullet; un-complete from there would
+    // toggle b — move back onto a first.
+    await text(page, "a").click();
     await page.keyboard.press(`${MOD}+Enter`);
     await expect(text(page, "a")).toHaveAttribute("data-completed", "false");
+  });
+
+  test("completing advances focus to the next visible bullet", async ({
+    page,
+  }) => {
+    await load(page);
+
+    await text(page, "a").click();
+    await page.keyboard.type("first");
+    await page.keyboard.press(`${MOD}+Enter`);
+    await expect(text(page, "a")).toHaveAttribute("data-completed", "true");
+    // Still showing completed (default): focus moves down to b.
+    await expect(text(page, "b")).toBeFocused();
+  });
+
+  test("completing under hide-completed advances past the vanished subtree", async ({
+    page,
+  }) => {
+    const tree: SeedNode[] = [
+      { id: "A", parentId: null, prevSiblingId: null, text: "A" },
+      { id: "A1", parentId: "A", prevSiblingId: null, text: "A1" },
+      { id: "B", parentId: null, prevSiblingId: "A", text: "B" },
+    ];
+    await seedOutline(page, tree);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("dotflowy:show-completed", "false");
+    });
+    await page.goto("/");
+    await expect(text(page, "A")).toBeVisible();
+
+    await text(page, "A").click();
+    await page.keyboard.press(`${MOD}+Enter`);
+    // A and A1 drop out; focus must land on B, not a now-unmounted child.
+    await expect(text(page, "A")).toHaveCount(0);
+    await expect(text(page, "B")).toBeFocused();
   });
 
   test("the checkbox renders in the zoomed-in title and toggles there (Seam F title slot)", async ({

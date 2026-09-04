@@ -180,7 +180,10 @@ export default definePlugin({
         caret: 0,
         before: (ctx) => {
           ctx.mutations.onSetTask(node.id, true);
-          if (done) ctx.mutations.onToggleCompleted(node.id, true);
+          // Don't advance — the user is mid-typing; the caret stays for the
+          // stripped marker (core places it at 0 after this rewrite).
+          if (done)
+            ctx.mutations.onToggleCompleted(node.id, true, { advance: false });
         },
       };
     },

@@ -31,7 +31,14 @@ export interface NodeCommands {
   // on screen -- rather than reparenting children or merging across anything
   // hidden.
   onJoinPrevious: (id: string) => void;
-  onToggleCompleted: (id: string, completed: boolean) => void;
+  // Flip done-state. When `completed` is true, focus advances to the next
+  // visible row by default (`opts.advance !== false`) — pass `{ advance: false }`
+  // for paths that complete without a "move on" gesture (e.g. typing `[x]`).
+  onToggleCompleted: (
+    id: string,
+    completed: boolean,
+    opts?: { advance?: boolean },
+  ) => void;
   // Set whether a bullet is a task (checkbox shown/hidden). Clears `kind`.
   onSetTask: (id: string, isTask: boolean) => void;
   // Set the node's kind: "paragraph" (paragraph glyph, prose) or null (plain bullet).
