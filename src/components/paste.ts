@@ -19,6 +19,11 @@ import type { ClipboardEvent } from "react";
 import type { MdPastePlacement } from "../data/markdown-import";
 import type { PluginContext } from "../plugins/types";
 
+import {
+  htmlClipboardToText,
+  markdownLinksToHtml,
+} from "../data/clipboard-html";
+import { hasLink } from "../data/links";
 import { afterPaste, pasteFiles, pasteReplacement } from "../plugins/registry";
 import {
   decorate,
@@ -130,11 +135,24 @@ export function pasteIntoBullet(
   // A single trailing newline terminates the last line; it does not add an empty
   // one. So a URL copied out of a terminal ("https://x.com\n") stays a SINGLE-
   // line paste and keeps the links plugin's wrap + unfurl (Seam I).
-  const plain = cd
+  let plain = cd
     .getData("text/plain")
     .replace(/\r\n?/g, "\n")
     .replace(/\n$/, "");
   const html = cd.getData("text/html");
+
+  // Rich clipboard often puts the URL only in text/html (Docs / Word /
+  // browser selection) while text/plain is just the label. Prefer the
+  // HTML-derived text when it carries markdown links that plain lacks, so
+  // both the single-line Seam I path and multi-line structural paste keep
+  // the hyperlinks (ADR 0005 / 0016). Literal paste skips this — no
+  // transformation of any kind (ADR 0044).
+  if (!literal && html) {
+    const fromHtml = htmlClipboardToText(html);
+    if (fromHtml != null && hasLink(fromHtml) && !hasLink(plain)) {
+      plain = fromHtml;
+    }
+  }
 
   // readSource reconstructs the raw markdown from the DOM (a focused bullet can
   // hold folded links whose label != source); getSelectionRange returns source
@@ -199,8 +217,9 @@ export function pasteIntoBullet(
 /**
  * Copy the selected SOURCE (not the rendered text) to the clipboard. A folded
  * link renders only its label, so the browser's native copy would drop the
- * `(url)` half; this writes the source slice instead -- "whatever you copy
- * comes back as markdown" (ADR 0005). Returns the source + selection range on
+ * `(url)` half; this writes the source slice as text/plain AND a real `<a>`
+ * fragment as text/html so external apps paste a hyperlink while Dotflowy
+ * round-trips the markdown (ADR 0005). Returns the source + selection range on
  * success, or null when there's no selection inside `el` (native copy
  * proceeds; on a link-free line source == rendered text anyway).
  */
@@ -214,7 +233,11 @@ export function copySourceSelection(
   if (!range || range.end <= range.start) return null;
   const source = readSource(el);
   e.preventDefault();
-  cd.setData("text/plain", source.slice(range.start, range.end));
+  const slice = source.slice(range.start, range.end);
+  cd.setData("text/plain", slice);
+  // Real anchors for Word / Docs / mail; Dotflowy's paste prefers HTML when
+  // plain lacks `](` so the round-trip stays a folded link.
+  cd.setData("text/html", markdownLinksToHtml(slice));
   return { source, ...range };
 }
 

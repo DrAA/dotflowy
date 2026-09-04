@@ -15,6 +15,7 @@ import {
   readSource,
 } from "../../components/inline-code";
 import { openUrlInFocusedTab } from "../../components/open-url";
+import { htmlClipboardToText } from "../../data/clipboard-html";
 import { isLocalDataEnabled } from "../../data/flags";
 import {
   bareHttpUrl,
@@ -227,23 +228,6 @@ function findFoldedAnchor(el: HTMLElement, token: string): HTMLElement | null {
   return null;
 }
 
-// If the clipboard HTML is "essentially a single anchor" -- exactly one
-// `<a href>` whose text is the whole payload -- return its text + http(s) href.
-// Anything richer (a paragraph, multiple links, a table) returns null and falls
-// back to plain text. Narrow on purpose (ADR 0005).
-function singleAnchor(html: string): { text: string; href: string } | null {
-  if (!html) return null;
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const anchors = doc.querySelectorAll("a[href]");
-  if (anchors.length !== 1) return null;
-  const a = anchors[0]!;
-  const href = a.getAttribute("href") ?? "";
-  const text = (a.textContent ?? "").trim();
-  const bodyText = (doc.body.textContent ?? "").trim();
-  if (!text || bodyText !== text || !isHttpUrl(href)) return null;
-  return { text, href };
-}
-
 // Seam C `/link` + the desktop toolbar's link button (ADR 0036): wrap the
 // current selection in a link and open the edit popover to fill the url. Reads
 // the focused contentEditable directly (the same seam wrap.ts uses); resolves a
@@ -366,14 +350,26 @@ export default definePlugin({
   // PAST the link: it's no longer under the caret, so it folds to a clean <a>
   // immediately instead of sitting revealed-raw until you click away. Wrapping
   // an existing SELECTION keeps the old end-of-link caret (no stray space).
+  // Rich HTML with one or more anchors is converted to markdown links (the
+  // core also upgrades multi-line plain from HTML when plain lacks `](`).
   input: {
     onPaste: ({ plain, html, selectedText, hasSelection }) => {
       const selUrl = bareHttpUrl(plain);
-      const anchor = hasSelection ? null : singleAnchor(html);
       if (hasSelection && selUrl)
         return `[${selectedText}](${encodeUrlForMarkdown(selUrl)})`;
-      if (anchor)
-        return `[${anchor.text}](${encodeUrlForMarkdown(anchor.href)}) `;
+      if (!hasSelection) {
+        // Prefer HTML when plain has no markdown links yet (label-only
+        // text/plain from Docs/Word). Skip when plain already carries
+        // `[label](url)` — e.g. a Dotflowy copy, or core's HTML upgrade.
+        const fromHtml = htmlClipboardToText(html);
+        if (fromHtml != null && !hasLink(plain)) {
+          return /\]\([^)]*\)$/.test(fromHtml) ? `${fromHtml} ` : fromHtml;
+        }
+        // Fold-space when the insert ends on a link token (core upgrade path).
+        if (hasLink(plain) && /\]\([^)]*\)$/.test(plain.trimEnd())) {
+          return plain.endsWith(" ") ? plain : `${plain} `;
+        }
+      }
       if (!hasSelection && selUrl)
         return `[${selUrl}](${encodeUrlForMarkdown(selUrl)}) `;
       return null;

@@ -538,6 +538,27 @@ test.describe("Creating links by paste", () => {
     expect(await readSrc(page, "n")).toBe(`${LINK} `);
   });
 
+  test("pasting richer HTML with a link in surrounding text still linkifies", async ({
+    page,
+  }) => {
+    // Docs/Word wrap the selection in spans — the old single-anchor gate
+    // rejected anything whose body text wasn't exactly the <a>'s text.
+    await load(page, [
+      { id: "n", parentId: null, prevSiblingId: null, text: "" },
+    ]);
+
+    await focusBullet(page, "n");
+    await pasteInto(text(page, "n"), {
+      html: '<span>See <a href="https://anthropic.com">Anthropic</a> now</span>',
+      plain: "See Anthropic now",
+    });
+
+    const anchor = text(page, "n").locator("a[data-link]");
+    await expect(anchor).toHaveText("Anthropic");
+    await expect(anchor).toHaveAttribute("href", "https://anthropic.com");
+    expect(await readSrc(page, "n")).toBe(`See ${LINK} now`);
+  });
+
   test("URLs with parens are percent-encoded so the link still parses", async ({
     page,
   }) => {
@@ -756,7 +777,10 @@ test.describe("Copy and cut return markdown source", () => {
           cancelable: true,
         }),
       );
-      return dt.getData("text/plain");
+      return {
+        plain: dt.getData("text/plain"),
+        html: dt.getData("text/html"),
+      };
     }, type);
 
   test("copying a selection spanning a folded link yields the markdown", async ({
@@ -766,7 +790,12 @@ test.describe("Copy and cut return markdown source", () => {
       { id: "n", parentId: null, prevSiblingId: null, text: SRC },
     ]);
 
-    expect(await clip(page, "n", "copy")).toBe(SRC);
+    const { plain, html } = await clip(page, "n", "copy");
+    expect(plain).toBe(SRC);
+    // External apps get a real <a>, not the markdown literal.
+    expect(html).toContain('<a href="https://anthropic.com">Anthropic</a>');
+    expect(html).toContain("before ");
+    expect(html).toContain(" after");
     // Copy doesn't disturb the line.
     await expect(text(page, "n").locator("a[data-link]")).toHaveText(
       "Anthropic",
@@ -780,7 +809,8 @@ test.describe("Copy and cut return markdown source", () => {
       { id: "n", parentId: null, prevSiblingId: null, text: SRC },
     ]);
 
-    expect(await clip(page, "n", "cut")).toBe(SRC);
+    const { plain } = await clip(page, "n", "cut");
+    expect(plain).toBe(SRC);
     await expect(text(page, "n")).toHaveText("");
   });
 });
