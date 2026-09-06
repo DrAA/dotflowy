@@ -294,9 +294,10 @@ export default definePlugin({
   ],
 
   // Seam C: `/link` wraps the selection in a link and opens the edit popover.
-  // caretScoped -- it needs the live selection the overlay-based Cmd+K can't hold
-  // (ADR 0034), so it's a slash-palette + toolbar action, not a command-center
-  // row. The desktop selection toolbar (ADR 0036) runs this same command.
+  // caretScoped -- it needs the live selection the overlay-based command center
+  // can't hold (ADR 0034), so it's slash-palette + toolbar + hotkey, not a
+  // command-center row. The desktop selection toolbar (ADR 0036) runs this same
+  // command; Mod+K is the keyboard twin (command center moved to Mod+Shift+K).
   commands: [
     {
       id: "link",
@@ -306,6 +307,17 @@ export default definePlugin({
       keywords: ["link", "url", "hyperlink", "anchor", "href"],
       available: () => true,
       caretScoped: true,
+      run: (nodeId: string, ctx: PluginContext) =>
+        createLinkFromSelection(nodeId, ctx),
+    },
+  ],
+
+  // Seam D: Mod+K opens the create-link popover (Notion/Docs-shaped). Free of
+  // the reserved-key denylist; command center owns Mod+Shift+K instead.
+  keymap: [
+    {
+      id: "link",
+      hotkey: "Mod+K",
       run: (nodeId: string, ctx: PluginContext) =>
         createLinkFromSelection(nodeId, ctx),
     },

@@ -21,7 +21,7 @@ function Dot({ className }: { className?: string }) {
 // One bullet per stage of the job: capture, retrieve, shape.
 const POINTS = [
   "Quick capture without leaving what you're doing.",
-  "Find it later with tags, filters, and Cmd+K.",
+  "Find it later with tags, filters, and Cmd+Shift+K.",
   "Drag, nest, zoom, mirror. Thoughts you can move.",
 ];
 
@@ -168,7 +168,7 @@ const BEATS = [
   },
   {
     title: "When it's too much, spotlight one line.",
-    body: "Cmd+K, turn on Spotlight. The rest of the outline dims so you can finish the thought in front of you.",
+    body: "Cmd+Shift+K, turn on Spotlight. The rest of the outline dims so you can finish the thought in front of you.",
   },
 ];
 

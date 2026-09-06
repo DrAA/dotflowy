@@ -38,7 +38,7 @@ async function pickFile(
   page: Page,
   files: Parameters<FileChooser["setFiles"]>[0],
 ) {
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press("ControlOrMeta+Shift+k");
   const input = page.getByPlaceholder(/Search nodes and actions/);
   await expect(input).toBeVisible();
   await input.fill("import opml");
@@ -227,7 +227,7 @@ test.describe("OPML import", () => {
     page,
   }) => {
     await load(page);
-    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.press("ControlOrMeta+Shift+k");
     const input = page.getByPlaceholder(/Search nodes and actions/);
     await expect(input).toBeVisible();
     await input.fill("import opml");

@@ -136,6 +136,23 @@ test.describe("selection format toolbar (fine pointer)", () => {
       "[alphabravo](https://example.com)",
     );
   });
+
+  test("Mod+K opens the create-link popover on a selection", async ({
+    page,
+  }) => {
+    await load(page, [
+      { id: "n", parentId: null, prevSiblingId: null, text: "alphabravo" },
+    ]);
+    await selectAll(page, "n");
+    await page.keyboard.press("ControlOrMeta+k");
+
+    const popover = page.locator("[data-link-edit-popover]");
+    await expect(popover).toBeVisible();
+    // Command center must NOT open on plain Mod+K (that chord is create-link).
+    await expect(page.getByPlaceholder(/Search nodes and actions/)).toHaveCount(
+      0,
+    );
+  });
 });
 
 test.describe("selection format toolbar (coarse pointer)", () => {

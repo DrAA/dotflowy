@@ -119,7 +119,7 @@ test.describe("changelog", () => {
 
   test("Cmd+K opens the dialog", async ({ page }) => {
     await load(page);
-    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.press("ControlOrMeta+Shift+k");
     await page.keyboard.type("changelog");
     await page.keyboard.press("Enter");
     await expect(dialog(page)).toBeVisible();

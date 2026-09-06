@@ -153,7 +153,7 @@ test.describe("saved filter queries (ADR 0048)", () => {
     await saveWork(page);
 
     // Open the command center; the saved filter appears in the empty state.
-    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.press("ControlOrMeta+Shift+k");
     await expect(
       page.getByPlaceholder(/Search nodes and actions/),
     ).toBeVisible();

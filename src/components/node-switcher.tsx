@@ -57,12 +57,13 @@ import {
 import { Kbd, KbdGroup } from "./ui/kbd";
 
 /**
- * Cmd+K command center (ADR 0034): a keyboard-first door to BOTH nodes and
- * actions. It is the old node quick-switcher (a fuzzy jump-to over every node)
- * grown a command palette -- global/system actions (the header + More menu) plus
- * node-contextual actions (indent/complete/delete/move + plugin `/` commands)
- * run against an AMBIENT target (the bullet you came from, captured at open) or
- * any node you pick with `->`.
+ * Command center (ADR 0034): a keyboard-first door to BOTH nodes and actions.
+ * Summoned by Mod+Shift+K (Mod+K is create-link on a focused bullet). It is the
+ * old node quick-switcher (a fuzzy jump-to over every node) grown a command
+ * palette -- global/system actions (the header + More menu) plus node-contextual
+ * actions (indent/complete/delete/move + plugin `/` commands) run against an
+ * AMBIENT target (the bullet you came from, captured at open) or any node you
+ * pick with `->`.
  *
  * Bridge, not spine: the actions come from thin adapters over the existing
  * models (`command-center.ts` for node actions read through `command-bridge`,
@@ -182,7 +183,15 @@ export function NodeSwitcher() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      // Mod+Shift+K (Mod+K is create-link on a focused bullet). Require Shift
+      // so the two bindings never collide; capture-phase so we freeze the
+      // ambient target before the dialog steals focus (ADR 0034).
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        (e.key === "k" || e.key === "K")
+      ) {
         e.preventDefault();
         if (openRef.current) {
           setOpen(false);

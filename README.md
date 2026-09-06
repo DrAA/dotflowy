@@ -38,8 +38,8 @@ so every browser talking to that host shares one tree behind
 - **Organize as you type** — `#tags` filter in place (right-click to color),
   `[[node links]]` with backlinks, mirrors that window one node into many
   places, daily notes with a Today button and `[[YYYY-MM-DD]]` date chips
-- **Keyboard-first** — a `/` command palette, a `Cmd/Ctrl+K` command center,
-  whole-node selection, quick-add capture, undo / redo
+- **Keyboard-first** — a `/` command palette, a `Cmd/Ctrl+Shift+K` command
+  center, whole-node selection, quick-add capture, undo / redo
   ([all shortcuts](./docs/keyboard.md))
 - **In and out freely** — multi-line paste lands as real nodes, copy gives
   markdown back, OPML import / export speaks the Workflowy dialect

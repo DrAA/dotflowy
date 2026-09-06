@@ -112,14 +112,15 @@ async function clientNavigate(page: Page, path: string) {
   }, path);
 }
 
-// Open the Cmd+K node switcher and type a query. cmdk autofocuses its input a
-// beat AFTER the dialog mounts; when Cmd+K fires right after a navigation, the
-// editor's post-nav focus effect can win that race and the dialog input never
-// takes focus, so typed keys land on the outline and are dropped (harmless at
-// human speed — seconds pass before you type — but deterministic at test speed).
-// Click the input to deterministically own focus, confirm it stuck, then type.
+// Open the command center (Mod+Shift+K) and type a query. cmdk autofocuses its
+// input a beat AFTER the dialog mounts; when the chord fires right after a
+// navigation, the editor's post-nav focus effect can win that race and the
+// dialog input never takes focus, so typed keys land on the outline and are
+// dropped (harmless at human speed — seconds pass before you type — but
+// deterministic at test speed). Click the input to deterministically own focus,
+// confirm it stuck, then type.
 async function openSwitcherAndType(page: Page, text: string) {
-  await page.keyboard.press(`${modifier()}+k`);
+  await page.keyboard.press(`${modifier()}+Shift+k`);
   const input = page.getByPlaceholder("Search nodes and actions...");
   await expect(input).toBeVisible();
   await input.click();

@@ -12,11 +12,12 @@
 | `Arrow ↑` / `↓` at line edges     | Move between bullets (preserves the caret column)                                                                             |
 | `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` | Undo / redo                                                                                                                   |
 | `Shift+↑` / `↓`                   | Select whole nodes (then `Tab` indents the run, `Backspace` deletes it, …)                                                    |
-| `Cmd/Ctrl+K`                      | Open the command center                                                                                                       |
+| `Cmd/Ctrl+K`                      | Link selected text (opens the create-link popover)                                                                            |
+| `Cmd/Ctrl+Shift+K`                | Open the command center                                                                                                       |
 | `Cmd/Ctrl+F`                      | Filter the current view (`?q=` — tags, operators, free text)                                                                  |
 | `Escape`                          | Toggle search: open the filter from a bullet when idle; when open, clear `?q=` and collapse (overlays/menus own Escape first) |
 | `q`                               | Quick-add capture (files to Today without leaving where you are)                                                              |
 
 The `/` menu on any bullet lists every command (to-do, paragraph, move,
-mirror, formatting, …), and `Cmd/Ctrl+K` runs node + global actions from
+mirror, formatting, …), and `Cmd/Ctrl+Shift+K` runs node + global actions from
 anywhere.

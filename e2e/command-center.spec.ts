@@ -35,11 +35,11 @@ async function load(page: Page) {
 }
 
 async function openPalette(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press("ControlOrMeta+Shift+k");
   await expect(page.getByPlaceholder(/Search nodes and actions/)).toBeVisible();
 }
 
-test.describe("Cmd+K command center (ADR 0034)", () => {
+test.describe("command center (ADR 0034)", () => {
   test("ambient target: a focused bullet's actions run against it", async ({
     page,
   }) => {

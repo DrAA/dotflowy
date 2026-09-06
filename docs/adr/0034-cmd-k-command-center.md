@@ -4,6 +4,11 @@ status: accepted
 
 # Cmd+K command center (nodes + actions)
 
+> **Hotkey amendment (2026-09-06).** The summon chord is **`Cmd/Ctrl+Shift+K`**.
+> Plain `Cmd/Ctrl+K` is create-link on a focused bullet (links plugin Seam D).
+> Prose below still says “Cmd+K” for the surface; the chord moved so create-link
+> can take the Notion/Docs-shaped binding.
+
 **What.** The Cmd+K node quick-switcher grows into a keyboard-first **command center**: one box over
 **nodes** AND **actions**. Actions are both global/system (the header + More-menu items) and
 node-contextual (indent, complete, delete, move, mirror, zoom, plus whole-node plugin `/` commands). A

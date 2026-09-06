@@ -70,7 +70,7 @@ async function pastePng(page: Page, id: string) {
 }
 
 async function openPalette(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press("ControlOrMeta+Shift+k");
   const input = page.getByPlaceholder(/Search nodes and actions/);
   await expect(input).toBeVisible();
   await input.click();

@@ -240,7 +240,7 @@ test.describe("Spoiler: in-app search sees INSIDE (your own spoilers)", () => {
       },
       { id: "b", parentId: null, prevSiblingId: "a", text: "unrelated" },
     ]);
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("Meta+Shift+k");
     // flattenInline strips the fences but KEEPS the interior, so your own fuzzy
     // search matches "Bob" even though it's hidden behind the bar (ADR 0043).
     await page.keyboard.type("Bob did");

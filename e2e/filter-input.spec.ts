@@ -129,7 +129,7 @@ test.describe("resident filter input (ADR 0047 §6)", () => {
   test("the Cmd+K action opens the filter input", async ({ page }) => {
     await load(page);
 
-    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.press("ControlOrMeta+Shift+k");
     await expect(
       page.getByPlaceholder(/Search nodes and actions/),
     ).toBeVisible();

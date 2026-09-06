@@ -113,7 +113,7 @@ const nodeText = (page: Page, id: string) =>
 // root included) lives on in the Cmd+K global action — same `exportOutlineAsOpml`
 // that reads `getViewRootId()` — so the zoomed-subtree cases still exercise it.
 async function runMenuExport(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press("ControlOrMeta+Shift+k");
   const input = page.getByPlaceholder(/Search nodes and actions/);
   await expect(input).toBeVisible();
   await input.fill("export opml");
@@ -186,7 +186,7 @@ test.describe("OPML export (Cmd+K + Settings)", () => {
     await page.goto("/");
     await expect(nodeText(page, "root")).toBeVisible();
 
-    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.press("ControlOrMeta+Shift+k");
     const input = page.getByPlaceholder(/Search nodes and actions/);
     await expect(input).toBeVisible();
     await input.fill("export opml");
