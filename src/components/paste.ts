@@ -21,7 +21,8 @@ import type { PluginContext } from "../plugins/types";
 
 import {
   htmlClipboardToText,
-  markdownLinksToHtml,
+  markdownLinksToRtf,
+  markdownToClipboardHtml,
 } from "../data/clipboard-html";
 import { hasLink } from "../data/links";
 import { afterPaste, pasteFiles, pasteReplacement } from "../plugins/registry";
@@ -235,9 +236,18 @@ export function copySourceSelection(
   e.preventDefault();
   const slice = source.slice(range.start, range.end);
   cd.setData("text/plain", slice);
-  // Real anchors for Word / Docs / mail; Dotflowy's paste prefers HTML when
-  // plain lacks `](` so the round-trip stays a folded link.
-  cd.setData("text/html", markdownLinksToHtml(slice));
+  // Word / Docs ignore a bare <a> fragment and fall back to text/plain
+  // (markdown). A StartFragment document + RTF hyperlink fields make the
+  // paste a real link in those apps; Dotflowy still round-trips via plain
+  // markdown or HTML→markdown on paste.
+  cd.setData("text/html", markdownToClipboardHtml(slice));
+  if (hasLink(slice)) {
+    try {
+      cd.setData("text/rtf", markdownLinksToRtf(slice));
+    } catch {
+      // Some browsers reject text/rtf on the event clipboard — HTML still ships.
+    }
+  }
   return { source, ...range };
 }
 

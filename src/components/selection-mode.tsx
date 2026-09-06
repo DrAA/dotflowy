@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import type { Node } from "../data/schema";
 import type { PluginContext } from "../plugins/types";
 
+import { writeMarkdownToClipboard } from "../data/clipboard-html";
 import { paragraphCommand } from "../data/core-commands";
 import { isMirrorsEnabled } from "../data/flags";
 import { capture, drop } from "../data/history";
@@ -121,7 +122,8 @@ function makeSelectionOps({
   };
 
   // Copy the selected roots' subtrees as a markdown bullet list (reuses the
-  // ADR 0017 serializer verbatim). Read-only, so the selection persists.
+  // ADR 0017 serializer verbatim). Also writes HTML + RTF so Word / Docs get
+  // real hyperlinks. Read-only, so the selection persists.
   const copy = () => {
     const md = outlineToMarkdown(
       getTreeIndex(),
@@ -129,8 +131,7 @@ function makeSelectionOps({
       imageCountsByNode(),
     );
     if (!md) return;
-    navigator.clipboard
-      .writeText(md)
+    writeMarkdownToClipboard(md)
       .then(() => toast.success("Copied as Markdown"))
       .catch(() => toast.error("Couldn't copy to clipboard"));
   };
@@ -221,17 +222,17 @@ function makeSelectionOps({
     clearSelection();
   };
 
-  // Cut = copy-as-markdown, then delete. Clipboard write must succeed before
-  // anything is removed (a failed write must not drop subtrees). Ids are
-  // captured up front so a mid-flight selection clear (menu dismiss, click)
-  // can't turn a successful clipboard write into a no-op delete.
+  // Cut = copy-as-markdown (+ HTML/RTF for external paste), then delete.
+  // Clipboard write must succeed before anything is removed (a failed write
+  // must not drop subtrees). Ids are captured up front so a mid-flight
+  // selection clear (menu dismiss, click) can't turn a successful clipboard
+  // write into a no-op delete.
   const cut = () => {
     const ids = getSelectionRootIds();
     if (ids.length === 0) return;
     const md = outlineToMarkdown(getTreeIndex(), ids, imageCountsByNode());
     if (!md) return;
-    navigator.clipboard
-      .writeText(md)
+    writeMarkdownToClipboard(md)
       .then(() => {
         toast.success("Cut as Markdown");
         remove(ids);

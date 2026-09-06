@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 
 import { useUnseenReleaseCount } from "../data/changelog-cursor";
+import { writeMarkdownToClipboard } from "../data/clipboard-html";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import { openFeedbackReport } from "../data/feedback";
@@ -78,7 +79,7 @@ export async function copyOutlineAsMarkdown() {
     return;
   }
   try {
-    await navigator.clipboard.writeText(markdown);
+    await writeMarkdownToClipboard(markdown);
     toast.success("Copied as Markdown");
   } catch {
     toast.error("Couldn't copy to clipboard");

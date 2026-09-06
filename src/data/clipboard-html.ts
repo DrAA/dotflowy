@@ -1,18 +1,20 @@
 // Clipboard HTML ↔ markdown-link bridge (ADR 0005 / 0016).
 //
 // Storage stays `[label](url)` in `node.text`. External apps speak HTML
-// hyperlinks. These two pure-ish helpers are the seam between them:
+// hyperlinks (and Word prefers RTF). These helpers are the seam between them:
 //
 //   - htmlClipboardToText: rich paste (Docs / Word / browser) → source text
-//     with markdown links, so a paste that only carries the URL in HTML still
-//     lands as a folded link. Returns null when there are no http(s) anchors
-//     (caller keeps text/plain).
-//   - markdownLinksToHtml: source slice → HTML fragment with real <a> tags so
-//     copy/cut into another document pastes as a hyperlink, not `[label](url)`
-//     literal text.
+//     with markdown links. Returns null when there are no http(s) anchors.
+//   - markdownToClipboardHtml: source → a full HTML clipboard document with
+//     real <a> tags and <!--StartFragment--> markers (what Word / Docs expect;
+//     a bare fragment is often ignored in favour of text/plain markdown).
+//   - markdownLinksToRtf: source → RTF with HYPERLINK fields (Word's preferred
+//     rich format when both plain and HTML are present).
+//   - writeMarkdownToClipboard: async write of plain + html (+ rtf when the
+//     ClipboardItem API allows) for node-selection / menu copy paths.
 //
 // DOMParser is browser-only (bun's test runner has no DOM); the HTML→text
-// direction is covered by e2e. markdownLinksToHtml is regex-pure and unit-tested.
+// direction is covered by e2e. The pure emitters are unit-tested.
 
 import {
   encodeUrlForMarkdown,
@@ -57,10 +59,14 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Escape RTF control characters in literal text. */
+function escapeRtf(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/{/g, "\\{").replace(/}/g, "\\}");
+}
+
 /**
- * Turn a markdown source slice into an HTML fragment. Link tokens become
- * `<a href="…">label</a>`; everything else is escaped plain text. Used by
- * copy/cut so external editors receive a real hyperlink.
+ * Turn a markdown source slice into an inline HTML fragment. Link tokens become
+ * `<a href="…">label</a>`; everything else is escaped plain text.
  */
 export function markdownLinksToHtml(text: string): string {
   if (!text.includes("[")) return escapeHtml(text);
@@ -76,6 +82,102 @@ export function markdownLinksToHtml(text: string): string {
   }
   out += escapeHtml(text.slice(last));
   return out;
+}
+
+/**
+ * Wrap an HTML fragment in the clipboard document shape Word / Docs / Chromium
+ * expect: a full html/body plus the literal `<!--StartFragment-->` /
+ * `<!--EndFragment-->` markers (Microsoft CF_HTML). A bare `<a>` fragment is
+ * often discarded by Word in favour of text/plain.
+ */
+export function wrapClipboardHtml(fragment: string): string {
+  return (
+    `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
+    `<!--StartFragment-->${fragment}<!--EndFragment-->` +
+    `</body></html>`
+  );
+}
+
+/**
+ * Markdown source (one line or many) → clipboard `text/html` payload with real
+ * anchors. Multi-line outline exports become `<br>`-joined lines so bullet
+ * markers stay visible as text while links stay clickable.
+ */
+export function markdownToClipboardHtml(md: string): string {
+  const normalized = md.replace(/\r\n?/g, "\n");
+  const fragment = normalized.includes("\n")
+    ? normalized
+        .split("\n")
+        .map((line) => markdownLinksToHtml(line))
+        .join("<br>")
+    : markdownLinksToHtml(normalized);
+  return wrapClipboardHtml(fragment);
+}
+
+/**
+ * Markdown source → RTF with HYPERLINK field codes. Word (desktop) prefers RTF
+ * over HTML when both are on the clipboard; without it, paste often falls back
+ * to the markdown text/plain and the link is lost.
+ */
+export function markdownLinksToRtf(text: string): string {
+  const normalized = text.replace(/\r\n?/g, "\n");
+  let body = "";
+  const emitLine = (line: string) => {
+    let last = 0;
+    for (const m of line.matchAll(LINK_RE())) {
+      const start = m.index ?? 0;
+      body += escapeRtf(line.slice(last, start));
+      const label = m[1] ?? "";
+      const url = m[2] ?? "";
+      // HYPERLINK field: {\field{\*\fldinst HYPERLINK "url"}{\fldrslt label}}
+      body +=
+        `{\\field{\\*\\fldinst HYPERLINK "${escapeRtf(url)}"}` +
+        `{\\fldrslt ${escapeRtf(label)}}}`;
+      last = start + (m[0]?.length ?? 0);
+    }
+    body += escapeRtf(line.slice(last));
+  };
+  const lines = normalized.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) body += "\\line ";
+    emitLine(lines[i]!);
+  }
+  return `{\\rtf1\\ansi\\deff0 ${body}}`;
+}
+
+/**
+ * Write markdown to the system clipboard as text/plain + text/html (+ text/rtf
+ * when ClipboardItem accepts it). Used by node multi-select and menu "Copy as
+ * Markdown" so external apps receive real hyperlinks, not `[label](url)`.
+ */
+export async function writeMarkdownToClipboard(md: string): Promise<void> {
+  const html = markdownToClipboardHtml(md);
+  const rtf = markdownLinksToRtf(md);
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+    try {
+      // Promise-wrapped Blobs: Safari requires them; Chromium accepts them.
+      const item: Record<string, Blob | Promise<Blob>> = {
+        "text/plain": Promise.resolve(new Blob([md], { type: "text/plain" })),
+        "text/html": Promise.resolve(new Blob([html], { type: "text/html" })),
+      };
+      // text/rtf is optional — some browsers reject unknown MIME on ClipboardItem.
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            ...item,
+            "text/rtf": Promise.resolve(new Blob([rtf], { type: "text/rtf" })),
+          }),
+        ]);
+        return;
+      } catch {
+        await navigator.clipboard.write([new ClipboardItem(item)]);
+        return;
+      }
+    } catch {
+      // Fall through to writeText.
+    }
+  }
+  await navigator.clipboard.writeText(md);
 }
 
 /**

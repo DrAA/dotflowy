@@ -25,10 +25,12 @@ link keeps its `(url)` half folded. So:
   per folded atom before the caret.
 - **Copy/cut go through the same source read** (`copySourceSelection`/`cutSourceSelection`,
   `paste.ts`): the native clipboard would carry the rendered label and silently drop the url half,
-  so the handlers write the source slice as `text/plain` **and** a real `<a href>` fragment as
-  `text/html` — Dotflowy round-trips the markdown; external apps paste a hyperlink. Rich HTML
-  paste (Docs/Word/browser) converts `<a href>` back into `[label](url)` when plain text lacks
-  the URL.
+  so the handlers write the source slice as `text/plain`, a StartFragment HTML document with real
+  `<a href>` as `text/html`, and RTF HYPERLINK fields as `text/rtf` — Dotflowy round-trips the
+  markdown; Word / Docs paste a hyperlink (a bare `<a>` fragment is often ignored in favour of the
+  markdown plain text). Rich HTML paste (Docs/Word/browser) converts `<a href>` back into
+  `[label](url)` when plain text lacks the URL. Node-selection / menu "Copy as Markdown" use the
+  same HTML+RTF write via `writeMarkdownToClipboard`.
 
 All of it fast-paths out on lines with no `](`, which is 99% of them.
 

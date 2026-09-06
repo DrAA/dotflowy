@@ -792,7 +792,9 @@ test.describe("Copy and cut return markdown source", () => {
 
     const { plain, html } = await clip(page, "n", "copy");
     expect(plain).toBe(SRC);
-    // External apps get a real <a>, not the markdown literal.
+    // External apps get a real <a> inside a StartFragment document (Word
+    // ignores bare fragments and falls back to the markdown plain text).
+    expect(html).toContain("<!--StartFragment-->");
     expect(html).toContain('<a href="https://anthropic.com">Anthropic</a>');
     expect(html).toContain("before ");
     expect(html).toContain(" after");
