@@ -12,9 +12,13 @@ import {
   CONTENT_BACKUP_VERSION,
   ContentBackupSchema,
   backupFilename,
+  backupSubtreeIds,
   decodeBlobBase64,
   encodeBlobBase64,
+  extractBackupSubtree,
   parseContentBackup,
+  prepareSubtreeMerge,
+  searchBackupNodes,
 } from "./content-backup";
 
 const decode = Schema.decodeUnknownSync(ContentBackupSchema);
@@ -109,5 +113,91 @@ describe("gzip round-trip", () => {
     const compressed = await gzipJson(BACKUP);
     const parsed = await gunzipJson(compressed);
     expect(parseContentBackup(parsed)).toEqual(BACKUP);
+  });
+});
+
+function node(
+  id: string,
+  parentId: string | null,
+  prevSiblingId: string | null,
+  text: string,
+): Node {
+  return {
+    id,
+    parentId,
+    prevSiblingId,
+    text,
+    isTask: false,
+    completed: false,
+    collapsed: false,
+    bookmarkedAt: null,
+    mirrorOf: null,
+    createdAt: 1,
+    updatedAt: 1,
+    origin: null,
+    kind: null,
+  };
+}
+
+describe("subtree extract + merge", () => {
+  const backupNodes = [
+    node("root", null, null, "Root"),
+    node("keep", null, "root", "Keep me"),
+    node("branch", null, "keep", "Branch"),
+    node("child", "branch", null, "Child"),
+    node("grand", "child", null, "Grand"),
+  ];
+
+  it("extracts a branch and its descendants", () => {
+    const ids = backupSubtreeIds(backupNodes, "branch");
+    expect([...ids].sort()).toEqual(["branch", "child", "grand"]);
+    expect(
+      extractBackupSubtree(backupNodes, "branch")
+        .map((n) => n.id)
+        .sort(),
+    ).toEqual(["branch", "child", "grand"]);
+  });
+
+  it("merges a missing branch under the fallback parent", () => {
+    const live = [
+      node("root", null, null, "Root"),
+      node("keep", null, "root", "Keep me"),
+    ];
+    const { targetNodes, restoredIds } = prepareSubtreeMerge(
+      live,
+      backupNodes,
+      "branch",
+      null,
+    );
+    expect([...restoredIds].sort()).toEqual(["branch", "child", "grand"]);
+    const branch = targetNodes.find((n) => n.id === "branch")!;
+    expect(branch.parentId).toBe(null);
+    expect(branch.prevSiblingId).toBe("keep");
+    expect(targetNodes.find((n) => n.id === "keep")?.text).toBe("Keep me");
+    expect(targetNodes.find((n) => n.id === "grand")?.text).toBe("Grand");
+  });
+
+  it("replaces a live branch from the backup without touching siblings", () => {
+    const live = [
+      node("root", null, null, "Root"),
+      node("keep", null, "root", "Keep me"),
+      node("branch", null, "keep", "Stale branch"),
+      node("stale-kid", "branch", null, "Should go"),
+    ];
+    const { targetNodes } = prepareSubtreeMerge(
+      live,
+      backupNodes,
+      "branch",
+      null,
+    );
+    expect(targetNodes.find((n) => n.id === "stale-kid")).toBeUndefined();
+    expect(targetNodes.find((n) => n.id === "branch")?.text).toBe("Branch");
+    expect(targetNodes.find((n) => n.id === "child")?.text).toBe("Child");
+    expect(targetNodes.find((n) => n.id === "keep")?.text).toBe("Keep me");
+  });
+
+  it("searches backup bullets by plain text", () => {
+    const hits = searchBackupNodes({ ...BACKUP, nodes: backupNodes }, "grand");
+    expect(hits.map((n) => n.id)).toEqual(["grand"]);
   });
 });

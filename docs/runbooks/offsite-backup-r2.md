@@ -116,3 +116,6 @@ Then list what landed: `bunx wrangler r2 object get` against the local
 simulator, or just watch the `backup sweep: N/N DOs exported` log line. The
 restore route is fully drivable locally (seed a user with `bun run seed:user`,
 edit, back up, edit again, restore, reload).
+
+User-facing portable backups (outline + embedded images, whole outline or one
+bullet): [content-backup-restore.md](./content-backup-restore.md).

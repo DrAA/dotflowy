@@ -58,7 +58,9 @@ import { enqueueWrite } from "./write-queue";
 // the added latency is invisible. `withPermits` releases on success, failure,
 // AND interruption, so one rejected batch can't wedge the queue (its caller's
 // promise still rejects → that transaction rolls back).
-const writeSem = Semaphore.makeUnsafe(1);
+// 1-permit semaphores; rebound by {@link resetApiCoordinatorsForTests} so a
+// leaked in-flight fiber from a prior unit test can't hold the permit forever.
+let writeSem = Semaphore.makeUnsafe(1);
 
 /**
  * Persist a structural mutation as one atomic batch — the Effect core. The DO
@@ -132,8 +134,19 @@ interface FieldGen {
   promise: Promise<void>;
 }
 
-const fieldSem = Semaphore.makeUnsafe(1);
+let fieldSem = Semaphore.makeUnsafe(1);
 let currentGen: FieldGen | null = null;
+
+/**
+ * Drop in-flight field-generation bookkeeping and mint fresh semaphores.
+ * Unit tests only: a parked fetch from a prior case otherwise keeps the
+ * permit forever and starves the next suite run.
+ */
+export function resetApiCoordinatorsForTests(): void {
+  currentGen = null;
+  writeSem = Semaphore.makeUnsafe(1);
+  fieldSem = Semaphore.makeUnsafe(1);
+}
 
 /**
  * Arm a generation's flush: wait our turn on the permit, then drain everything

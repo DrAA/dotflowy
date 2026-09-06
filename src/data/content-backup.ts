@@ -18,6 +18,7 @@ import {
   planRestoreToNodes,
   RESTORE_SLICE_OPS,
 } from "./history";
+import { flattenInline } from "./inline-text";
 import { kvDelete, kvFetch, kvPut } from "./kv-api";
 import { getLiveNodes } from "./live-nodes";
 import {
@@ -31,7 +32,9 @@ import { getLunoraOutlineContext } from "./lunora-sync";
 import { mediaCollection } from "./media";
 import { nodeSchema } from "./schema";
 import { runStructural, runStructuralSliced } from "./structural";
+import { buildTreeIndex, childrenOf } from "./tree";
 import { getTreeIndex } from "./tree-store";
+import { getViewRootId } from "./view-state";
 
 /** Bump when the on-disk backup shape changes. */
 export const CONTENT_BACKUP_VERSION = 1;
@@ -143,6 +146,172 @@ function mediaRowsFromBackup(backup: ContentBackup): MediaRow[] {
   return mediaRowsFromKv(backup.kv);
 }
 
+/** Every id in the backup subtree rooted at `rootId` (root included). */
+export function backupSubtreeIds(
+  nodes: readonly Node[],
+  rootId: string,
+): Set<string> {
+  const childrenByParent = new Map<string | null, string[]>();
+  for (const n of nodes) {
+    const key = n.parentId;
+    const list = childrenByParent.get(key) ?? [];
+    list.push(n.id);
+    childrenByParent.set(key, list);
+  }
+  const ids = new Set<string>();
+  if (!nodes.some((n) => n.id === rootId)) return ids;
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    for (const childId of childrenByParent.get(id) ?? []) stack.push(childId);
+  }
+  return ids;
+}
+
+/** Nodes of the backup subtree rooted at `rootId`, or [] if missing. */
+export function extractBackupSubtree(
+  nodes: readonly Node[],
+  rootId: string,
+): Node[] {
+  const ids = backupSubtreeIds(nodes, rootId);
+  if (!ids.size) return [];
+  return nodes.filter((n) => ids.has(n.id)).map((n) => ({ ...n }));
+}
+
+function lastLiveSiblingId(
+  index: TreeIndex,
+  parentId: string | null,
+  exclude: Set<string>,
+): string | null {
+  const kids = childrenOf(index, parentId).filter((k) => !exclude.has(k.id));
+  return kids.length ? kids[kids.length - 1]!.id : null;
+}
+
+/**
+ * Merge one backup bullet (and its descendants) into the live outline:
+ * replace that live subtree from the backup, leave everything else alone.
+ * If the restored root's parent is gone, attach under `fallbackParentId`.
+ */
+export function prepareSubtreeMerge(
+  liveNodes: readonly Node[],
+  backupNodes: readonly Node[],
+  rootId: string,
+  fallbackParentId: string | null,
+): { targetNodes: Node[]; restoredIds: Set<string> } {
+  const subtree = extractBackupSubtree(backupNodes, rootId);
+  if (!subtree.length) {
+    throw new Error(`Backup has no bullet ${rootId}`);
+  }
+  const restoredIds = new Set(subtree.map((n) => n.id));
+  const liveIndex = buildTreeIndex([...liveNodes]);
+  const liveById = liveIndex.byId;
+
+  const removeIds = new Set<string>();
+  if (liveById.has(rootId)) {
+    const stack = [rootId];
+    const seen = new Set<string>();
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (!restoredIds.has(id)) removeIds.add(id);
+      for (const child of childrenOf(liveIndex, id)) stack.push(child.id);
+    }
+  }
+
+  const prepared: Node[] = [];
+  for (const raw of subtree) {
+    let node = { ...raw };
+    if (node.id === rootId) {
+      const parentOk =
+        node.parentId === null ||
+        liveById.has(node.parentId) ||
+        restoredIds.has(node.parentId);
+      if (!parentOk) {
+        node = {
+          ...node,
+          parentId: fallbackParentId,
+          prevSiblingId: lastLiveSiblingId(
+            liveIndex,
+            fallbackParentId,
+            removeIds,
+          ),
+        };
+      } else {
+        const prevOk =
+          node.prevSiblingId === null ||
+          liveById.has(node.prevSiblingId) ||
+          restoredIds.has(node.prevSiblingId);
+        if (!prevOk) {
+          node = {
+            ...node,
+            prevSiblingId: lastLiveSiblingId(
+              liveIndex,
+              node.parentId,
+              new Set([...removeIds, ...restoredIds]),
+            ),
+          };
+        }
+      }
+    } else {
+      const prevOk =
+        node.prevSiblingId === null || restoredIds.has(node.prevSiblingId);
+      if (!prevOk) {
+        node = { ...node, prevSiblingId: null };
+      }
+    }
+    prepared.push(node);
+  }
+
+  const targetById = new Map<string, Node>();
+  for (const n of liveNodes) {
+    if (removeIds.has(n.id) || restoredIds.has(n.id)) continue;
+    targetById.set(n.id, n);
+  }
+  for (const n of prepared) targetById.set(n.id, n);
+  return { targetNodes: [...targetById.values()], restoredIds };
+}
+
+/** Search backup bullets for the one-bullet picker (plain reading text). */
+export function searchBackupNodes(
+  backup: ContentBackup,
+  query: string,
+  limit = 40,
+): Node[] {
+  const q = query.trim().toLowerCase();
+  const ranked: { node: Node; score: number }[] = [];
+  for (const node of backup.nodes) {
+    const plain = flattenInline(node.text);
+    if (!plain.trim()) continue;
+    if (!q) {
+      ranked.push({ node, score: 0 });
+      continue;
+    }
+    const hay = plain.toLowerCase();
+    const idx = hay.indexOf(q);
+    if (idx < 0) continue;
+    ranked.push({ node, score: idx === 0 ? 0 : 1 + idx });
+  }
+  ranked.sort(
+    (a, b) => a.score - b.score || a.node.text.localeCompare(b.node.text),
+  );
+  return ranked.slice(0, limit).map((r) => r.node);
+}
+
+/** Count images in a backup that attach to any of `nodeIds`. */
+export function backupImageCountForNodes(
+  backup: ContentBackup,
+  nodeIds: ReadonlySet<string>,
+): number {
+  let n = 0;
+  for (const row of mediaRowsFromBackup(backup)) {
+    if (nodeIds.has(row.nodeId)) n++;
+  }
+  return n;
+}
+
 async function fetchMediaBytes(id: string): Promise<Uint8Array | null> {
   if (isLocalDataEnabled()) {
     const blobs = await loadAllLocalBlobs();
@@ -202,9 +371,13 @@ async function replaceKvCollection(
   if (rows.length) await kvPut(collection, [...rows]);
 }
 
-async function restoreMediaBlobs(backup: ContentBackup): Promise<MediaRow[]> {
+async function restoreMediaBlobs(
+  backup: ContentBackup,
+  opts?: { onlyNodeIds?: ReadonlySet<string> },
+): Promise<MediaRow[]> {
   const restored: MediaRow[] = [];
   for (const row of mediaRowsFromBackup(backup)) {
+    if (opts?.onlyNodeIds && !opts.onlyNodeIds.has(row.nodeId)) continue;
     const blob = backup.blobs[row.id];
     if (!blob) continue;
     const bytes = decodeBlobBase64(blob.base64);
@@ -231,6 +404,40 @@ async function restoreMediaBlobs(backup: ContentBackup): Promise<MediaRow[]> {
     if (res.ok) restored.push((await res.json()) as MediaRow);
   }
   return restored;
+}
+
+/** Upsert restored media rows without wiping unrelated attachments. */
+async function mergeMediaRows(
+  restoredMedia: readonly MediaRow[],
+  replaceNodeIds: ReadonlySet<string>,
+): Promise<void> {
+  const current = await kvFetch<unknown>("media");
+  const kept: { key: string; value: unknown }[] = [];
+  for (const value of current) {
+    const row = value as MediaRow;
+    if (!row?.id || !row.nodeId) continue;
+    if (replaceNodeIds.has(row.nodeId)) continue;
+    kept.push({ key: row.id, value: row });
+  }
+  for (const row of restoredMedia) {
+    kept.push({ key: row.id, value: row });
+  }
+  await replaceKvCollection("media", kept);
+  for (const row of restoredMedia) {
+    if (mediaCollection.has(row.id)) {
+      mediaCollection.update(row.id, (draft) => Object.assign(draft, row));
+    } else {
+      mediaCollection.insert({ ...row });
+    }
+  }
+  // Drop collection rows for replaced node attachments that were not re-uploaded.
+  for (const value of current) {
+    const row = value as MediaRow;
+    if (!row?.id || !row.nodeId) continue;
+    if (!replaceNodeIds.has(row.nodeId)) continue;
+    if (restoredMedia.some((r) => r.id === row.id)) continue;
+    if (mediaCollection.has(row.id)) mediaCollection.delete(row.id);
+  }
 }
 
 async function restoreLunoraKv(
@@ -399,6 +606,45 @@ export async function restoreContentBackup(
         mediaCollection.insert({ ...row });
       }
     }
+  } catch (err) {
+    drop();
+    throw err;
+  }
+}
+
+/**
+ * Restore one bullet (and its descendants + images) from a backup into the
+ * live outline. Other bullets and side settings stay put. Missing parent →
+ * attach under `fallbackParentId` (default: current zoom root, or home).
+ */
+export async function restoreContentBackupSubtree(
+  backup: ContentBackup,
+  rootId: string,
+  opts?: { fallbackParentId?: string | null },
+): Promise<{ nodeCount: number; imageCount: number }> {
+  const fallbackParentId =
+    opts?.fallbackParentId !== undefined
+      ? opts.fallbackParentId
+      : getViewRootId();
+  const liveNodes = getLiveNodes();
+  const { targetNodes, restoredIds } = prepareSubtreeMerge(
+    liveNodes,
+    backup.nodes,
+    rootId,
+    fallbackParentId,
+  );
+  const index = getTreeIndex();
+  capture(index, rootId);
+  try {
+    await applyNodeRestore(index, targetNodes);
+    const restoredMedia = await restoreMediaBlobs(backup, {
+      onlyNodeIds: restoredIds,
+    });
+    await mergeMediaRows(restoredMedia, restoredIds);
+    return {
+      nodeCount: restoredIds.size,
+      imageCount: restoredMedia.length,
+    };
   } catch (err) {
     drop();
     throw err;

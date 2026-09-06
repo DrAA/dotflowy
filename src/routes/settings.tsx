@@ -724,7 +724,7 @@ function DataSection() {
         <SettingRow
           icon={<DownloadIcon />}
           title="Backup (JSON)"
-          description="Download a compressed backup with your whole outline and attached images."
+          description="Download a compressed backup with your whole outline and attached images. Keep a copy somewhere safe."
           action={
             <Button
               variant="outline"
@@ -738,7 +738,7 @@ function DataSection() {
         <SettingRow
           icon={<FileUpIcon />}
           title="Restore backup"
-          description="Replace your outline from a .aaflowy-backup.json.gz file."
+          description="Open a .aaflowy-backup.json.gz file. Restore the whole outline, or just one bullet and its children (with their images)."
           action={
             <Button
               variant="outline"

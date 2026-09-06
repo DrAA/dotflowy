@@ -135,7 +135,7 @@ export function useGlobalActions(opts: {
       {
         id: "g:restore-backup",
         label: "Restore backup…",
-        description: "Replace the outline from a backup file",
+        description: "Whole outline or one bullet from a backup file",
         icon: FileUpIcon,
         scope: "global",
         keywords: ["restore", "backup", "import", "json", "gzip"],
