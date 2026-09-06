@@ -93,6 +93,28 @@ export function getPendingWriteCount(): number {
   return queue.length;
 }
 
+/**
+ * Drop queued field PATCHes so a later flush cannot re-apply text that undo
+ * already restored. Structural/create/delete entries stay (they are not the
+ * typing bounce path).
+ */
+export function dropQueuedFieldWrites(): void {
+  if (queue.length === 0) return;
+  const next = queue.filter((e) => e.kind !== "field");
+  if (next.length === queue.length) return;
+  queue = next;
+  if (queue.length === 0) clearPersistedQueue();
+  else if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    } catch {
+      /* ignore */
+    }
+  }
+  emitQueueChange();
+  notifyPersistQueued(queue.length);
+}
+
 /** Enqueue a write after a retriable persistence failure. */
 export function enqueueWrite(
   entry:

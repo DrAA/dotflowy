@@ -161,7 +161,7 @@ function toNode(n: SeedNode): ApiNode {
  * `seedOutlineLunora` (flag ON + `/_lunora/*` mock). The classic path sets
  * `dotflowy:flag:lunora-sync=off` so specs stay on `/api/sync` even though
  * the product default is ON. Classic-only opts (`echoDelayMs`, `echoChunks`,
- * `postDelayMs`, `failStructuralWrites`, `serverVersion`) are ignored on the
+ * `postDelayMs`, `patchDelayMs`, `failStructuralWrites`, `serverVersion`) are ignored on the
  * Lunora path — those specs stay classic-only. Lunora-only opts
  * (`suppressWholeOutlinePoke`, `failMutatorWrites`) live on
  * `seedOutlineLunora` directly.
@@ -172,6 +172,9 @@ export async function seedOutline(
   opts: {
     echoDelayMs?: number;
     postDelayMs?: number;
+    /** Delay only the field PATCH *response* so undo can race an in-flight
+     *  keystroke write (fieldSem ⊥ writeSem). */
+    patchDelayMs?: number;
     /** Split a structural batch's echo into N frames (chunked ops, consecutive
      *  seqs, staggered by echoDelayMs each), replying with the FINAL seq —
      *  mirrors the DO's chunked recordChange (worker/outline-do.ts, issue
@@ -332,6 +335,12 @@ export async function seedOutline(
           const { updates } = req.postDataJSON() as {
             updates: { id: string; changes: Partial<ApiNode> }[];
           };
+          // Delay *before* applying so undo can race an in-flight keystroke
+          // write the way a slow DO round-trip does (fieldSem ⊥ writeSem).
+          const patchDelayMs = opts.patchDelayMs ?? 0;
+          if (patchDelayMs > 0) {
+            await new Promise((r) => setTimeout(r, patchDelayMs));
+          }
           const ops: ApiChangeOp[] = [];
           for (const u of updates ?? []) {
             const cur = store.get(u.id);

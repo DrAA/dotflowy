@@ -132,10 +132,14 @@ interface FieldGen {
   pending: Map<string, Partial<Node>>;
   /** The one promise every caller of this generation shares (shared-fate). */
   promise: Promise<void>;
+  /** Epoch when this generation was armed — stale gens must not PATCH. */
+  epoch: number;
 }
 
 let fieldSem = Semaphore.makeUnsafe(1);
 let currentGen: FieldGen | null = null;
+/** Bumped to cancel parked field generations before a structural restore. */
+let fieldEpoch = 0;
 
 /**
  * Drop in-flight field-generation bookkeeping and mint fresh semaphores.
@@ -144,8 +148,37 @@ let currentGen: FieldGen | null = null;
  */
 export function resetApiCoordinatorsForTests(): void {
   currentGen = null;
+  fieldEpoch++;
   writeSem = Semaphore.makeUnsafe(1);
   fieldSem = Semaphore.makeUnsafe(1);
+}
+
+/**
+ * Before undo/redo (or any structural restore that must win last-writer):
+ * discard coalesced field edits that have not left the client, and wait for
+ * any PATCH already on the wire. Otherwise an in-flight `updateNodes` can
+ * land on the DO *after* the restore batch and bounce the undone text back
+ * (fieldSem ⊥ writeSem).
+ *
+ * Important: while a PATCH is in flight, `currentGen` is often already null
+ * (the flush detached itself). Waiting only on `currentGen.promise` would
+ * miss that request — so we also drain `fieldSem` itself.
+ */
+export async function prepareStructuralWrite(): Promise<void> {
+  fieldEpoch++;
+  const gen = currentGen;
+  currentGen = null;
+  if (gen) gen.pending.clear();
+  // Hold the permit until any in-flight flush finishes. A parked generation
+  // that runs next sees the bumped epoch / empty pending and sends nothing.
+  await runPromise(fieldSem.withPermits(1)(Effect.void));
+  if (gen) {
+    try {
+      await gen.promise;
+    } catch {
+      // Shared-fate rejection is fine — permit is already released.
+    }
+  }
 }
 
 /**
@@ -163,7 +196,10 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
         // Holding the permit => the prior generation's PATCH has settled. Detach
         // so new callers open a fresh generation, and snapshot the merge.
         if (currentGen === gen) currentGen = null;
-        if (gen.pending.size === 0) return Effect.void;
+        // Undo/restore bumped the epoch — do not send superseded keystrokes.
+        if (gen.epoch !== fieldEpoch || gen.pending.size === 0) {
+          return Effect.void;
+        }
         capturedUpdates = [...gen.pending].map(([id, changes]) => ({
           id,
           changes,
@@ -193,7 +229,11 @@ export function updateNodes(
   let gen = currentGen;
   const fresh = !gen;
   if (!gen) {
-    gen = { pending: new Map(), promise: Promise.resolve() };
+    gen = {
+      pending: new Map(),
+      promise: Promise.resolve(),
+      epoch: fieldEpoch,
+    };
     currentGen = gen;
   }
   for (const u of updates) {

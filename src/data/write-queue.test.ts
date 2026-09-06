@@ -11,6 +11,7 @@ import {
 } from "./nodes-client-effect";
 import {
   clearWriteQueueMemoryForTests,
+  dropQueuedFieldWrites,
   enqueueWrite,
   getPendingWriteCount,
   reloadWriteQueueFromStorage,
@@ -116,5 +117,25 @@ describe("write-queue localStorage persistence", () => {
     );
     expect(restoreQueuedSnapshotIfPresent()).toBeNull();
     expect(store.has("dotflowy:write-queue:nodes")).toBe(false);
+  });
+
+  test("dropQueuedFieldWrites removes only field entries", () => {
+    const snapshot = [node({ id: "a" })];
+    enqueueWrite(
+      { kind: "field", updates: [{ id: "a", changes: { text: "x" } }] },
+      snapshot,
+    );
+    enqueueWrite(
+      { kind: "structural", ops: [{ op: "delete", key: "b" }] },
+      snapshot,
+    );
+    enqueueWrite(
+      { kind: "field", updates: [{ id: "a", changes: { text: "y" } }] },
+      snapshot,
+    );
+    expect(getPendingWriteCount()).toBe(3);
+
+    dropQueuedFieldWrites();
+    expect(getPendingWriteCount()).toBe(1);
   });
 });

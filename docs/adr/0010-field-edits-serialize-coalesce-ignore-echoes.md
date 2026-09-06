@@ -50,3 +50,8 @@ per-call, but rapid calls race out of order and bill one DO write per character;
 PATCH on a timer (adds latency and can lose the last edit on unload — coalescing gets the same
 savings with neither); or remove the focused-bullet echo guard ("the store is the source of truth")
 — it is, except for the one node whose caret the user owns, where repainting an echo is the scramble.
+
+**Undo must drain field writes first.** Field PATCHes (`fieldSem`) and structural batches
+(`writeSem`) are independent. Undo/redo goes through `runHistoryRestore` → `prepareStructuralWrite`
+(bump a field epoch, drop coalesced pending, wait on `fieldSem`) plus `dropQueuedFieldWrites`, so a
+lagging keystroke PATCH cannot land after the restore and bounce undone text back.

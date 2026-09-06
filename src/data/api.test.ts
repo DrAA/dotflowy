@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { ChangeOp } from "./realtime";
 
-import { persistBatch, resetApiCoordinatorsForTests, updateNodes } from "./api";
+import {
+  persistBatch,
+  prepareStructuralWrite,
+  resetApiCoordinatorsForTests,
+  updateNodes,
+} from "./api";
 
 // Pins the structural-batch serialization (the `writeSem` semaphore in api.ts):
 // rapid batches must NOT overlap on the wire (else the DO can reorder them and
@@ -211,5 +216,44 @@ describe("updateNodes field coalescer (fieldSem generations)", () => {
     expect(pending.length).toBe(1);
     at(0).resolve(okField());
     await pA;
+  });
+});
+
+describe("prepareStructuralWrite (undo vs field PATCH)", () => {
+  test("discards a parked generation so it never hits the wire", async () => {
+    const pA = updateNodes([{ id: "a", changes: { text: "a" } }]);
+    await waitPending(1);
+    // Gen 2 parks on the permit while gen 1 is in flight.
+    const pB = updateNodes([{ id: "b", changes: { text: "typed" } }]);
+    await tick();
+    expect(pending.length).toBe(1);
+
+    const drained = prepareStructuralWrite();
+    at(0).resolve(okField());
+    await drained;
+    await tick();
+    // Gen 2 must not send — epoch/pending were cleared before the permit freed.
+    expect(pending.length).toBe(1);
+    await expect(pA).resolves.toBeUndefined();
+    await expect(pB).resolves.toBeUndefined();
+  });
+
+  test("waits for an in-flight PATCH even when currentGen is already null", async () => {
+    const pA = updateNodes([{ id: "a", changes: { text: "typed" } }]);
+    await waitPending(1);
+    expect(pending.length).toBe(1);
+
+    // Detach: no open generation, but the permit is still held by gen 1.
+    let drained = false;
+    const drain = prepareStructuralWrite().then(() => {
+      drained = true;
+    });
+    await tick();
+    expect(drained).toBe(false);
+
+    at(0).resolve(okField());
+    await drain;
+    expect(drained).toBe(true);
+    await expect(pA).resolves.toBeUndefined();
   });
 });

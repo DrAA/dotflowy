@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import type { OutlineNode } from "../data/outline-plans";
 
+import { prepareStructuralWrite } from "../data/api";
 import { isLunoraSyncEnabled } from "../data/flags";
 import {
   RESTORE_SLICE_OPS,
@@ -14,6 +15,7 @@ import {
 import { getLunoraOutlineContext } from "../data/lunora-sync";
 import { runStructural, runStructuralSliced } from "../data/structural";
 import { getTreeIndex } from "../data/tree-store";
+import { dropQueuedFieldWrites } from "../data/write-queue";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +38,9 @@ import {
  * re-diffs via `planRestoreNodes`) — single watermark even for large diffs;
  * modal still shows while awaiting persistence.
  *
+ * Classic path awaits {@link prepareStructuralWrite} first so an in-flight
+ * field PATCH cannot land after the restore and bounce undone text back.
+ *
  * `setPendingFocus` is only honored on the sync path: during a sliced restore
  * the modal owns focus, and by the time the batch commits the tree-change
  * effect window `FocusPass` consumes has passed — a pending focus set then
@@ -47,6 +52,21 @@ export function runHistoryRestore(
   focusId: string | null,
   setPendingFocus: (id: string) => void,
 ): void {
+  void runHistoryRestoreAsync(kind, focusId, setPendingFocus);
+}
+
+async function runHistoryRestoreAsync(
+  kind: "undo" | "redo",
+  focusId: string | null,
+  setPendingFocus: (id: string) => void,
+): Promise<void> {
+  // Discard parked keystroke PATCHes and wait for any already on the wire
+  // before planning — the snapshot must match the post-drain live outline.
+  if (!isLunoraSyncEnabled()) {
+    await prepareStructuralWrite();
+    dropQueuedFieldWrites();
+  }
+
   const plan = (kind === "undo" ? undo : redo)(getTreeIndex(), focusId);
   if (!plan) return;
 
