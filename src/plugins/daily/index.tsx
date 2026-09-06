@@ -261,19 +261,27 @@ function ThisWeekButton({ getCtx }: { getCtx: () => PluginContext }) {
             onClick={() => {
               if (pending) return;
               const ctx = getCtx();
-              // Scaffold-only (ADR 0057): mint Daily > Y > M > W without a day
-              // child. Not a write-intent surface -- no seed line, no
-              // focus=last. Navigate the route like Today so the zoom is a
-              // pivotless navigation.
+              // Ensure today's day shell exists (seed-free — not a write-intent
+              // surface, ADR 0041), then zoom the week. Minting today also
+              // builds Daily > Y > M > W; opening the week re-renders day
+              // badges so Yesterday / Today stay current after a day rollover.
+              // Cmd+K period go-to stays scaffold-only (ADR 0057).
               ctx.run(
                 Effect.promise(async () => {
                   setPending(true);
                   try {
-                    const weekKey = dayKeyToWeekKey(localDateKey());
+                    const today = localDateKey();
+                    const weekKey = dayKeyToWeekKey(today);
                     if (!weekKey) return;
-                    const weekId = await getOrCreateScaffold(weekKey, {
+                    const dayId = await getOrCreateDay(today, {
                       failureToast: "Couldn't open this week's note",
                     });
+                    if (!dayId) return;
+                    const weekId =
+                      getMappedId(weekKey) ??
+                      (await getOrCreateScaffold(weekKey, {
+                        failureToast: "Couldn't open this week's note",
+                      }));
                     if (!weekId) return;
                     navigate({
                       to: "/$nodeId",

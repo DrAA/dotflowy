@@ -186,7 +186,7 @@ test.describe("daily notes", () => {
     await expect(page.getByTestId("week-calendar")).toBeVisible();
   });
 
-  test("This week creates the week scaffold and zooms in without minting today", async ({
+  test("This week ensures today exists and zooms the week", async ({
     page,
   }) => {
     await load(page);
@@ -214,10 +214,13 @@ test.describe("daily notes", () => {
     await expect(titleBadge).toHaveAttribute("data-daily-this-week", "");
     await expect(page.getByTestId("week-calendar")).toBeVisible();
 
+    // Today's day shell is present under the week (seed-free — no entry line).
+    const todayBadge = page.locator("li[data-node-id] [data-daily-today]");
+    await expect(todayBadge).toBeVisible();
+    await expect(todayBadge).toHaveText(/Today/);
+
     await goHome(page);
     await expect(rowLi(page, weekLabel(weekKey))).toBeVisible();
-    // Scaffold-only mint (ADR 0057): no day child was created.
-    await expect(page.locator("[data-daily-today]")).toHaveCount(0);
   });
 
   test("/today seeds an entry line and lands the caret on it (write-intent, ADR 0041)", async ({
