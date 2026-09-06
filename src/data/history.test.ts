@@ -5,6 +5,7 @@ import type { Node } from "./tree";
 import {
   capture,
   drop,
+  planRestoreToNodes,
   redo,
   registerHistoryExtra,
   RESTORE_SLICE_OPS,
@@ -451,9 +452,24 @@ describe("history extra snapshot / restore", () => {
     capture(idx, "a");
     const plan = undo(idx)!;
     expect(plan.opCount).toBe(1);
-    expect(plan.slices).toHaveLength(1);
+    // Extra must stay out of node slices (media isn't a ChangeOp).
+    expect(plan.slices).toHaveLength(0);
     expect(restored).toBeUndefined();
-    plan.slices[0]!();
+    plan.extraRestore!();
     expect(restored).toEqual([{ id: "m1" }]);
+  });
+
+  test("planRestoreToNodes with null extra does not wipe media via the hook", () => {
+    let restored: unknown = "untouched";
+    registerHistoryExtra({
+      snapshot: () => [{ id: "m1" }],
+      restore: (data) => {
+        restored = data;
+      },
+    });
+    const idx = buildTreeIndex([makeNode({ id: "a" })]);
+    const plan = planRestoreToNodes(idx, [makeNode({ id: "a", text: "x" })]);
+    expect(plan.extraRestore).toBeUndefined();
+    expect(restored).toBe("untouched");
   });
 });

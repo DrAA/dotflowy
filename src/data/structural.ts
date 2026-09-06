@@ -134,7 +134,10 @@ export function runStructuralTracked<T>(body: () => T): {
   const tx = createTransaction({
     metadata: DIRECT_TX,
     mutationFn: async ({ transaction }) => {
-      const ops = transaction.mutations.map(toChangeOp);
+      // Only outline rows become ChangeOps. Other collections (e.g. media) that
+      // accidentally join this ambient transaction are not DO node ops — sending
+      // them yields a Worker 400 and rolls the whole structural edit back.
+      const ops = nodeMutations(transaction.mutations).map(toChangeOp);
       // A captured-but-no-op command (e.g. indent at the top of a list) makes no
       // mutations; skip the network round-trip entirely.
       if (ops.length === 0) return;
@@ -154,7 +157,9 @@ export function runStructuralTracked<T>(body: () => T): {
   tx.mutate(() => {
     result = body();
   });
-  if (import.meta.env.DEV) assertTouchedChainsClean(tx.mutations);
+  if (import.meta.env.DEV) {
+    assertTouchedChainsClean(nodeMutations(tx.mutations));
+  }
   return { result, persisted: tx.isPersisted.promise.then(() => undefined) };
 }
 
@@ -199,7 +204,7 @@ export async function runStructuralSliced(
     autoCommit: false,
     metadata: DIRECT_TX,
     mutationFn: async ({ transaction }) => {
-      const ops = transaction.mutations.map(toChangeOp);
+      const ops = nodeMutations(transaction.mutations).map(toChangeOp);
       if (ops.length === 0) return;
       if (isLocalDataEnabled()) {
         persistLocalOutline();
@@ -219,12 +224,26 @@ export async function runStructuralSliced(
     tx.rollback();
     throw error;
   }
-  if (import.meta.env.DEV) assertTouchedChainsClean(tx.mutations);
+  if (import.meta.env.DEV) {
+    assertTouchedChainsClean(nodeMutations(tx.mutations));
+  }
   await tx.commit();
 }
 
 /** A PendingMutation, narrowed to the fields the batch wire format needs. */
-type MutationLike = { type: string; key: unknown; modified: unknown };
+type MutationLike = {
+  type: string;
+  key: unknown;
+  modified: unknown;
+  collection?: { id: string };
+};
+
+/** Outline mutations only — foreign collections must not become ChangeOps. */
+function nodeMutations(mutations: readonly MutationLike[]): MutationLike[] {
+  return mutations.filter(
+    (m) => !m.collection || m.collection.id === nodesCollection.id,
+  );
+}
 
 /** Map an optimistic mutation to the DO's wire op. Insert/update carry the full
  *  post-mutation node (an upsert); the DO recomputes insert-vs-update itself. */

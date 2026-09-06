@@ -106,10 +106,17 @@ async function runHistoryRestoreAsync(
   }
 
   if (plan.opCount < RESTORE_SLICE_OPS) {
-    runStructural(() => {
-      for (const slice of plan.slices) slice();
-      if (plan.focusId) setPendingFocus(plan.focusId);
-    });
+    if (plan.slices.length > 0) {
+      runStructural(() => {
+        for (const slice of plan.slices) slice();
+        if (plan.focusId) setPendingFocus(plan.focusId);
+      });
+    } else if (plan.focusId) {
+      setPendingFocus(plan.focusId);
+    }
+    // Side collections (media) persist via their own handlers — never inside
+    // the nodes structural batch (those rows aren't ChangeOps → 400 + rollback).
+    plan.extraRestore?.();
     return;
   }
   void runSliced(kind, plan);
@@ -169,6 +176,7 @@ async function runSliced(kind: "undo" | "redo", plan: RestorePlan) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   try {
     await runStructuralSliced(plan.slices, () => show(plan.applied()));
+    plan.extraRestore?.();
     openRestoreProgress?.({ kind: "closed" });
     toast.success(kind === "undo" ? "Undo complete." : "Redo complete.");
   } catch {

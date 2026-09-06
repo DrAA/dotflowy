@@ -170,9 +170,10 @@ export const RESTORE_SLICE_OPS = 500;
 
 /**
  * A snapshot restore, planned but not yet applied. The caller must run EVERY
- * slice, in order, inside ONE transaction -- a `runStructural` body for the
- * small case, one `runStructuralSliced` call for the big one -- or call
- * `revert` if the apply failed and rolled back.
+ * node `slice`, in order, inside ONE transaction -- a `runStructural` body for
+ * the small case, one `runStructuralSliced` call for the big one -- then call
+ * `extraRestore` (if present) OUTSIDE that transaction, or call `revert` if
+ * the apply failed and rolled back.
  *
  * When Lunora sync is ON, prefer `targetNodes` + `restoreNodes` mutator (one
  * watermark) over `slices` writing `nodesCollection`.
@@ -191,8 +192,10 @@ export interface RestorePlan {
   /** Roll the stack bookkeeping back after a failed (rolled-back) apply. */
   revert: () => void;
   /**
-   * Reapply the extra (media) snapshot. Classic slices already include this;
-   * the Lunora `restoreNodes` path skips slices and must call it itself.
+   * Reapply the extra (media) snapshot. Must run OUTSIDE the nodes
+   * `runStructural` transaction — media rows are not outline `ChangeOp`s, and
+   * folding them into the batch makes POST /api/nodes 400 (schema) and rolls
+   * the undo back. Classic and Lunora callers both invoke this after nodes.
    */
   extraRestore?: () => void;
 }
@@ -280,15 +283,15 @@ function planRestore(
     });
   }
 
-  const extraRestore = extraHook
-    ? () => extraHook!.restore(entry.extra)
-    : undefined;
-  if (extraRestore) {
-    slices.push(() => {
-      extraRestore();
-      applied += 1;
-    });
-  }
+  // History captures `extra` via the hook (an array, possibly empty). Backup
+  // `planRestoreToNodes` passes `extra: null` and must not wipe live media.
+  const extraRestore =
+    extraHook && entry.extra !== null
+      ? () => {
+          extraHook!.restore(entry.extra);
+          applied += 1;
+        }
+      : undefined;
 
   return {
     opCount: deletes.length + upserts.length + (extraRestore ? 1 : 0),
