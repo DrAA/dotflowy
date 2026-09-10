@@ -300,22 +300,11 @@ async function uploadAll(
       const file = await held;
       const row = await postMedia(file, contentId, width, height);
       mediaCollection.insert(row);
-    } catch (err) {
-      const msg =
-        err instanceof QuotaError
-          ? "Image is too large for your plan."
-          : "Couldn't attach that image.";
-      toast.error(msg);
+    } catch {
+      toast.error("Couldn't attach that image.");
     } finally {
       removeOverlay(tempId);
     }
-  }
-}
-
-class QuotaError extends Error {
-  constructor() {
-    super("quota");
-    this.name = "QuotaError";
   }
 }
 
@@ -348,7 +337,6 @@ async function postMedia(
     },
     body: file,
   });
-  if (res.status === 413) throw new QuotaError();
   if (!res.ok) throw new Error(`upload ${res.status}`);
   return (await res.json()) as MediaRow;
 }

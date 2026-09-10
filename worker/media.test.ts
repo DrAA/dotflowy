@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  FREE_MEDIA_QUOTA_BYTES,
-  PAID_MEDIA_QUOTA_BYTES,
-  exceedsMediaQuota,
-  mediaQuotaForPlan,
-  sniffImage,
-} from "./media";
+import { sniffImage } from "./media";
 
 function pad(bytes: number[], min = 12): Uint8Array {
   const out = new Uint8Array(Math.max(bytes.length, min));
@@ -43,22 +37,5 @@ describe("sniffImage", () => {
     expect(sniffImage(new TextEncoder().encode("<!DOCTYPE html>"))).toBeNull();
     expect(sniffImage(pad([0xff, 0xd8, 0xff], 11))).toBeNull();
     expect(sniffImage(new Uint8Array(0))).toBeNull();
-  });
-});
-
-describe("media quota", () => {
-  test("free is 100 MiB; paid plans share 1 GiB", () => {
-    expect(mediaQuotaForPlan("free")).toBe(FREE_MEDIA_QUOTA_BYTES);
-    expect(mediaQuotaForPlan("unlimited")).toBe(PAID_MEDIA_QUOTA_BYTES);
-    expect(mediaQuotaForPlan("founding")).toBe(PAID_MEDIA_QUOTA_BYTES);
-    expect(FREE_MEDIA_QUOTA_BYTES).toBe(100 * 1024 * 1024);
-    expect(PAID_MEDIA_QUOTA_BYTES).toBe(1024 * 1024 * 1024);
-  });
-
-  test("exceedsMediaQuota is a strict greater-than on used + incoming", () => {
-    expect(exceedsMediaQuota(0, 100, 100)).toBe(false);
-    expect(exceedsMediaQuota(50, 50, 100)).toBe(false);
-    expect(exceedsMediaQuota(99, 2, 100)).toBe(true);
-    expect(exceedsMediaQuota(100, 1, 100)).toBe(true);
   });
 });

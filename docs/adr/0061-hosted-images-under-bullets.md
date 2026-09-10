@@ -40,13 +40,13 @@ plugin side-collection.
 
 - Types: jpeg, png, gif, webp, avif. **Reject SVG** (stored XSS). Sniff magic
   bytes; do not trust `Content-Type`.
-- Per file: 8 MB. Per account: 100 MB free / 1 GB paid. Over-cap = 413; the
-  outline stays editable.
+- No app-level per-file or account byte caps. Upload failures still leave the
+  outline editable.
 
 ## Orphan grace
 
-Detaching an image deletes the kv row immediately so quota frees. R2 objects
-stay until account wipe so Cmd+Z can restore the kv row and GET still works.
+Detaching an image deletes the kv row immediately. R2 objects stay until
+account wipe so Cmd+Z can restore the kv row and GET still works.
 Node delete GCs kv rows for those `nodeId`s (client + DO); R2 remains until
 wipe.
 

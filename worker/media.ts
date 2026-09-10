@@ -1,16 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { Plan } from "./plan";
-
-import { getPlan } from "./plan";
-
-/** 8 MiB per file. */
-export const MAX_MEDIA_FILE_BYTES = 8 * 1024 * 1024;
-/** 100 MiB free-tier account cap. */
-export const FREE_MEDIA_QUOTA_BYTES = 100 * 1024 * 1024;
-/** 1 GiB paid-tier account cap. */
-export const PAID_MEDIA_QUOTA_BYTES = 1024 * 1024 * 1024;
-
 const IMAGE_TYPES = {
   jpeg: "image/jpeg",
   png: "image/png",
@@ -30,20 +19,6 @@ export type MediaRow = {
   height: number;
   createdAt: number;
 };
-
-/** Account media quota for a billing plan. Paid plans share the 1 GiB cap. */
-export function mediaQuotaForPlan(plan: Plan): number {
-  return plan === "free" ? FREE_MEDIA_QUOTA_BYTES : PAID_MEDIA_QUOTA_BYTES;
-}
-
-/** True when adding `incoming` bytes to `used` would pass `cap`. */
-export function exceedsMediaQuota(
-  used: number,
-  incoming: number,
-  cap: number,
-): boolean {
-  return used + incoming > cap;
-}
 
 /** R2 object key: `media/<userId>/<attachmentId>`. */
 export function mediaR2Key(userId: string, attachmentId: string): string {
@@ -148,7 +123,7 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-type MediaEnv = { MEDIA: R2Bucket; DB: D1Database };
+type MediaEnv = { MEDIA: R2Bucket };
 
 type MediaStub = {
   getKv(collection: string): unknown[] | Promise<unknown[]>;
@@ -199,20 +174,9 @@ async function postMedia(
 
   const buf = new Uint8Array(await request.arrayBuffer());
   if (buf.byteLength === 0) return json({ error: "empty body" }, 400);
-  if (buf.byteLength > MAX_MEDIA_FILE_BYTES) {
-    return json({ error: "file too large" }, 413);
-  }
 
   const contentType = sniffImage(buf);
   if (!contentType) return json({ error: "unsupported type" }, 415);
-
-  const existing = asMediaRows(await stub.getKv("media"));
-  const used = existing.reduce((sum, r) => sum + r.bytes, 0);
-  const plan = await getPlan(userId, env);
-  const cap = mediaQuotaForPlan(plan);
-  if (exceedsMediaQuota(used, buf.byteLength, cap)) {
-    return json({ error: "quota exceeded" }, 413);
-  }
 
   const width = parseDim(request.headers.get("x-image-width"));
   const height = parseDim(request.headers.get("x-image-height"));
