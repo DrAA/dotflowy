@@ -153,6 +153,12 @@ interface Env extends LunoraEnv {
    *  key = no widget in the client (and the plugin is unregistered server-side
    *  when TURNSTILE_SECRET_KEY is also unset — dev/no-key parity). */
   TURNSTILE_SITE_KEY?: string;
+  /**
+   * 32-byte master key (base64) for per-user at-rest encryption in UserOutlineDO.
+   * Unset = plaintext on disk. When set, each DO wraps its own DEK with
+   * HKDF(master, doName). Not E2E — server decrypts after auth for sync.
+   */
+  AT_REST_MASTER_KEY?: string;
 }
 
 /** A legacy D1 node row (booleans as 0/1). Only read during the one-time import
@@ -922,8 +928,22 @@ function handleApiRequest(
           new BadRequest({ reason: `no backup at ${key}` }),
         );
       }
-      const raw = yield* Effect.tryPromise({
-        try: () => object.json(),
+      const snapshotStub = env.USER_OUTLINE.get(
+        env.USER_OUTLINE.idFromName(doName),
+      );
+      const text = yield* Effect.tryPromise({
+        try: () => object.text(),
+        catch: () => new BadRequest({ reason: "failed to read backup object" }),
+      });
+      // New backups are DEK-sealed (`enc1.…`); legacy R2 objects are plain JSON.
+      if (text.startsWith("enc1.")) {
+        const result = yield* Effect.promise(() =>
+          snapshotStub.restoreColdBackup(text),
+        );
+        return json({ key, ...result });
+      }
+      const raw = yield* Effect.try({
+        try: () => JSON.parse(text) as unknown,
         catch: () => new BadRequest({ reason: "snapshot is not valid JSON" }),
       });
       const snapshot = yield* Schema.decodeUnknownEffect(OutlineSnapshotSchema)(
@@ -941,9 +961,6 @@ function handleApiRequest(
           }),
         );
       }
-      const snapshotStub = env.USER_OUTLINE.get(
-        env.USER_OUTLINE.idFromName(doName),
-      );
       const result = yield* Effect.promise(() =>
         snapshotStub.restoreSnapshot({
           nodes: snapshot.nodes,
@@ -1142,16 +1159,35 @@ async function runBackupSweep(
   for (const doName of targets) {
     try {
       const stub = env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(doName));
-      const snapshot = await stub.exportSnapshot();
+      // DEK-sealed when AT_REST_MASTER_KEY is set; otherwise plaintext JSON.
+      const body = await stub.exportColdBackup();
+      let nodes = 0;
+      let kv = 0;
+      if (!body.startsWith("enc1.")) {
+        try {
+          const snap = JSON.parse(body) as {
+            nodes?: unknown[];
+            kv?: unknown[];
+          };
+          nodes = snap.nodes?.length ?? 0;
+          kv = snap.kv?.length ?? 0;
+        } catch {
+          // sealed-looking parse failure — leave counts at 0
+        }
+      }
       const key = backupKey(doName, now);
-      await env.BACKUPS.put(key, JSON.stringify(snapshot), {
-        httpMetadata: { contentType: "application/json" },
+      await env.BACKUPS.put(key, body, {
+        httpMetadata: {
+          contentType: body.startsWith("enc1.")
+            ? "application/octet-stream"
+            : "application/json",
+        },
       });
       exported.push({
         doName,
         key,
-        nodes: snapshot.nodes.length,
-        kv: snapshot.kv.length,
+        nodes,
+        kv,
       });
     } catch (err) {
       failed++;

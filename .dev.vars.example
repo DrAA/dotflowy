@@ -70,3 +70,9 @@ INVITE_CODES=dev-invite
 # Secret for POST /api/local/backup-sweep (scripts/archive-backup.ts). Unset =>
 # loopback-only. Set in self-hosted cron when wrangler rewrites the Host header.
 # ARCHIVE_SWEEP_SECRET=local-archive-sweep-dev
+
+# Per-user at-rest encryption master key (32 bytes, base64). Each Durable Object
+# (one per user) wraps its own random AES-256 DEK with HKDF(master, doName) and
+# seals node text / kv / changelog / cold backups. Unset = plaintext on disk.
+# Generate: `openssl rand -base64 32`
+# AT_REST_MASTER_KEY=
