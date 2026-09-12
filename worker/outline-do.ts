@@ -12,6 +12,16 @@ import type { OutlineSnapshot, SnapshotKvRow } from "./backup";
 import type { RestorePoint } from "./restore";
 
 import { SNAPSHOT_VERSION } from "./backup";
+import {
+  deriveKek,
+  generateDek,
+  isSealed,
+  parseMasterKey,
+  sealString,
+  unsealString,
+  unwrapDek,
+  wrapDek,
+} from "./at-rest-crypto";
 import { planChangeFrames } from "./changelog";
 import { batchExceedsNodeLimit, countNetGrowth } from "./plan";
 import { APP_VERSION } from "./version";
@@ -123,6 +133,12 @@ interface Env {
   /** Public Sentry DSN (wrangler.jsonc var), read by the Sentry DO wrapper in
    *  worker/index.ts (#227). Unset => error monitoring is dormant. */
   SENTRY_DSN?: string;
+  /**
+   * 32-byte master key (base64) for per-user at-rest encryption. Unset = store
+   * plaintext (local default). When set, each DO wraps its own random DEK with
+   * HKDF(master, doName) and seals node text / kv / changelog on disk.
+   */
+  AT_REST_MASTER_KEY?: string;
 }
 
 /**
@@ -139,14 +155,117 @@ interface Env {
  */
 export class UserOutlineDO extends DurableObject<Env> {
   private sql: SqlStorage;
+  /**
+   * Per-user DEK once `ensureCrypto` has run. `null` = encryption disabled
+   * (no master key). `undefined` = not loaded yet.
+   */
+  private dek: CryptoKey | null | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     // Schema setup only — never hold blockConcurrencyWhile across external I/O.
     // Runs before any request is served, so no reader ever sees a half-built
-    // schema (e.g. getNodes reading a missing `mirrorOf` column).
-    ctx.blockConcurrencyWhile(async () => this.migrate());
+    // schema (e.g. getNodes reading a missing `mirrorOf` column). Also loads
+    // (or mints) the per-user DEK and lazily seals any legacy plaintext rows.
+    ctx.blockConcurrencyWhile(async () => {
+      this.migrate();
+      await this.ensureCrypto();
+    });
+  }
+
+  /** DO name used as HKDF info — one DEK scope per user outline. */
+  private doName(): string {
+    return this.ctx.id.name ?? this.ctx.id.toString();
+  }
+
+  /**
+   * Load or mint this user's DEK. Auth gates which DO the Worker opens; the DEK
+   * then decrypts only that user's ciphertext. No-op when master key unset.
+   */
+  private async ensureCrypto(): Promise<void> {
+    if (this.dek !== undefined) return;
+    const master = parseMasterKey(this.env.AT_REST_MASTER_KEY);
+    if (!master) {
+      this.dek = null;
+      return;
+    }
+    const kek = await deriveKek(master, this.doName());
+    const row = this.sql
+      .exec<{ value: string }>(
+        "SELECT value FROM meta WHERE key = 'at_rest_dek_v1'",
+      )
+      .toArray()[0];
+    if (row?.value) {
+      this.dek = await unwrapDek(row.value, kek);
+    } else {
+      const dek = await generateDek();
+      const wrapped = await wrapDek(dek, kek);
+      this.sql.exec(
+        "INSERT INTO meta (key, value) VALUES ('at_rest_dek_v1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        wrapped,
+      );
+      this.dek = dek;
+    }
+    await this.sealLegacyPlaintext();
+  }
+
+  /** One-shot: encrypt any plaintext node text / kv / changelog still on disk. */
+  private async sealLegacyPlaintext(): Promise<void> {
+    const dek = this.dek;
+    if (!dek) return;
+    let sealedAny = false;
+    const nodeRows = this.readRows<{ id: string; text: string }>(
+      "SELECT id, text FROM nodes",
+    );
+    for (const r of nodeRows) {
+      if (isSealed(r.text)) continue;
+      const sealed = await sealString(r.text, dek);
+      this.sql.exec("UPDATE nodes SET text = ? WHERE id = ?", sealed, r.id);
+      sealedAny = true;
+    }
+    const kvRows = this.readRows<{ collection: string; key: string; value: string }>(
+      "SELECT collection, key, value FROM kv",
+    );
+    for (const r of kvRows) {
+      if (isSealed(r.value)) continue;
+      const sealed = await sealString(r.value, dek);
+      this.sql.exec(
+        "UPDATE kv SET value = ? WHERE collection = ? AND key = ?",
+        sealed,
+        r.collection,
+        r.key,
+      );
+      sealedAny = true;
+    }
+    const clog = this.sql
+      .exec<{ seq: number; ops: string }>("SELECT seq, ops FROM changelog")
+      .toArray();
+    for (const r of clog) {
+      if (isSealed(r.ops)) continue;
+      const sealed = await sealString(r.ops, dek);
+      this.sql.exec("UPDATE changelog SET ops = ? WHERE seq = ?", sealed, r.seq);
+      sealedAny = true;
+    }
+    // UPDATE leaves old plaintext in SQLite freelist pages — reclaim so a
+    // filesystem copy of the DB doesn't retain pre-encryption data.
+    if (sealedAny) {
+      try {
+        this.sql.exec("VACUUM");
+      } catch {
+        // Some runtimes reject VACUUM inside DO; operator can VACUUM offline.
+      }
+    }
+  }
+
+  private async sealText(plaintext: string): Promise<string> {
+    await this.ensureCrypto();
+    return this.dek ? sealString(plaintext, this.dek) : plaintext;
+  }
+
+  private async unsealText(value: string): Promise<string> {
+    await this.ensureCrypto();
+    return this.dek ? unsealString(value, this.dek) : value;
   }
 
   // --- schema migration ------------------------------------------------------
@@ -283,21 +402,31 @@ export class UserOutlineDO extends DurableObject<Env> {
 
   // --- nodes -----------------------------------------------------------------
 
-  getNodes(): Node[] {
-    return this.readRows<NodeRow>(
+  async getNodes(): Promise<Node[]> {
+    const rows = this.readRows<NodeRow>(
       "SELECT id, parentId, prevSiblingId, text, isTask, completed, collapsed, bookmarkedAt, mirrorOf, createdAt, updatedAt, origin, kind FROM nodes",
-    ).map(rowToNode);
+    );
+    const nodes: Node[] = [];
+    for (const r of rows) {
+      const n = rowToNode(r);
+      nodes.push({ ...n, text: await this.unsealText(n.text) });
+    }
+    return nodes;
   }
 
   /** Upsert one node into SQLite and return the change op describing it (insert
    *  for a new id, update for an existing one). Shared by upsertNodes (one frame
    *  per call) and applyBatch (many ops, one frame). One indexed point-lookup
    *  picks insert vs update so the broadcast carries the right ChangeMessage
-   *  type (the client's sync layer distinguishes them). */
-  private putNode(n: Node): ChangeOp {
+   *  type (the client's sync layer distinguishes them).
+   *
+   *  `storageText` is what lands in SQLite (sealed when encryption is on);
+   *  `plain` is what the broadcast ChangeOp carries so clients never see
+   *  ciphertext. */
+  private putNode(plain: Node, storageText: string): ChangeOp {
     const existed =
-      this.sql.exec("SELECT 1 FROM nodes WHERE id = ?", n.id).toArray().length >
-      0;
+      this.sql.exec("SELECT 1 FROM nodes WHERE id = ?", plain.id).toArray()
+        .length > 0;
     // `origin` is WRITE-ONCE: it's in the INSERT column list but deliberately
     // absent from the ON CONFLICT SET, so a later upsert (a move/reparent that
     // re-puts the full node) can never flip a node's provenance. Existing rows
@@ -310,21 +439,21 @@ export class UserOutlineDO extends DurableObject<Env> {
          isTask=excluded.isTask, completed=excluded.completed, collapsed=excluded.collapsed,
          bookmarkedAt=excluded.bookmarkedAt, mirrorOf=excluded.mirrorOf, updatedAt=excluded.updatedAt,
          kind=excluded.kind`,
-      n.id,
-      n.parentId,
-      n.prevSiblingId,
-      n.text,
-      n.isTask ? 1 : 0,
-      n.completed ? 1 : 0,
-      n.collapsed ? 1 : 0,
-      n.bookmarkedAt,
-      n.mirrorOf,
-      n.createdAt,
-      n.updatedAt,
-      n.origin,
-      n.kind,
+      plain.id,
+      plain.parentId,
+      plain.prevSiblingId,
+      storageText,
+      plain.isTask ? 1 : 0,
+      plain.completed ? 1 : 0,
+      plain.collapsed ? 1 : 0,
+      plain.bookmarkedAt,
+      plain.mirrorOf,
+      plain.createdAt,
+      plain.updatedAt,
+      plain.origin,
+      plain.kind,
     );
-    return { op: existed ? "update" : "insert", value: n };
+    return { op: existed ? "update" : "insert", value: plain };
   }
 
   /** Delete one node from SQLite and return its delete op. Shared by deleteNodes
@@ -334,12 +463,8 @@ export class UserOutlineDO extends DurableObject<Env> {
     return { op: "delete", key: id };
   }
 
-  upsertNodes(nodes: readonly Node[]): void {
-    this.broadcastChange(
-      this.ctx.storage.transactionSync(() =>
-        this.recordChange(nodes.map((n) => this.putNode(n))),
-      ),
-    );
+  private async storageTextFor(node: Node): Promise<string> {
+    return this.sealText(node.text);
   }
 
   // --- free-tier node ceiling (#170) -----------------------------------------
@@ -381,10 +506,32 @@ export class UserOutlineDO extends DurableObject<Env> {
    * net counts plus the SQLite total. Rejecting writes nothing, so the client's
    * optimistic overlay rolls back cleanly.
    */
-  applyBatchGated(
+  async applyBatchGated(
     ops: readonly ChangeOp[],
     limit: number | null,
-  ): number | null {
+  ): Promise<number | null> {
+    await this.ensureCrypto();
+    const storageTexts = new Map<string, string>();
+    for (const op of ops) {
+      if (op.op !== "delete") {
+        storageTexts.set(op.value.id, await this.storageTextFor(op.value));
+      }
+    }
+    // SubtleCrypto is async; DO transactionSync is sync. Pre-seal node text and
+    // provisional changelog frames (insert-vs-update labels are advisory — clients
+    // upsert by id). Frame count must match planChangeFrames(out) inside the tx.
+    const planned = planChangeFrames(
+      ops.map((op) =>
+        op.op === "delete"
+          ? op
+          : ({ op: "insert", value: op.value } satisfies ChangeOp),
+      ),
+      this.currentSeq(),
+    );
+    const sealedBlobs = await Promise.all(
+      planned.map((f) => this.sealText(JSON.stringify(f.ops))),
+    );
+
     const frames = this.ctx.storage.transactionSync(() => {
       if (limit !== null) {
         const { inserts, deletes } = countNetGrowth(ops, (id) =>
@@ -393,13 +540,35 @@ export class UserOutlineDO extends DurableObject<Env> {
         if (batchExceedsNodeLimit(this.nodeCount(), inserts, deletes, limit))
           return null;
       }
-      return this.recordChange(
-        ops.map((op) =>
+      const out: ChangeOp[] = [];
+      for (const op of ops) {
+        out.push(
           op.op === "delete"
             ? this.deleteNodeRow(op.key)
-            : this.putNode(op.value),
-        ),
-      );
+            : this.putNode(op.value, storageTexts.get(op.value.id) ?? op.value.text),
+        );
+      }
+      const outFrames = planChangeFrames(out, this.currentSeq());
+      if (outFrames.length !== sealedBlobs.length) {
+        throw new Error("at-rest: changelog frame count drift");
+      }
+      for (let i = 0; i < outFrames.length; i++) {
+        const f = outFrames[i]!;
+        this.sql.exec(
+          "INSERT INTO changelog (seq, ops) VALUES (?, ?)",
+          f.seq,
+          sealedBlobs[i]!,
+        );
+      }
+      if (outFrames.length) {
+        const finalSeq = outFrames[outFrames.length - 1]!.seq;
+        this.setSeq(finalSeq);
+        this.sql.exec(
+          "DELETE FROM changelog WHERE seq <= ?",
+          finalSeq - CHANGELOG_KEEP,
+        );
+      }
+      return outFrames;
     });
     if (frames === null) return null;
     return this.broadcastChange(frames);
@@ -409,7 +578,22 @@ export class UserOutlineDO extends DurableObject<Env> {
    *  path — a raw POST could otherwise bypass the cap the batch path enforces).
    *  Every node is an upsert, so growth = ids not already present; returns false
    *  when applying would exceed the cap (nothing written), true otherwise. */
-  upsertNodesGated(nodes: readonly Node[], limit: number | null): boolean {
+  async upsertNodesGated(
+    nodes: readonly Node[],
+    limit: number | null,
+  ): Promise<boolean> {
+    await this.ensureCrypto();
+    const storageTexts = new Map<string, string>();
+    for (const n of nodes) {
+      storageTexts.set(n.id, await this.storageTextFor(n));
+    }
+    const planned = planChangeFrames(
+      nodes.map((n) => ({ op: "insert" as const, value: n })),
+      this.currentSeq(),
+    );
+    const sealedBlobs = await Promise.all(
+      planned.map((f) => this.sealText(JSON.stringify(f.ops))),
+    );
     const frames = this.ctx.storage.transactionSync(() => {
       if (limit !== null) {
         const newIds = new Set<string>();
@@ -417,7 +601,30 @@ export class UserOutlineDO extends DurableObject<Env> {
         if (batchExceedsNodeLimit(this.nodeCount(), newIds.size, 0, limit))
           return null;
       }
-      return this.recordChange(nodes.map((n) => this.putNode(n)));
+      const out = nodes.map((n) =>
+        this.putNode(n, storageTexts.get(n.id) ?? n.text),
+      );
+      const outFrames = planChangeFrames(out, this.currentSeq());
+      if (outFrames.length !== sealedBlobs.length) {
+        throw new Error("at-rest: changelog frame count drift");
+      }
+      for (let i = 0; i < outFrames.length; i++) {
+        const f = outFrames[i]!;
+        this.sql.exec(
+          "INSERT INTO changelog (seq, ops) VALUES (?, ?)",
+          f.seq,
+          sealedBlobs[i]!,
+        );
+      }
+      if (outFrames.length) {
+        const finalSeq = outFrames[outFrames.length - 1]!.seq;
+        this.setSeq(finalSeq);
+        this.sql.exec(
+          "DELETE FROM changelog WHERE seq <= ?",
+          finalSeq - CHANGELOG_KEEP,
+        );
+      }
+      return outFrames;
     });
     if (frames === null) return false;
     this.broadcastChange(frames);
@@ -444,78 +651,158 @@ export class UserOutlineDO extends DurableObject<Env> {
    * advisory. Apply order follows the array, but within one frame the ops are
    * absolute (keyed by id), so the final state is order-independent.
    */
-  applyBatch(ops: readonly ChangeOp[]): number {
-    return this.broadcastChange(
-      this.ctx.storage.transactionSync(() => {
-        const out: ChangeOp[] = [];
-        for (const op of ops) {
-          out.push(
-            op.op === "delete"
-              ? this.deleteNodeRow(op.key)
-              : this.putNode(op.value),
-          );
-        }
-        return this.recordChange(out);
-      }),
-    );
+  async applyBatch(ops: readonly ChangeOp[]): Promise<number> {
+    return (await this.applyBatchGated(ops, null)) ?? this.currentSeq();
   }
 
-  patchNodes(
+  async patchNodes(
     updates: readonly { id: string; changes: Record<string, unknown> }[],
-  ): void {
-    this.broadcastChange(
-      this.ctx.storage.transactionSync(() => {
-        const ops: ChangeOp[] = [];
-        for (const u of updates) {
-          const sets: string[] = [];
-          const vals: SqlVal[] = [];
-          for (const [k, v] of Object.entries(u.changes)) {
-            if (!WRITABLE_COLUMNS.has(k)) continue;
-            sets.push(`${k} = ?`);
-            vals.push(toSqlValue(k, v));
-          }
-          if (!sets.length) continue;
-          vals.push(u.id);
-          this.sql.exec(
-            `UPDATE nodes SET ${sets.join(", ")} WHERE id = ?`,
-            ...vals,
-          );
-          // Broadcast the full post-patch row (canonical booleans, every field) so
-          // a remote client applies an unambiguous update regardless of rowUpdateMode.
-          const row = this.readRows<NodeRow>(
-            "SELECT id, parentId, prevSiblingId, text, isTask, completed, collapsed, bookmarkedAt, mirrorOf, createdAt, updatedAt, origin, kind FROM nodes WHERE id = ?",
-            u.id,
-          )[0] as NodeRow | undefined;
-          if (row) ops.push({ op: "update", value: rowToNode(row) });
+  ): Promise<void> {
+    await this.ensureCrypto();
+    const sealedPatches: {
+      id: string;
+      sets: string[];
+      vals: SqlVal[];
+    }[] = [];
+    for (const u of updates) {
+      const sets: string[] = [];
+      const vals: SqlVal[] = [];
+      for (const [k, v] of Object.entries(u.changes)) {
+        if (!WRITABLE_COLUMNS.has(k)) continue;
+        sets.push(`${k} = ?`);
+        if (k === "text" && typeof v === "string") {
+          vals.push(await this.sealText(v));
+        } else {
+          vals.push(toSqlValue(k, v));
         }
-        return this.recordChange(ops);
-      }),
+      }
+      if (!sets.length) continue;
+      sealedPatches.push({ id: u.id, sets, vals });
+    }
+    // Patches need the post-UPDATE row for changelog. Read is sync; seal is
+    // async — apply SQL first, unseal texts for broadcast, then seal+write
+    // changelog in a second tx (single-threaded DO; rare reconnect window).
+    const plainById = new Map<string, string>();
+    for (const u of updates) {
+      if (typeof u.changes.text === "string") {
+        plainById.set(u.id, u.changes.text);
+      }
+    }
+    const outHolder: { ops: ChangeOp[] } = { ops: [] };
+    this.ctx.storage.transactionSync(() => {
+      const ops: ChangeOp[] = [];
+      for (const p of sealedPatches) {
+        const vals = [...p.vals, p.id];
+        this.sql.exec(
+          `UPDATE nodes SET ${p.sets.join(", ")} WHERE id = ?`,
+          ...vals,
+        );
+        const row = this.readRows<NodeRow>(
+          "SELECT id, parentId, prevSiblingId, text, isTask, completed, collapsed, bookmarkedAt, mirrorOf, createdAt, updatedAt, origin, kind FROM nodes WHERE id = ?",
+          p.id,
+        )[0] as NodeRow | undefined;
+        if (row) {
+          const node = rowToNode(row);
+          const text = plainById.get(node.id) ?? node.text;
+          ops.push({ op: "update", value: { ...node, text } });
+        }
+      }
+      outHolder.ops = ops;
+    });
+    for (let i = 0; i < outHolder.ops.length; i++) {
+      const op = outHolder.ops[i]!;
+      if (op.op === "update" && isSealed(op.value.text)) {
+        outHolder.ops[i] = {
+          op: "update",
+          value: {
+            ...op.value,
+            text: await this.unsealText(op.value.text),
+          },
+        };
+      }
+    }
+    const planned = planChangeFrames(outHolder.ops, this.currentSeq());
+    const sealedBlobs = await Promise.all(
+      planned.map((f) => this.sealText(JSON.stringify(f.ops))),
     );
+    const frames = this.ctx.storage.transactionSync(() => {
+      const built = planChangeFrames(outHolder.ops, this.currentSeq());
+      for (let i = 0; i < built.length; i++) {
+        const f = built[i]!;
+        this.sql.exec(
+          "INSERT INTO changelog (seq, ops) VALUES (?, ?)",
+          f.seq,
+          sealedBlobs[i]!,
+        );
+      }
+      if (built.length) {
+        const finalSeq = built[built.length - 1]!.seq;
+        this.setSeq(finalSeq);
+        this.sql.exec(
+          "DELETE FROM changelog WHERE seq <= ?",
+          finalSeq - CHANGELOG_KEEP,
+        );
+      }
+      return built;
+    });
+    this.broadcastChange(frames);
   }
 
-  deleteNodes(ids: readonly string[]): void {
-    this.broadcastChange(
-      this.ctx.storage.transactionSync(() => {
-        const ops = ids.map((id) => this.deleteNodeRow(id));
-        const deleted = new Set(ids);
-        const media = this.getKv("media") as {
-          id?: unknown;
-          nodeId?: unknown;
-        }[];
-        const drop: string[] = [];
-        for (const row of media) {
-          if (
-            typeof row?.id === "string" &&
-            typeof row.nodeId === "string" &&
-            deleted.has(row.nodeId)
-          ) {
-            drop.push(row.id);
-          }
-        }
-        if (drop.length) this.deleteKv("media", drop);
-        return this.recordChange(ops);
-      }),
+  async deleteNodes(ids: readonly string[]): Promise<void> {
+    await this.ensureCrypto();
+    const planned = planChangeFrames(
+      ids.map((id) => ({ op: "delete" as const, key: id })),
+      this.currentSeq(),
     );
+    const sealedBlobs = await Promise.all(
+      planned.map((f) => this.sealText(JSON.stringify(f.ops))),
+    );
+    const deleted = new Set(ids);
+    const mediaDrop: string[] = [];
+    const mediaRows = this.sql
+      .exec<{ value: string }>(
+        "SELECT value FROM kv WHERE collection = ?",
+        "media",
+      )
+      .toArray();
+    for (const r of mediaRows) {
+      try {
+        const raw = await this.unsealText(r.value);
+        const row = JSON.parse(raw) as { id?: unknown; nodeId?: unknown };
+        if (
+          typeof row?.id === "string" &&
+          typeof row.nodeId === "string" &&
+          deleted.has(row.nodeId)
+        ) {
+          mediaDrop.push(row.id);
+        }
+      } catch {
+        // ignore malformed media rows
+      }
+    }
+    const frames = this.ctx.storage.transactionSync(() => {
+      const ops = ids.map((id) => this.deleteNodeRow(id));
+      if (mediaDrop.length) this.deleteKv("media", mediaDrop);
+      const outFrames = planChangeFrames(ops, this.currentSeq());
+      for (let i = 0; i < outFrames.length; i++) {
+        const f = outFrames[i]!;
+        this.sql.exec(
+          "INSERT INTO changelog (seq, ops) VALUES (?, ?)",
+          f.seq,
+          sealedBlobs[i]!,
+        );
+      }
+      if (outFrames.length) {
+        const finalSeq = outFrames[outFrames.length - 1]!.seq;
+        this.setSeq(finalSeq);
+        this.sql.exec(
+          "DELETE FROM changelog WHERE seq <= ?",
+          finalSeq - CHANGELOG_KEEP,
+        );
+      }
+      return outFrames;
+    });
+    this.broadcastChange(frames);
   }
 
   // --- realtime sync (WebSocket Hibernation) ---------------------------------
@@ -626,7 +913,7 @@ export class UserOutlineDO extends DurableObject<Env> {
   ): Promise<void> {
     const hello = this.parseHello(raw);
     if (!hello) return;
-    ws.send(JSON.stringify(this.initialFrame(hello.since)));
+    ws.send(JSON.stringify(await this.initialFrame(hello.since)));
   }
 
   /** Complete the closing handshake (CF best practice for Hibernation). */
@@ -670,7 +957,8 @@ export class UserOutlineDO extends DurableObject<Env> {
    * talking to. It rides here rather than on `change` frames because a reconnect
    * is exactly when a days-old tab meets a newer Worker (ADR 0046).
    */
-  private initialFrame(since: number | null): ServerMessage {
+  private async initialFrame(since: number | null): Promise<ServerMessage> {
+    await this.ensureCrypto();
     const seq = this.currentSeq();
     if (since !== null && since <= seq) {
       const oldest =
@@ -688,13 +976,18 @@ export class UserOutlineDO extends DurableObject<Env> {
             since,
           )
           .toArray();
+        const changes: ChangeFrame[] = [];
+        for (const r of rows) {
+          const json = await this.unsealText(r.ops);
+          changes.push({
+            seq: r.seq,
+            ops: JSON.parse(json) as ChangeOp[],
+          });
+        }
         return {
           type: "resume",
           seq,
-          changes: rows.map((r) => ({
-            seq: r.seq,
-            ops: JSON.parse(r.ops) as ChangeOp[],
-          })),
+          changes,
           serverVersion: APP_VERSION,
         };
       }
@@ -702,36 +995,44 @@ export class UserOutlineDO extends DurableObject<Env> {
     return {
       type: "snapshot",
       seq,
-      nodes: this.getNodes(),
+      nodes: await this.getNodes(),
       serverVersion: APP_VERSION,
     };
   }
 
   // --- kv side-collections ---------------------------------------------------
 
-  getKv(collection: string): unknown[] {
-    return this.sql
+  async getKv(collection: string): Promise<unknown[]> {
+    await this.ensureCrypto();
+    const rows = this.sql
       .exec<{ value: string }>(
         "SELECT value FROM kv WHERE collection = ?",
         collection,
       )
-      .toArray()
-      .map((r) => JSON.parse(r.value));
+      .toArray();
+    const out: unknown[] = [];
+    for (const r of rows) {
+      const json = await this.unsealText(r.value);
+      out.push(JSON.parse(json));
+    }
+    return out;
   }
 
-  upsertKv(
+  async upsertKv(
     collection: string,
     rows: readonly { key: string; value: unknown }[],
-  ): void {
+  ): Promise<void> {
+    await this.ensureCrypto();
     const ts = Date.now();
     for (const r of rows) {
+      const sealed = await this.sealText(JSON.stringify(r.value));
       this.sql.exec(
         `INSERT INTO kv (collection, key, value, updatedAt)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(collection, key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
         collection,
         r.key,
-        JSON.stringify(r.value),
+        sealed,
         ts,
       );
     }
@@ -756,13 +1057,19 @@ export class UserOutlineDO extends DurableObject<Env> {
    * Generic on purpose: the DO never learns what "daily" is, it just gains an
    * atomic op on its existing kv table, reusable by any future side-collection.
    */
-  getOrCreateKv(collection: string, key: string, value: unknown): unknown {
+  async getOrCreateKv(
+    collection: string,
+    key: string,
+    value: unknown,
+  ): Promise<unknown> {
+    await this.ensureCrypto();
+    const sealed = await this.sealText(JSON.stringify(value));
     this.sql.exec(
       `INSERT INTO kv (collection, key, value, updatedAt) VALUES (?, ?, ?, ?)
        ON CONFLICT(collection, key) DO NOTHING`,
       collection,
       key,
-      JSON.stringify(value),
+      sealed,
       Date.now(),
     );
     const row = this.sql
@@ -772,7 +1079,8 @@ export class UserOutlineDO extends DurableObject<Env> {
         key,
       )
       .toArray()[0];
-    return row ? JSON.parse(row.value) : value;
+    if (!row) return value;
+    return JSON.parse(await this.unsealText(row.value));
   }
 
   // --- account deletion ------------------------------------------------------
@@ -824,11 +1132,11 @@ export class UserOutlineDO extends DurableObject<Env> {
   /** Idempotently load the user's existing rows (read from D1 by the Worker,
    *  which owns the D1 binding) into this DO, then mark it seeded so it never
    *  re-imports. Non-destructive: D1 is left intact. */
-  seed(data: { nodes: Node[]; kv: KvRow[] }): void {
+  async seed(data: { nodes: Node[]; kv: KvRow[] }): Promise<void> {
     if (this.isSeeded()) return;
-    this.upsertNodes(data.nodes);
+    await this.upsertNodesGated(data.nodes, null);
     for (const collection of new Set(data.kv.map((r) => r.collection))) {
-      this.upsertKv(
+      await this.upsertKv(
         collection,
         data.kv
           .filter((r) => r.collection === collection)
@@ -838,6 +1146,24 @@ export class UserOutlineDO extends DurableObject<Env> {
     this.sql.exec(
       "INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = '1'",
     );
+  }
+
+  /**
+   * Snapshot JSON sealed with this user's DEK for cold R2. Plain export stays
+   * for admin/debug; backups must use this so R2 never holds outline plaintext.
+   */
+  async exportColdBackup(): Promise<string> {
+    const snap = await this.exportSnapshot();
+    return this.sealText(JSON.stringify(snap));
+  }
+
+  /** Inverse of exportColdBackup — unseal then restoreSnapshot. */
+  async restoreColdBackup(
+    sealed: string,
+  ): Promise<{ previousBookmark: string | null; nodes: number; kv: number }> {
+    const json = await this.unsealText(sealed);
+    const snap = JSON.parse(json) as OutlineSnapshot;
+    return this.restoreSnapshot({ nodes: snap.nodes, kv: snap.kv });
   }
 
   // --- operator restore (Point-in-Time Recovery, ticket #220) ----------------
@@ -898,21 +1224,30 @@ export class UserOutlineDO extends DurableObject<Env> {
   // --- off-site backup: R2 export / snapshot restore (ticket #221) -----------
 
   /**
-   * The whole outline as one portable JSON value: every node plus every kv row
-   * with its `value` left as the RAW stored TEXT (parsed by nobody on the way
-   * out, inserted verbatim on the way back), so a snapshot round-trips the kv
-   * table byte-for-byte. Read by the daily cron sweep in worker/index.ts and
-   * written to R2 keyed `backups/<doName>/<YYYY-MM-DD>.json`.
+   * Portable plaintext snapshot (nodes + kv JSON values). The Worker seals the
+   * whole JSON blob with this user's DEK before writing cold storage.
    */
-  exportSnapshot(): OutlineSnapshot {
+  async exportSnapshot(): Promise<OutlineSnapshot> {
+    await this.ensureCrypto();
+    const nodes = await this.getNodes();
+    const kvRows = this.readRows<SnapshotKvRow>(
+      "SELECT collection, key, value, updatedAt FROM kv",
+    );
+    const kv: SnapshotKvRow[] = [];
+    for (const r of kvRows) {
+      kv.push({
+        collection: r.collection,
+        key: r.key,
+        value: await this.unsealText(r.value),
+        updatedAt: r.updatedAt,
+      });
+    }
     return {
       version: SNAPSHOT_VERSION,
       exportedAt: Date.now(),
       seq: this.currentSeq(),
-      nodes: this.getNodes(),
-      kv: this.readRows<SnapshotKvRow>(
-        "SELECT collection, key, value, updatedAt FROM kv",
-      ),
+      nodes,
+      kv,
     };
   }
 
@@ -938,6 +1273,7 @@ export class UserOutlineDO extends DurableObject<Env> {
     nodes: readonly Node[];
     kv: readonly SnapshotKvRow[];
   }): Promise<{ previousBookmark: string | null; nodes: number; kv: number }> {
+    await this.ensureCrypto();
     let previousBookmark: string | null = null;
     try {
       previousBookmark = await this.ctx.storage.getCurrentBookmark();
@@ -945,12 +1281,31 @@ export class UserOutlineDO extends DurableObject<Env> {
       // PITR (and its bookmarks) don't exist in local dev; a sync throw from a
       // missing API must not block the restore itself, which is plain SQL.
     }
+    const sealedNodes = new Map<string, string>();
+    for (const n of data.nodes) {
+      sealedNodes.set(n.id, await this.storageTextFor(n));
+    }
+    const sealedKv: { collection: string; key: string; value: string; updatedAt: number }[] =
+      [];
+    for (const r of data.kv) {
+      // Snapshots store plaintext JSON in `value` after exportSnapshot unseal.
+      sealedKv.push({
+        collection: r.collection,
+        key: r.key,
+        value: await this.sealText(
+          isSealed(r.value) ? await this.unsealText(r.value) : r.value,
+        ),
+        updatedAt: r.updatedAt,
+      });
+    }
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM nodes");
       this.sql.exec("DELETE FROM kv");
       this.sql.exec("DELETE FROM changelog");
-      for (const n of data.nodes) this.putNode(n);
-      for (const r of data.kv) {
+      for (const n of data.nodes) {
+        this.putNode(n, sealedNodes.get(n.id) ?? n.text);
+      }
+      for (const r of sealedKv) {
         this.sql.exec(
           "INSERT INTO kv (collection, key, value, updatedAt) VALUES (?, ?, ?, ?)",
           r.collection,
