@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { siblingChainRepairs } from "./collection";
+import {
+  echoedTextFor,
+  seedEchoedTextFromNodes,
+  siblingChainRepairs,
+} from "./collection";
 import { makeNode, type Node } from "./tree";
 
 /** Apply a repair set to a node list (what healSiblingChains does to the store). */
@@ -13,6 +17,22 @@ function applyFixes(
     m.has(n.id) ? { ...n, prevSiblingId: m.get(n.id) ?? null } : n,
   );
 }
+
+describe("seedEchoedTextFromNodes", () => {
+  test("clears prior echoes and seeds snapshot text (ADR 0010)", () => {
+    seedEchoedTextFromNodes([{ id: "a", text: "old" }]);
+    expect(echoedTextFor("a")).toBe("old");
+    seedEchoedTextFromNodes([
+      { id: "a", text: "new" },
+      { id: "b", text: "other" },
+    ]);
+    expect(echoedTextFor("a")).toBe("new");
+    expect(echoedTextFor("b")).toBe("other");
+    seedEchoedTextFromNodes([]);
+    expect(echoedTextFor("a")).toBeUndefined();
+    expect(echoedTextFor("b")).toBeUndefined();
+  });
+});
 
 describe("siblingChainRepairs", () => {
   test("clean data yields zero fixes (idempotent no-op)", () => {

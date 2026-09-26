@@ -84,4 +84,28 @@ describe("classifyFocusedStoreSync", () => {
       }),
     ).toBe("apply");
   });
+
+  test("after snapshot seed, overlay drop to synced base holds (stale-tab gap)", () => {
+    // Snapshot seeded echoedText=base; PATCH ack drops overlay so store falls
+    // back to base while DOM still has typed text — must hold, not apply.
+    expect(
+      classifyFocusedStoreSync({
+        storeText: "base",
+        liveText: "base",
+        echoedText: "base",
+        syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe("hold");
+  });
+
+  test("without an echo seed, overlay drop applies (the overnight bug)", () => {
+    expect(
+      classifyFocusedStoreSync({
+        storeText: "base",
+        liveText: "base",
+        echoedText: undefined,
+        syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe("apply");
+  });
 });

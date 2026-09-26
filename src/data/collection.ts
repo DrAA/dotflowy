@@ -150,19 +150,33 @@ type SeqWaiter = { seq: number; resolve: () => void };
 const seqWaiters = new Set<SeqWaiter>();
 
 /**
- * The last `text` value the SYNC channel applied for each node id (a live change
- * or resume frame -- i.e. the server's echo of some edit). The focused bullet
- * uses this to tell an echo-driven store change from a local one: while you are
- * typing, the contentEditable DOM is authoritative, so a store change whose text
- * equals the echo we just received is the network reflecting your own (possibly
- * stale or out-of-order) keystrokes back -- repainting it mid-type is exactly
- * what scrambles characters and jumps the caret. A LOCAL change (undo/redo, a
- * slash insert) carries a value that does NOT match the latest echo, so it still
- * repaints. See OutlineRow's store-sync effect.
+ * The last `text` value the SYNC channel applied for each node id (a live change,
+ * resume frame, or full snapshot -- i.e. the server's current text). The focused
+ * bullet uses this to tell an echo-driven store change from a local one: while
+ * you are typing, the contentEditable DOM is authoritative, so a store change
+ * whose text equals the echo we just received is the network reflecting your own
+ * (possibly stale or out-of-order) keystrokes back -- repainting it mid-type is
+ * exactly what scrambles characters and jumps the caret. A LOCAL change
+ * (undo/redo, a slash insert) carries a value that does NOT match the latest
+ * echo, so it still repaints. See OutlineRow's store-sync effect.
+ *
+ * Snapshots must seed this map (ADR 0010): otherwise a node that has only ever
+ * arrived via snapshot leaves `echoedText` undefined, the focused hold never
+ * arms, and a PATCH-ack / WS-echo gap (common after overnight reconnect) rewinds
+ * the contentEditable to the pre-edit store text.
  */
 const echoedText = new Map<string, string>();
 export function echoedTextFor(id: string): string | undefined {
   return echoedText.get(id);
+}
+
+/** Replace the echo map with full server truth so the focused hold works before
+ *  any live change frame arrives (initial connect, resync, queued snapshot). */
+export function seedEchoedTextFromNodes(
+  nodes: readonly Pick<Node, "id" | "text">[],
+): void {
+  echoedText.clear();
+  for (const n of nodes) echoedText.set(n.id, n.text);
 }
 
 /** Advance the applied cursor and release any waiters it satisfies. Monotonic:
@@ -479,6 +493,9 @@ function applyQueuedSnapshot(snapshot: readonly Node[]): void {
       }
     }
   });
+  // Same ADR 0010 seed as a wire snapshot — queued restore is full server-ish
+  // truth for the pending-write window and must arm the focused hold.
+  seedEchoedTextFromNodes(snapshot);
 }
 
 export const nodesCollection = createCollection({
@@ -500,10 +517,14 @@ export const nodesCollection = createCollection({
       // Local-only: hydrate from this browser and never open /api/sync.
       if (isLocalDataEnabled()) {
         begin();
-        for (const n of readLocalNodes()) {
+        const local = readLocalNodes();
+        for (const n of local) {
           write({ type: "insert", value: withNodeDefaults(n) });
         }
         commit();
+        // No WS echoes in local mode — seed from hydrate so the focused hold
+        // still covers the overlay drop after a local persist.
+        seedEchoedTextFromNodes(local);
         markReady();
         markSyncReady();
         return () => {};
@@ -568,6 +589,11 @@ export const nodesCollection = createCollection({
             write({ type: "insert", value: withNodeDefaults(n) });
           metadata?.collection.set("cursor", msg.seq);
           commit();
+          // Arm the focused echo-hold for every node in this snapshot (ADR 0010).
+          // Live change/resume frames seed via applyOps; without this, a
+          // snapshot-only node leaves echoedText undefined and a PATCH-ack /
+          // delayed-WS-echo gap rewinds the contentEditable (stale-tab typing).
+          seedEchoedTextFromNodes(msg.nodes);
           // A fresh snapshot supersedes every earlier seq (and may be the
           // resolution a runStructural transaction is waiting on after a
           // reconnect or a same-page account switch), so reset the cursor to

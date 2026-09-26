@@ -297,9 +297,20 @@ function RowChrome({
   // focused-skip guard is unsafe until the DOM is populated, which never happens
   // on a fresh mount -- a reparent or scroll-in mounts an empty span that
   // FocusPass may focus before any onInput runs).
+  //
+  // Remount mid-type (snapshot truncate while focused): if the span already
+  // carries newer local text, keep it — painting store would undo keystrokes
+  // the update effect's echoedText hold never sees (new mount, empty syncedRef).
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el) return;
+    if (document.activeElement === el) {
+      const domText = readSource(el);
+      if (domText !== content.text) {
+        syncedRef.current = textPaintKey(domText, highlightKey);
+        return;
+      }
+    }
     decorate(el, content.text, null, false, searchHighlights);
     syncedRef.current = renderKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
