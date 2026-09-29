@@ -135,7 +135,12 @@ import {
   DELETE_CONFIRM_THRESHOLD,
   openDeleteConfirm,
 } from "./delete-confirm-opener";
-import { classifyFocusedStoreSync, textPaintKey } from "./editable-sync";
+import {
+  blurReconcileStoreText,
+  classifyFocusedStoreSync,
+  shouldHoldUnfocusedAckGap,
+  textPaintKey,
+} from "./editable-sync";
 import { consumeFlashAfterNav, flashRow } from "./flash-node";
 import { Header } from "./Header";
 import { HeaderTooltip } from "./header-tooltip";
@@ -2300,6 +2305,14 @@ function ZoomedTitle({
         syncedRef.current = renderKey;
         return;
       }
+    } else if (
+      shouldHoldUnfocusedAckGap({
+        storeText: node.text,
+        echoedText: echoedTextFor(node.id),
+        syncedKey: syncedRef.current,
+      })
+    ) {
+      return;
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
@@ -2495,11 +2508,17 @@ function ZoomedTitle({
               const text = readSource(el);
               // A protected node left empty heals: restore its name + shake/toast.
               const restored = healProtectedText(node.id, text, el);
+              const finalText = restored !== null ? restored : text;
+              // ADR 0010 blur reconcile — same as OutlineRow.
+              const toStore = blurReconcileStoreText(finalText, node.text);
+              if (toStore !== null) onTextChange(toStore);
               if (restored !== null)
                 syncedRef.current = textPaintKey(restored, highlightKey);
               else if (hasLink(text)) {
                 decorate(el, text, null, false, searchHighlights);
                 syncedRef.current = textPaintKey(text, highlightKey);
+              } else {
+                syncedRef.current = textPaintKey(finalText, highlightKey);
               }
             }}
             onKeyDown={(e) => {

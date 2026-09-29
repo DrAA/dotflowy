@@ -93,6 +93,13 @@ export function getPendingWriteCount(): number {
   return queue.length;
 }
 
+/** In-memory queue entries (after a storage reload). Used to re-apply local
+ *  field edits on top of a mid-session wire snapshot. */
+export function peekQueuedWrites(): readonly WriteQueueEntry[] {
+  reloadWriteQueueFromStorage();
+  return queue;
+}
+
 /**
  * Drop queued field PATCHes so a later flush cannot re-apply text that undo
  * already restored. Structural/create/delete entries stay (they are not the

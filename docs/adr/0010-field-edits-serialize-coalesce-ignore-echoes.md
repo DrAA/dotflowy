@@ -37,7 +37,9 @@ closes for structural writes (see [ADR 0009: Atomic structural writes](./0009-at
   (possibly stale/out-of-order) keystrokes back. The discriminator works because a LOCAL change
   (undo/redo restore, a slash insert) writes a value that does NOT match the latest echo and so still
   repaints; the echo only matches AFTER the local change has itself echoed. Reconciliation for the
-  skipped case resumes on blur (`onBlur` re-reads the DOM).
+  skipped case resumes on blur: `onBlur` re-reads the DOM and pushes it into the store when the
+  contentEditable is ahead (so an overlay/ack gap cannot rewind keystrokes when focus leaves —
+  e.g. clicking This week after an overnight reconnect).
 
 **This does NOT walk back "field edits must not await an echo."** The overlay still drops on the
 PATCH ack (snappy typing, no `waitForSeq`); the focused-bullet guard is what makes the surviving

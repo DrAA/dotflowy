@@ -33,7 +33,12 @@ import {
 import { hasFoldingToken } from "../plugins/registry";
 import { BulletGlyph } from "./bullet-glyph";
 import { focusTextFromRowTap } from "./caret-place";
-import { classifyFocusedStoreSync, textPaintKey } from "./editable-sync";
+import {
+  blurReconcileStoreText,
+  classifyFocusedStoreSync,
+  shouldHoldUnfocusedAckGap,
+  textPaintKey,
+} from "./editable-sync";
 import { flashRow } from "./flash-node";
 import {
   decorate,
@@ -346,7 +351,8 @@ function RowChrome({
   // source of truth (onInput already wrote the latest text), and a store change
   // that merely echoes the network back is a lagging/out-of-order echo of our
   // own keystrokes -- repainting it scrambles characters and jumps the caret
-  // mid-type, so it's skipped; blur reconciles. See collection.ts `echoedText`.
+  // mid-type, so it's skipped; blur pushes DOM → store (ADR 0010). See
+  // collection.ts `echoedText`.
   //
   // useLayoutEffect: a passive useEffect can run AFTER the next keystroke has
   // already hit the DOM, so a snapshot from the previous character would rewind
@@ -370,6 +376,14 @@ function RowChrome({
         syncedRef.current = renderKey;
         return;
       }
+    } else if (
+      shouldHoldUnfocusedAckGap({
+        storeText: content.text,
+        echoedText: echoedTextFor(content.id),
+        syncedKey: syncedRef.current,
+      })
+    ) {
+      return;
     }
     const focused = document.activeElement === el;
     const revealOffset = focused ? getCaretOffset(el) : null;
@@ -607,11 +621,21 @@ function RowChrome({
               const el = e.currentTarget;
               const text = readSource(el);
               const restored = healProtectedText(content.id, text, el);
+              const finalText = restored !== null ? restored : text;
+              // ADR 0010: focused hold skips echo paints; on blur push DOM →
+              // store so an overlay/ack gap cannot rewind when This week (or
+              // any other control) steals focus after overnight reconnect.
+              const toStore = blurReconcileStoreText(finalText, content.text);
+              if (toStore !== null) {
+                commands.onTextChange(content.id, toStore);
+              }
               if (restored !== null) {
                 syncedRef.current = textPaintKey(restored, highlightKey);
               } else if (hasFoldingToken(text)) {
                 decorate(el, text, null, false, searchHighlights);
                 syncedRef.current = textPaintKey(text, highlightKey);
+              } else {
+                syncedRef.current = textPaintKey(finalText, highlightKey);
               }
             }}
             onKeyDown={(e) => {

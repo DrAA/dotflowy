@@ -47,3 +47,29 @@ export function classifyFocusedStoreSync(args: {
   if (echoedText === storeText) return "hold";
   return "apply";
 }
+
+/**
+ * Unfocused twin of the focused echo hold. After a PATCH ack the store can fall
+ * back to the last echo while `syncedKey` still carries newer DOM text; blur
+ * pushes DOM → store (ADR 0010), but a paint can run before that commit lands
+ * (This week click, pending spinner). Hold the DOM until store catches up.
+ */
+export function shouldHoldUnfocusedAckGap(args: {
+  storeText: string;
+  echoedText: string | undefined;
+  syncedKey: string | null;
+}): boolean {
+  const syncedText = textPaintSource(args.syncedKey);
+  return args.echoedText === args.storeText && syncedText !== args.storeText;
+}
+
+/**
+ * Text to push into the store on blur when the contentEditable is ahead of the
+ * React snapshot (overlay/ack gap). `null` means already in sync.
+ */
+export function blurReconcileStoreText(
+  domText: string,
+  storeText: string,
+): string | null {
+  return domText === storeText ? null : domText;
+}

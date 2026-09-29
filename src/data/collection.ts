@@ -29,6 +29,7 @@ import { buildTreeIndex, childrenOf, now } from "./tree";
 import {
   enqueueWrite,
   getPendingWriteCount,
+  peekQueuedWrites,
   restoreQueuedSnapshotIfPresent,
   startWriteQueue,
 } from "./write-queue";
@@ -498,6 +499,29 @@ function applyQueuedSnapshot(snapshot: readonly Node[]): void {
   seedEchoedTextFromNodes(snapshot);
 }
 
+/**
+ * Mid-session wire snapshots truncate the collection to server truth. Pending
+ * field writes that never reached the server would otherwise vanish (This week
+ * get-or-create can force a resync after overnight disconnect). Re-layer only
+ * the queued field patches — not the full localStorage snapshot — so unrelated
+ * server rows that arrived since enqueue stay intact.
+ */
+function reapplyQueuedFieldWrites(): void {
+  if (getPendingWriteCount() <= 0) return;
+  const entries = peekQueuedWrites();
+  withPersistSuppressed(() => {
+    for (const entry of entries) {
+      if (entry.kind !== "field") continue;
+      for (const u of entry.updates) {
+        if (!nodesCollection.has(u.id)) continue;
+        nodesCollection.update(u.id, (draft) => {
+          Object.assign(draft, u.changes);
+        });
+      }
+    }
+  });
+}
+
 export const nodesCollection = createCollection({
   id: "nodes",
   getKey: (node: Node) => node.id,
@@ -600,7 +624,12 @@ export const nodesCollection = createCollection({
           // it — even if it's LOWER than what a prior outline left behind.
           resetAppliedSeq(msg.seq);
           initialError = null;
+          // First ready may restore the full queued outline (reload path).
+          // Later snapshots must still re-layer pending field writes or a
+          // resync (This week / overnight reconnect) wipes unsynced typing.
+          const alreadyReady = ready;
           ensureReady();
+          if (alreadyReady) reapplyQueuedFieldWrites();
           // Self-heal any persisted sibling-chain corruption now that the full
           // outline is in hand (deferred so it writes outside this commit).
           // Copy: msg.nodes is a readonly wire array; the heal path wants Node[].

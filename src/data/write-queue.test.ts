@@ -14,6 +14,7 @@ import {
   dropQueuedFieldWrites,
   enqueueWrite,
   getPendingWriteCount,
+  peekQueuedWrites,
   reloadWriteQueueFromStorage,
   resetWriteQueueForTests,
   restoreQueuedSnapshotIfPresent,
@@ -108,6 +109,21 @@ describe("write-queue localStorage persistence", () => {
     reloadWriteQueueFromStorage();
     expect(getPendingWriteCount()).toBe(1);
     expect(restoreQueuedSnapshotIfPresent()).toEqual(snapshot);
+  });
+
+  test("peekQueuedWrites returns field entries after a storage reload", () => {
+    const snapshot = [node({ id: "a", text: "queued" })];
+    enqueueWrite(
+      { kind: "field", updates: [{ id: "a", changes: { text: "typed" } }] },
+      snapshot,
+    );
+    clearWriteQueueMemoryForTests();
+    const entries = peekQueuedWrites();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      kind: "field",
+      updates: [{ id: "a", changes: { text: "typed" } }],
+    });
   });
 
   test("restoreQueuedSnapshotIfPresent returns null when queue is empty", () => {

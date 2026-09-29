@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  blurReconcileStoreText,
   classifyFocusedStoreSync,
+  shouldHoldUnfocusedAckGap,
   textPaintKey,
   textPaintSource,
 } from "./editable-sync";
@@ -15,6 +17,48 @@ describe("textPaintKey", () => {
   test("reads a legacy bare-text syncedRef (no null separator)", () => {
     expect(textPaintSource("hello")).toBe("hello");
     expect(textPaintSource(null)).toBe("");
+  });
+});
+
+describe("blurReconcileStoreText", () => {
+  test("returns null when DOM already matches the store", () => {
+    expect(blurReconcileStoreText("hello", "hello")).toBeNull();
+  });
+
+  test("returns DOM text when ahead of the store (ack/echo gap)", () => {
+    expect(blurReconcileStoreText("hello typed", "hello")).toBe("hello typed");
+  });
+});
+
+describe("shouldHoldUnfocusedAckGap", () => {
+  test("holds when store equals echo but syncedKey still has newer DOM text", () => {
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "base",
+        echoedText: "base",
+        syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe(true);
+  });
+
+  test("does not hold when store has caught up to the DOM", () => {
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "base typed",
+        echoedText: "base",
+        syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe(false);
+  });
+
+  test("does not hold without an echo seed", () => {
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "base",
+        echoedText: undefined,
+        syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe(false);
   });
 });
 
