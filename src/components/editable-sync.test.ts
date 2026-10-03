@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   blurReconcileStoreText,
   classifyFocusedStoreSync,
+  focusedTextToReapply,
   shouldHoldUnfocusedAckGap,
+  shouldKeepMountedDom,
   textPaintKey,
   textPaintSource,
 } from "./editable-sync";
@@ -151,5 +153,59 @@ describe("classifyFocusedStoreSync", () => {
         syncedKey: textPaintKey("base typed", ""),
       }),
     ).toBe("apply");
+  });
+});
+
+describe("shouldKeepMountedDom", () => {
+  test("keeps non-empty focused DOM ahead of the store", () => {
+    expect(
+      shouldKeepMountedDom({
+        focused: true,
+        domText: "base typed",
+        storeText: "base",
+      }),
+    ).toBe(true);
+  });
+
+  test("paints store when remount leaves an empty focused span", () => {
+    // Snapshot truncate remounts a fresh empty contentEditable; treating "" as
+    // ahead of store would keep the empty span and lose re-layered typing.
+    expect(
+      shouldKeepMountedDom({
+        focused: true,
+        domText: "",
+        storeText: "base typed",
+      }),
+    ).toBe(false);
+  });
+
+  test("paints store when unfocused", () => {
+    expect(
+      shouldKeepMountedDom({
+        focused: false,
+        domText: "ahead",
+        storeText: "base",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("focusedTextToReapply", () => {
+  test("returns captured text when the store still has the snapshot base", () => {
+    expect(focusedTextToReapply({ id: "n1", text: "base typed" }, "base")).toBe(
+      "base typed",
+    );
+  });
+
+  test("returns null when store already matches (no double write)", () => {
+    expect(
+      focusedTextToReapply({ id: "n1", text: "base typed" }, "base typed"),
+    ).toBeNull();
+  });
+
+  test("returns null when the node vanished from the snapshot", () => {
+    expect(
+      focusedTextToReapply({ id: "gone", text: "typed" }, undefined),
+    ).toBeNull();
   });
 });

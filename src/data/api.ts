@@ -220,6 +220,19 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
   });
 }
 
+/**
+ * Field merges parked in the open coalesce generation (not yet on the wire).
+ * Mid-session snapshots re-layer these onto the collection so a truncate cannot
+ * wipe keystrokes that never entered the durable write-queue.
+ */
+export function peekCoalescedFieldUpdates(): {
+  id: string;
+  changes: Partial<Node>;
+}[] {
+  if (!currentGen || currentGen.pending.size === 0) return [];
+  return [...currentGen.pending].map(([id, changes]) => ({ id, changes }));
+}
+
 export function updateNodes(
   updates: { id: string; changes: Partial<Node> }[],
 ): Promise<void> {

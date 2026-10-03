@@ -2416,6 +2416,7 @@ function ZoomedTitle({
             spellCheck={false}
             aria-label="Title"
             aria-multiline="true"
+            data-content-id={node.id}
             data-blank={node.text.trim() ? undefined : true}
             data-completed={node.completed}
             onInput={(e) => {

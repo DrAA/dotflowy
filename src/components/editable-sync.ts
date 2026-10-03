@@ -2,6 +2,11 @@
 // repaint the DOM the user is typing into. OutlineRow and ZoomedTitle share
 // this so the two paths cannot drift (ADR 0010).
 
+import { bindFocusedTypingCapture } from "../data/focused-typing";
+import { readSource } from "./inline-code";
+
+export { focusedTextToReapply } from "../data/focused-typing";
+
 /**
  * Last-paint key: source text plus a highlight-term suffix. onInput writes the
  * same shape as the row's `renderKey` so a caught-up store is a cheap skip
@@ -17,6 +22,40 @@ export function textPaintSource(key: string | null): string {
   const i = key.indexOf("\0");
   return i === -1 ? key : key.slice(0, i);
 }
+
+/**
+ * Mount seed after a remount (snapshot truncate, virtualizer recycle). Keep the
+ * DOM only when it already carries non-empty text ahead of the store — an empty
+ * fresh span is not "ahead"; painting store is what recovers typing re-layered
+ * onto the collection after a mid-session snapshot.
+ */
+export function shouldKeepMountedDom(args: {
+  focused: boolean;
+  domText: string;
+  storeText: string;
+}): boolean {
+  return args.focused && args.domText !== "" && args.domText !== args.storeText;
+}
+
+/**
+ * Read the focused bullet's content id + markdown source before a mid-session
+ * snapshot truncate. Rows stamp `data-content-id` on `.node-text` so mirror
+ * instances resolve to the source node the text path writes.
+ */
+export function captureFocusedNodeText(): { id: string; text: string } | null {
+  if (typeof document === "undefined") return null;
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || !el.classList.contains("node-text")) {
+    return null;
+  }
+  const id = el.dataset.contentId;
+  if (!id) return null;
+  return { id, text: readSource(el) };
+}
+
+// collection.ts reads via the data-layer binder so it never statically imports
+// this file (that path pulls plugins/registry → collection and wedges load).
+bindFocusedTypingCapture(captureFocusedNodeText);
 
 /**
  * While a bullet is focused, the contentEditable is source of truth. A store

@@ -6,13 +6,19 @@ import { Cause, Duration, Effect, Fiber, Schema, Stream } from "effect";
 import type { ChangeOp, ServerMessage, SyncEvent } from "./realtime";
 import type { Node } from "./schema";
 
-import { createNodes, deleteNodes, updateNodes } from "./api";
+import {
+  createNodes,
+  deleteNodes,
+  peekCoalescedFieldUpdates,
+  updateNodes,
+} from "./api";
 import { noteServerVersion } from "./app-version";
 import {
   isLocalDataEnabled,
   isLunoraSyncEnabled,
   isMirrorsEnabled,
 } from "./flags";
+import { captureFocusedNodeText, focusedTextToReapply } from "./focused-typing";
 import { readLocalNodes, writeLocalNodes } from "./local-store";
 import { runPromise } from "./nodes-client-effect";
 import { makeSyncStream } from "./realtime";
@@ -522,6 +528,54 @@ function reapplyQueuedFieldWrites(): void {
   });
 }
 
+/**
+ * Coalesced keystrokes parked in `fieldSem` are not in the durable write-queue
+ * yet. After a mid-session truncate, re-layer them with persist suppressed —
+ * the open generation's flush still owns the PATCH.
+ */
+function reapplyCoalescedFieldWrites(): void {
+  const updates = peekCoalescedFieldUpdates();
+  if (updates.length === 0) return;
+  withPersistSuppressed(() => {
+    for (const u of updates) {
+      if (!nodesCollection.has(u.id)) continue;
+      nodesCollection.update(u.id, (draft) => {
+        Object.assign(draft, u.changes);
+      });
+    }
+  });
+}
+
+/**
+ * Typing that only survived in the focused contentEditable (PATCH ack already
+ * dropped the overlay; not yet echoed; not queued) must be pushed back into the
+ * collection after truncate — and persisted — or a remount paints server-old
+ * text and the characters vanish a few seconds after overnight reconnect.
+ */
+function reapplyFocusedTyping(
+  captured: { id: string; text: string } | null,
+): void {
+  if (captured == null || !nodesCollection.has(captured.id)) return;
+  const live = (nodesCollection.toArray as Node[]).find(
+    (n) => n.id === captured.id,
+  );
+  const text = focusedTextToReapply(captured, live?.text);
+  if (text == null) return;
+  // Do NOT suppress persist: this may be the only copy of the keystrokes.
+  nodesCollection.update(captured.id, (draft) => {
+    draft.text = text;
+  });
+}
+
+/** Local field state that a mid-session snapshot must not wipe (ADR 0010). */
+function reapplyLocalFieldEdits(
+  captured: { id: string; text: string } | null,
+): void {
+  reapplyQueuedFieldWrites();
+  reapplyCoalescedFieldWrites();
+  reapplyFocusedTyping(captured);
+}
+
 export const nodesCollection = createCollection({
   id: "nodes",
   getKey: (node: Node) => node.id,
@@ -607,6 +661,11 @@ export const nodesCollection = createCollection({
           // Replace the whole collection: truncate, then write the full set.
           // Idempotent on first connect (empty) and on a resync past the
           // changelog window. The cursor survives truncate (separate store).
+          // Capture focused DOM text BEFORE truncate: after PATCH-ack the
+          // overlay is gone, and a remount cannot recover an empty fresh span
+          // (overnight + This week resync).
+          const alreadyReady = ready;
+          const focusedTyping = alreadyReady ? captureFocusedNodeText() : null;
           begin();
           truncate();
           for (const n of msg.nodes)
@@ -625,11 +684,10 @@ export const nodesCollection = createCollection({
           resetAppliedSeq(msg.seq);
           initialError = null;
           // First ready may restore the full queued outline (reload path).
-          // Later snapshots must still re-layer pending field writes or a
-          // resync (This week / overnight reconnect) wipes unsynced typing.
-          const alreadyReady = ready;
+          // Later snapshots must re-layer queued + coalesced + focused DOM
+          // text or a resync (This week / overnight reconnect) wipes typing.
           ensureReady();
-          if (alreadyReady) reapplyQueuedFieldWrites();
+          if (alreadyReady) reapplyLocalFieldEdits(focusedTyping);
           // Self-heal any persisted sibling-chain corruption now that the full
           // outline is in hand (deferred so it writes outside this commit).
           // Copy: msg.nodes is a readonly wire array; the heal path wants Node[].

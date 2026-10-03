@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ChangeOp } from "./realtime";
 
 import {
+  peekCoalescedFieldUpdates,
   persistBatch,
   prepareStructuralWrite,
   resetApiCoordinatorsForTests,
@@ -118,6 +119,20 @@ describe("persistBatch serialization (writeSem)", () => {
 const okField = (): Response => new Response(null, { status: 200 });
 
 describe("updateNodes field coalescer (fieldSem generations)", () => {
+  test("peekCoalescedFieldUpdates surfaces the open generation", async () => {
+    const pA = updateNodes([{ id: "a", changes: { text: "a1" } }]);
+    await waitPending(1);
+    // In-flight generation has detached currentGen; park a second burst.
+    updateNodes([{ id: "b", changes: { text: "b1" } }]);
+    expect(peekCoalescedFieldUpdates()).toEqual([
+      { id: "b", changes: { text: "b1" } },
+    ]);
+    at(0).resolve(okField());
+    await waitPending(2);
+    at(1).resolve(okField());
+    await expect(pA).resolves.toBeUndefined();
+  });
+
   test("shared-fate: both callers of a queued generation resolve together", async () => {
     // Gen 1 = A, sent alone (nothing in flight when it arms).
     const pA = updateNodes([{ id: "a", changes: { text: "a" } }]);

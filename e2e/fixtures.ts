@@ -497,24 +497,40 @@ export async function seedOutline(
   // Hold the socket so writes can echo their change frames back here; reply to
   // `hello` with a full snapshot at the current seq (a reconnect resumes from
   // committed state, exactly like the DO's snapshot path).
+  const sendSnapshot = (ws: WebSocketRoute) => {
+    ws.send(
+      JSON.stringify({
+        type: "snapshot",
+        seq,
+        nodes: [...store.values()],
+        ...(opts.serverVersion === undefined
+          ? {}
+          : { serverVersion: opts.serverVersion }),
+      }),
+    );
+  };
   await page.routeWebSocket(
     (url) => url.pathname === "/api/sync",
     (ws) => {
       socket = ws;
-      ws.onMessage(() =>
-        ws.send(
-          JSON.stringify({
-            type: "snapshot",
-            seq,
-            nodes: [...store.values()],
-            ...(opts.serverVersion === undefined
-              ? {}
-              : { serverVersion: opts.serverVersion }),
-          }),
-        ),
-      );
+      classicSyncPushSnapshot = () => {
+        if (socket) sendSnapshot(socket);
+      };
+      ws.onMessage(() => sendSnapshot(ws));
     },
   );
+}
+
+/** Push a mid-session classic `/api/sync` snapshot (server truth from the mock
+ *  store). Specs use this to reproduce overnight/This-week resync while typing. */
+let classicSyncPushSnapshot: (() => void) | null = null;
+export function pushClassicSyncSnapshot(): void {
+  if (!classicSyncPushSnapshot) {
+    throw new Error(
+      "pushClassicSyncSnapshot: no classic sync socket (seedOutline first; Lunora path unsupported)",
+    );
+  }
+  classicSyncPushSnapshot();
 }
 
 /**

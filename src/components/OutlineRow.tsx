@@ -37,6 +37,7 @@ import {
   blurReconcileStoreText,
   classifyFocusedStoreSync,
   shouldHoldUnfocusedAckGap,
+  shouldKeepMountedDom,
   textPaintKey,
 } from "./editable-sync";
 import { flashRow } from "./flash-node";
@@ -306,15 +307,21 @@ function RowChrome({
   // Remount mid-type (snapshot truncate while focused): if the span already
   // carries newer local text, keep it — painting store would undo keystrokes
   // the update effect's echoedText hold never sees (new mount, empty syncedRef).
+  // An empty fresh span is NOT ahead: paint store so collection re-layer
+  // (focused stash / queued fields) can recover overnight typing.
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el) return;
-    if (document.activeElement === el) {
-      const domText = readSource(el);
-      if (domText !== content.text) {
-        syncedRef.current = textPaintKey(domText, highlightKey);
-        return;
-      }
+    const domText = readSource(el);
+    if (
+      shouldKeepMountedDom({
+        focused: document.activeElement === el,
+        domText,
+        storeText: content.text,
+      })
+    ) {
+      syncedRef.current = textPaintKey(domText, highlightKey);
+      return;
     }
     decorate(el, content.text, null, false, searchHighlights);
     syncedRef.current = renderKey;
@@ -526,6 +533,7 @@ function RowChrome({
             spellCheck={false}
             aria-label={content.text.trim() || "Empty bullet"}
             aria-multiline="true"
+            data-content-id={content.id}
             data-blank={content.text.trim() ? undefined : true}
             data-completed={content.completed}
             onInput={(e) => {

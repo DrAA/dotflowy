@@ -39,7 +39,10 @@ closes for structural writes (see [ADR 0009: Atomic structural writes](./0009-at
   repaints; the echo only matches AFTER the local change has itself echoed. Reconciliation for the
   skipped case resumes on blur: `onBlur` re-reads the DOM and pushes it into the store when the
   contentEditable is ahead (so an overlay/ack gap cannot rewind keystrokes when focus leaves —
-  e.g. clicking This week after an overnight reconnect).
+  e.g. clicking This week after an overnight reconnect). Mid-session wire snapshots (reconnect
+  past the changelog window, or This week `resyncNodes`) must also stash the focused
+  contentEditable and re-layer queued + coalesced field edits after truncate — the hold alone
+  cannot recover a remounted empty span, and `fieldSem` pending is not in the durable write-queue.
 
 **This does NOT walk back "field edits must not await an echo."** The overlay still drops on the
 PATCH ack (snappy typing, no `waitForSeq`); the focused-bullet guard is what makes the surviving
