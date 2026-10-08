@@ -161,7 +161,8 @@ function toNode(n: SeedNode): ApiNode {
  * `seedOutlineLunora` (flag ON + `/_lunora/*` mock). The classic path sets
  * `dotflowy:flag:lunora-sync=off` so specs stay on `/api/sync` even though
  * the product default is ON. Classic-only opts (`echoDelayMs`, `echoChunks`,
- * `postDelayMs`, `patchDelayMs`, `failStructuralWrites`, `serverVersion`) are ignored on the
+ * `postDelayMs`, `patchDelayMs`, `mediaPostDelayMs`, `failStructuralWrites`,
+ * `serverVersion`) are ignored on the
  * Lunora path — those specs stay classic-only. Lunora-only opts
  * (`suppressWholeOutlinePoke`, `failMutatorWrites`) live on
  * `seedOutlineLunora` directly.
@@ -175,6 +176,9 @@ export async function seedOutline(
     /** Delay only the field PATCH *response* so undo can race an in-flight
      *  keystroke write (fieldSem ⊥ writeSem). */
     patchDelayMs?: number;
+    /** Delay the `/api/media` POST *response* so a mid-session snapshot can
+     *  race an in-flight image upload. */
+    mediaPostDelayMs?: number;
     /** Split a structural batch's echo into N frames (chunked ops, consecutive
      *  seqs, staggered by echoDelayMs each), replying with the FINAL seq —
      *  mirrors the DO's chunked recordChange (worker/outline-do.ts, issue
@@ -450,6 +454,10 @@ export async function seedOutline(
           height,
           createdAt: Date.now(),
         };
+        const mediaPostDelayMs = opts.mediaPostDelayMs ?? 0;
+        if (mediaPostDelayMs > 0) {
+          await new Promise((r) => setTimeout(r, mediaPostDelayMs));
+        }
         blobs.set(id, { bytes: body, type: contentType });
         ns("media").set(id, row);
         return route.fulfill({

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { isAttachableImage, nodeHasImage, retainFileBytes } from "./media";
+import { isMediaGcSuppressed, withMediaGcSuppressed } from "./media-snapshot";
 
 describe("nodeHasImage", () => {
   test("is a pure scan of provided rows and does not start the collection", () => {
@@ -40,5 +41,15 @@ describe("retainFileBytes", () => {
     expect(copy.name).toBe("dot.png");
     expect(copy.type).toBe("image/png");
     expect(new Uint8Array(await copy.arrayBuffer())).toEqual(src);
+  });
+});
+
+describe("media snapshot GC suppress", () => {
+  test("withMediaGcSuppressed is visible to the media module flag", () => {
+    expect(isMediaGcSuppressed()).toBe(false);
+    withMediaGcSuppressed(() => {
+      expect(isMediaGcSuppressed()).toBe(true);
+    });
+    expect(isMediaGcSuppressed()).toBe(false);
   });
 });

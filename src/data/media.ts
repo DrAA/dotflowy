@@ -14,6 +14,12 @@ import {
   localMediaObjectUrl,
   putLocalBlob,
 } from "./local-store";
+import {
+  bindMediaSnapshot,
+  isMediaGcSuppressed,
+  mediaRowsToReapply,
+  type MediaSnapshotRow,
+} from "./media-snapshot";
 import { queryClient } from "./query-client";
 import { trueSourceOf } from "./tree";
 import { getTreeIndex, subscribeTree } from "./tree-store";
@@ -139,7 +145,7 @@ function restoreMediaSnapshot(data: unknown): void {
 }
 
 function gcOrphans(): void {
-  if (restoring) return;
+  if (restoring || isMediaGcSuppressed()) return;
   const index = getTreeIndex();
   // Empty means "not loaded yet" or a snapshot truncate in flight — never a
   // cue to drop every attachment. A truly empty outline GCs on the next insert.
@@ -149,9 +155,34 @@ function gcOrphans(): void {
   }
 }
 
+function captureMediaRows(): MediaSnapshotRow[] {
+  return mediaCollection.toArray.map((r) => ({ ...r }));
+}
+
+function reapplyMediaRows(stashed: readonly MediaSnapshotRow[]): void {
+  const index = getTreeIndex();
+  const presentNodeIds = new Set(index.byId.keys());
+  const heldMediaIds = new Set(mediaCollection.toArray.map((r) => r.id));
+  const missing = mediaRowsToReapply(stashed, presentNodeIds, heldMediaIds);
+  for (const row of missing) {
+    mediaCollection.insert({ ...row });
+  }
+}
+
+function bindSnapshotHandlers(): void {
+  bindMediaSnapshot({
+    capture: captureMediaRows,
+    reapply: reapplyMediaRows,
+  });
+}
+
+bindSnapshotHandlers();
+
 function ensureStarted(): void {
   if (started || typeof window === "undefined") return;
   started = true;
+  // Re-bind in case a unit test swapped the media-snapshot handlers.
+  bindSnapshotHandlers();
   mediaCollection.subscribeChanges(() => rebuild(), {
     includeInitialState: true,
   });

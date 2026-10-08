@@ -20,6 +20,11 @@ import {
 } from "./flags";
 import { captureFocusedNodeText, focusedTextToReapply } from "./focused-typing";
 import { readLocalNodes, writeLocalNodes } from "./local-store";
+import {
+  captureMediaForSnapshot,
+  reapplyMediaAfterSnapshot,
+  withMediaGcSuppressed,
+} from "./media-snapshot";
 import { runPromise } from "./nodes-client-effect";
 import { makeSyncStream } from "./realtime";
 import { appRuntime } from "./runtime";
@@ -663,15 +668,20 @@ export const nodesCollection = createCollection({
           // changelog window. The cursor survives truncate (separate store).
           // Capture focused DOM text BEFORE truncate: after PATCH-ack the
           // overlay is gone, and a remount cannot recover an empty fresh span
-          // (overnight + This week resync).
+          // (overnight + This week resync). Same window: stash media rows —
+          // tree-driven orphan GC can persist-delete attachments while byId is
+          // mid-rebuild, and unlike text they are not in the contentEditable.
           const alreadyReady = ready;
           const focusedTyping = alreadyReady ? captureFocusedNodeText() : null;
-          begin();
-          truncate();
-          for (const n of msg.nodes)
-            write({ type: "insert", value: withNodeDefaults(n) });
-          metadata?.collection.set("cursor", msg.seq);
-          commit();
+          const mediaStash = alreadyReady ? captureMediaForSnapshot() : [];
+          withMediaGcSuppressed(() => {
+            begin();
+            truncate();
+            for (const n of msg.nodes)
+              write({ type: "insert", value: withNodeDefaults(n) });
+            metadata?.collection.set("cursor", msg.seq);
+            commit();
+          });
           // Arm the focused echo-hold for every node in this snapshot (ADR 0010).
           // Live change/resume frames seed via applyOps; without this, a
           // snapshot-only node leaves echoedText undefined and a PATCH-ack /
@@ -686,8 +696,13 @@ export const nodesCollection = createCollection({
           // First ready may restore the full queued outline (reload path).
           // Later snapshots must re-layer queued + coalesced + focused DOM
           // text or a resync (This week / overnight reconnect) wipes typing.
+          // Hosted images (ADR 0061) re-layer here too — side-collection, not
+          // a Node field, so the text path cannot cover them.
           ensureReady();
-          if (alreadyReady) reapplyLocalFieldEdits(focusedTyping);
+          if (alreadyReady) {
+            reapplyLocalFieldEdits(focusedTyping);
+            reapplyMediaAfterSnapshot(mediaStash);
+          }
           // Self-heal any persisted sibling-chain corruption now that the full
           // outline is in hand (deferred so it writes outside this commit).
           // Copy: msg.nodes is a readonly wire array; the heal path wants Node[].
