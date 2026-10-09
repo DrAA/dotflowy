@@ -512,7 +512,14 @@ export class UserOutlineDO extends DurableObject<Env> {
             drop.push(row.id);
           }
         }
-        if (drop.length) this.deleteKv("media", drop);
+        if (drop.length) {
+          console.info("[media] do.deleteNodes.gc", {
+            deletedNodeCount: ids.length,
+            dropCount: drop.length,
+            drop,
+          });
+          this.deleteKv("media", drop);
+        }
         return this.recordChange(ops);
       }),
     );

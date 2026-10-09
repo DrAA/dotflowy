@@ -48,7 +48,10 @@ plugin side-collection.
 Detaching an image deletes the kv row immediately. R2 objects stay until
 account wipe so Cmd+Z can restore the kv row and GET still works.
 Node delete GCs kv rows for those `nodeId`s (client + DO); R2 remains until
-wipe.
+wipe. Client tree-driven orphan GC also skips attachments younger than two
+minutes so a just-uploaded row cannot be persist-deleted while `byId` is
+briefly incomplete (Enter / mid-session snapshot). The DO delete path is the
+source of truth for intentional node removal.
 
 ## Export / MCP
 

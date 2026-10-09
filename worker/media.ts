@@ -163,20 +163,57 @@ function mediaIdFromPath(pathname: string): string | null {
   return m ? decodeURIComponent(m[1]!) : null;
 }
 
+function mediaLog(
+  level: "info" | "warn" | "error",
+  event: string,
+  data: Record<string, unknown>,
+): void {
+  const line = `[media] ${event}`;
+  if (level === "error") console.error(line, data);
+  else if (level === "warn") console.warn(line, data);
+  else console.info(line, data);
+}
+
 async function postMedia(
   request: Request,
   stub: MediaStub,
   env: MediaEnv,
   userId: string,
 ): Promise<Response> {
-  const nodeId = new URL(request.url).searchParams.get("nodeId")?.trim();
-  if (!nodeId) return json({ error: "missing nodeId" }, 400);
+  const url = new URL(request.url);
+  const nodeId = url.searchParams.get("nodeId")?.trim();
+  const batchId = request.headers.get("x-media-batch-id");
+  const batchIndex = request.headers.get("x-media-batch-index");
+  const base = {
+    userId,
+    nodeId: nodeId ?? null,
+    batchId,
+    batchIndex,
+  };
+  if (!nodeId) {
+    mediaLog("warn", "post.reject", { ...base, reason: "missing nodeId" });
+    return json({ error: "missing nodeId" }, 400);
+  }
 
   const buf = new Uint8Array(await request.arrayBuffer());
-  if (buf.byteLength === 0) return json({ error: "empty body" }, 400);
+  if (buf.byteLength === 0) {
+    mediaLog("warn", "post.reject", {
+      ...base,
+      reason: "empty body",
+      bytes: 0,
+    });
+    return json({ error: "empty body" }, 400);
+  }
 
   const contentType = sniffImage(buf);
-  if (!contentType) return json({ error: "unsupported type" }, 415);
+  if (!contentType) {
+    mediaLog("warn", "post.reject", {
+      ...base,
+      reason: "unsupported type",
+      bytes: buf.byteLength,
+    });
+    return json({ error: "unsupported type" }, 415);
+  }
 
   const width = parseDim(request.headers.get("x-image-width"));
   const height = parseDim(request.headers.get("x-image-height"));
@@ -192,10 +229,20 @@ async function postMedia(
     createdAt,
   };
 
+  // nodeId in customMetadata survives kv GC so R2 orphans can be attributed.
   await env.MEDIA.put(mediaR2Key(userId, id), buf, {
     httpMetadata: { contentType },
+    customMetadata: { nodeId },
   });
   await stub.upsertKv("media", [{ key: id, value: row }]);
+  mediaLog("info", "post.ok", {
+    ...base,
+    mediaId: id,
+    bytes: row.bytes,
+    contentType,
+    width,
+    height,
+  });
   return json(row, 201);
 }
 
@@ -207,9 +254,19 @@ async function getMedia(
 ): Promise<Response> {
   const rows = asMediaRows(await stub.getKv("media"));
   const row = rows.find((r) => r.id === id);
-  if (!row) return json({ error: "not found" }, 404);
+  if (!row) {
+    mediaLog("warn", "get.miss-kv", { userId, mediaId: id });
+    return json({ error: "not found" }, 404);
+  }
   const obj = await env.MEDIA.get(mediaR2Key(userId, id));
-  if (!obj) return json({ error: "not found" }, 404);
+  if (!obj) {
+    mediaLog("warn", "get.miss-r2", {
+      userId,
+      mediaId: id,
+      nodeId: row.nodeId,
+    });
+    return json({ error: "not found" }, 404);
+  }
   return new Response(obj.body, {
     headers: {
       "content-type": row.contentType,
@@ -219,6 +276,7 @@ async function getMedia(
 }
 
 async function deleteMedia(id: string, stub: MediaStub): Promise<Response> {
+  mediaLog("info", "delete.api", { mediaId: id });
   await stub.deleteKv("media", [id]);
   return json({ ok: true });
 }

@@ -26,6 +26,22 @@ import { getTreeIndex, subscribeTree } from "./tree-store";
 
 const KV = "media";
 
+/** Structured client logs for paste/upload/GC forensics (Workers Logs / DevTools). */
+function mediaLog(
+  level: "info" | "warn" | "error",
+  event: string,
+  data: Record<string, unknown>,
+): void {
+  const line = `[media] ${event}`;
+  if (level === "error") console.error(line, data);
+  else if (level === "warn") console.warn(line, data);
+  else console.info(line, data);
+}
+
+function fileMeta(file: File): { name: string; type: string; size: number } {
+  return { name: file.name, type: file.type, size: file.size };
+}
+
 const mediaSchema = Schema.Struct({
   id: Schema.String,
   nodeId: Schema.String,
@@ -55,7 +71,13 @@ export const mediaCollection = createCollection(
       return { refetch: false };
     },
     onDelete: async ({ transaction }) => {
-      await kvDelete(KV, toKvKeys(transaction));
+      const keys = toKvKeys(transaction);
+      mediaLog("warn", "kv.delete", {
+        count: keys.length,
+        ids: keys,
+        via: "collection.onDelete",
+      });
+      await kvDelete(KV, keys);
       return { refetch: false };
     },
   }),
@@ -129,8 +151,17 @@ function restoreMediaSnapshot(data: unknown): void {
   try {
     const next = Array.isArray(data) ? (data as MediaRow[]) : [];
     const keep = new Set(next.map((r) => r.id));
+    const removed: string[] = [];
     for (const row of mediaCollection.toArray) {
-      if (!keep.has(row.id)) mediaCollection.delete(row.id);
+      if (keep.has(row.id)) continue;
+      removed.push(row.id);
+      mediaCollection.delete(row.id);
+    }
+    if (removed.length > 0) {
+      mediaLog("warn", "history.restore.drop", {
+        keep: next.length,
+        removed,
+      });
     }
     for (const row of next) {
       if (mediaCollection.has(row.id)) {
@@ -144,15 +175,65 @@ function restoreMediaSnapshot(data: unknown): void {
   }
 }
 
+/**
+ * How long a freshly uploaded attachment is immune to tree-driven orphan GC.
+ * Enter / mid-session snapshot can briefly omit a live node from `byId`;
+ * persist-deleting in that window left R2 orphans and empty image bullets.
+ * Real node deletes still drop media on the DO (`deleteNodes`); this only
+ * delays the redundant client pass.
+ */
+export const MEDIA_GC_GRACE_MS = 120_000;
+
+/** Rows whose content node is absent and older than the post-upload grace. */
+export function mediaOrphansToDelete(
+  rows: readonly Pick<MediaRow, "id" | "nodeId" | "createdAt">[],
+  presentNodeIds: ReadonlySet<string>,
+  now: number,
+  graceMs: number = MEDIA_GC_GRACE_MS,
+): { id: string; nodeId: string; ageMs: number }[] {
+  const drop: { id: string; nodeId: string; ageMs: number }[] = [];
+  for (const row of rows) {
+    if (presentNodeIds.has(row.nodeId)) continue;
+    const ageMs = now - row.createdAt;
+    // Negative age = client clock behind server createdAt; still in grace.
+    if (ageMs < graceMs) continue;
+    drop.push({ id: row.id, nodeId: row.nodeId, ageMs });
+  }
+  return drop;
+}
+
 function gcOrphans(): void {
   if (restoring || isMediaGcSuppressed()) return;
   const index = getTreeIndex();
   // Empty means "not loaded yet" or a snapshot truncate in flight — never a
   // cue to drop every attachment. A truly empty outline GCs on the next insert.
   if (index.byId.size === 0) return;
-  for (const row of mediaCollection.toArray) {
-    if (!index.byId.has(row.nodeId)) mediaCollection.delete(row.id);
+  const now = Date.now();
+  const present = new Set(index.byId.keys());
+  const drop = mediaOrphansToDelete(mediaCollection.toArray, present, now);
+  const dropIds = new Set(drop.map((d) => d.id));
+  const held = mediaCollection.toArray
+    .filter((row) => !present.has(row.nodeId) && !dropIds.has(row.id))
+    .map((r) => ({
+      id: r.id,
+      nodeId: r.nodeId,
+      ageMs: now - r.createdAt,
+    }));
+  if (held.length > 0) {
+    mediaLog("info", "gc.orphans.grace", {
+      byIdSize: index.byId.size,
+      skipped: held.length,
+      graceMs: MEDIA_GC_GRACE_MS,
+      held,
+    });
   }
+  if (drop.length === 0) return;
+  mediaLog("warn", "gc.orphans", {
+    byIdSize: index.byId.size,
+    dropCount: drop.length,
+    drop,
+  });
+  for (const row of drop) mediaCollection.delete(row.id);
 }
 
 function captureMediaRows(): MediaSnapshotRow[] {
@@ -164,6 +245,14 @@ function reapplyMediaRows(stashed: readonly MediaSnapshotRow[]): void {
   const presentNodeIds = new Set(index.byId.keys());
   const heldMediaIds = new Set(mediaCollection.toArray.map((r) => r.id));
   const missing = mediaRowsToReapply(stashed, presentNodeIds, heldMediaIds);
+  if (missing.length > 0) {
+    mediaLog("info", "snapshot.reapply", {
+      stashed: stashed.length,
+      missing: missing.length,
+      ids: missing.map((r) => r.id),
+      nodeIds: missing.map((r) => r.nodeId),
+    });
+  }
   for (const row of missing) {
     mediaCollection.insert({ ...row });
   }
@@ -307,6 +396,15 @@ export function attachImages(
   const images = files.filter(isAttachableImage);
   if (images.length === 0) return false;
   const contentId = trueSourceOf(ctx.tree, nodeId);
+  const batchId = crypto.randomUUID();
+  mediaLog("info", "attach.start", {
+    batchId,
+    focusNodeId: nodeId,
+    contentId,
+    fileCount: images.length,
+    skipped: files.length - images.length,
+    files: images.map(fileMeta),
+  });
   capture(ctx.tree, nodeId);
   // Kick off the byte copy before this handler returns so clipboard Files
   // aren't detached after the paste/drop event.
@@ -314,24 +412,62 @@ export function attachImages(
     preview,
     held: retainFileBytes(preview),
   }));
-  void uploadAll(pending, contentId);
+  void uploadAll(pending, contentId, batchId);
   return true;
 }
 
 async function uploadAll(
   files: PendingImage[],
   contentId: string,
+  batchId: string,
 ): Promise<void> {
-  for (const { preview, held } of files) {
+  for (let i = 0; i < files.length; i++) {
+    const { preview, held } = files[i]!;
     const tempId = crypto.randomUUID();
+    const started = Date.now();
     const url = URL.createObjectURL(preview);
     const { width, height } = await measureImage(preview);
     addOverlay({ tempId, nodeId: contentId, url, width, height });
     try {
       const file = await held;
-      const row = await postMedia(file, contentId, width, height);
+      if (file.size === 0) {
+        mediaLog("warn", "upload.empty-bytes", {
+          batchId,
+          index: i,
+          contentId,
+          preview: fileMeta(preview),
+          held: fileMeta(file),
+        });
+      } else if (file.size !== preview.size) {
+        mediaLog("warn", "upload.size-mismatch", {
+          batchId,
+          index: i,
+          contentId,
+          previewSize: preview.size,
+          heldSize: file.size,
+        });
+      }
+      const row = await postMedia(file, contentId, width, height, batchId, i);
       mediaCollection.insert(row);
-    } catch {
+      mediaLog("info", "upload.ok", {
+        batchId,
+        index: i,
+        mediaId: row.id,
+        nodeId: row.nodeId,
+        bytes: row.bytes,
+        width: row.width,
+        height: row.height,
+        ms: Date.now() - started,
+      });
+    } catch (err) {
+      mediaLog("error", "upload.fail", {
+        batchId,
+        index: i,
+        contentId,
+        preview: fileMeta(preview),
+        ms: Date.now() - started,
+        error: err instanceof Error ? err.message : String(err),
+      });
       toast.error("Couldn't attach that image.");
     } finally {
       removeOverlay(tempId);
@@ -344,6 +480,8 @@ async function postMedia(
   nodeId: string,
   width: number,
   height: number,
+  batchId?: string,
+  index?: number,
 ): Promise<MediaRow> {
   if (isLocalDataEnabled()) {
     const id = crypto.randomUUID();
@@ -365,16 +503,30 @@ async function postMedia(
       "content-type": file.type || "application/octet-stream",
       "x-image-width": String(width),
       "x-image-height": String(height),
+      ...(batchId ? { "x-media-batch-id": batchId } : {}),
+      ...(index != null ? { "x-media-batch-index": String(index) } : {}),
     },
     body: file,
   });
-  if (!res.ok) throw new Error(`upload ${res.status}`);
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = (await res.text()).slice(0, 200);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`upload ${res.status}${body ? `: ${body}` : ""}`);
+  }
   return (await res.json()) as MediaRow;
 }
 
 /** Detach one attachment (kv row only; R2 stays for undo). */
 export function detachMedia(id: string, ctx: PluginContext): void {
   const row = mediaCollection.toArray.find((r) => r.id === id);
+  mediaLog("info", "detach", {
+    mediaId: id,
+    nodeId: row?.nodeId ?? null,
+  });
   capture(ctx.tree, row?.nodeId ?? null);
   if (mediaCollection.has(id)) mediaCollection.delete(id);
 }

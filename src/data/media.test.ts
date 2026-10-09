@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { isAttachableImage, nodeHasImage, retainFileBytes } from "./media";
+import {
+  isAttachableImage,
+  MEDIA_GC_GRACE_MS,
+  mediaOrphansToDelete,
+  nodeHasImage,
+  retainFileBytes,
+} from "./media";
 import { isMediaGcSuppressed, withMediaGcSuppressed } from "./media-snapshot";
 
 describe("nodeHasImage", () => {
@@ -51,5 +57,53 @@ describe("media snapshot GC suppress", () => {
       expect(isMediaGcSuppressed()).toBe(true);
     });
     expect(isMediaGcSuppressed()).toBe(false);
+  });
+});
+
+describe("mediaOrphansToDelete", () => {
+  const row = (id: string, nodeId: string, createdAt: number) => ({
+    id,
+    nodeId,
+    createdAt,
+  });
+
+  test("skips rows whose node is still present", () => {
+    expect(
+      mediaOrphansToDelete(
+        [row("m1", "n1", 0)],
+        new Set(["n1"]),
+        MEDIA_GC_GRACE_MS + 1,
+      ),
+    ).toEqual([]);
+  });
+
+  test("skips freshly uploaded orphans inside the grace window", () => {
+    const now = 1_000_000;
+    expect(
+      mediaOrphansToDelete(
+        [row("m1", "gone", now - 1_000)],
+        new Set(["other"]),
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  test("skips when createdAt is slightly ahead of the client clock", () => {
+    const now = 1_000_000;
+    expect(
+      mediaOrphansToDelete([row("m1", "gone", now + 5_000)], new Set(), now),
+    ).toEqual([]);
+  });
+
+  test("drops orphans older than the grace window", () => {
+    const now = 1_000_000;
+    const createdAt = now - MEDIA_GC_GRACE_MS - 1;
+    expect(
+      mediaOrphansToDelete(
+        [row("m1", "gone", createdAt), row("m2", "alive", createdAt)],
+        new Set(["alive"]),
+        now,
+      ),
+    ).toEqual([{ id: "m1", nodeId: "gone", ageMs: MEDIA_GC_GRACE_MS + 1 }]);
   });
 });
