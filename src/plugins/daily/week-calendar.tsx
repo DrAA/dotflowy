@@ -28,7 +28,6 @@ import type { PluginContext } from "../types";
 import {
   dayKeyToWeekKey,
   formatDateFull,
-  localDateKey,
   monthKeyToYearKey,
   monthLabel,
   scaffoldKeyKind,
@@ -40,6 +39,7 @@ import {
 import { useScaffoldKey } from "./daily-index";
 import { useDaysWithContent } from "./days-with-content";
 import { goToDate } from "./get-or-create";
+import { useLocalDateKey } from "./local-date-key";
 import { MonthPickerButton } from "./month-picker";
 
 // Weekday initials, Monday-first (matches weekKeyToDays' Mon..Sun order).
@@ -89,12 +89,12 @@ export function WeekCalendar({ getCtx }: { getCtx: () => PluginContext }) {
     [visibleWeek],
   );
   const withContent = useDaysWithContent(days);
+  const today = useLocalDateKey();
 
   // Guard AFTER every hook (rules of hooks): render nothing on a non-day /
   // non-week page, so the subheader band collapses.
   if (!baseWeek || !visibleWeek || days.length !== 7) return null;
 
-  const today = localDateKey();
   const monthKey = weekKeyToMonthKey(visibleWeek);
   const monthYear = monthKey
     ? `${monthLabel(monthKey)} ${monthKeyToYearKey(monthKey)}`

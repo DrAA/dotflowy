@@ -12,7 +12,6 @@ import type { PluginContext } from "../types";
 
 import {
   formatDateFull,
-  localDateKey,
   monthKeyToCalendarGrid,
   monthKeyToYearKey,
   monthLabel,
@@ -20,6 +19,7 @@ import {
 } from "../../data/date-links";
 import { useDaysWithContent } from "./days-with-content";
 import { goToDate } from "./get-or-create";
+import { useLocalDateKey } from "./local-date-key";
 
 const WEEKDAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
 
@@ -51,7 +51,7 @@ export function MonthPickerButton({
   );
   const cellKeys = useMemo(() => cells.map((c) => c.key), [cells]);
   const withContent = useDaysWithContent(cellKeys);
-  const today = localDateKey();
+  const today = useLocalDateKey();
   const viewLabel = `${monthLabel(viewMonth)} ${monthKeyToYearKey(viewMonth) ?? ""}`;
 
   return (

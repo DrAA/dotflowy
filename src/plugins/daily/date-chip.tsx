@@ -21,18 +21,19 @@ import type { WidgetProps } from "../types";
 import {
   formatDateChipLabel,
   formatDateFull,
-  localDateKey,
   parseDateLink,
 } from "../../data/date-links";
+import { useLocalDateKey } from "./local-date-key";
 
 export function DateLinkChip({ source }: WidgetProps) {
   // The token render gates on parseDateLink, so this can't miss -- but a chip
   // must never crash the row, so a (theoretical) miss degrades to the source.
+  const today = useLocalDateKey();
   const parsed = parseDateLink(source);
   if (!parsed) return <span>{source}</span>;
   const { key, time } = parsed;
-  const isToday = key === localDateKey();
-  const label = formatDateChipLabel(key);
+  const isToday = key === today;
+  const label = formatDateChipLabel(key, today);
   return (
     <Badge
       variant={isToday ? "default" : "secondary"}

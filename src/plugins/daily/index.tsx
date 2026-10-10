@@ -91,6 +91,7 @@ import {
   getOrCreateScaffold,
   goToDate,
 } from "./get-or-create";
+import { refreshLocalDateKey, useLocalDateKey } from "./local-date-key";
 import { MonthPickerButton } from "./month-picker";
 import { formatWeekRange, formatWeekRelative } from "./scaffold";
 import { WeekCalendar } from "./week-calendar";
@@ -161,7 +162,7 @@ function CalendarButton({ getCtx }: { getCtx: () => PluginContext }) {
   const scaffoldKey = useScaffoldKey(rootId ?? "");
   const kind = scaffoldKey ? scaffoldKeyKind(scaffoldKey) : null;
   const selectedDayKey = kind === "day" ? scaffoldKey : null;
-  const today = localDateKey();
+  const today = useLocalDateKey();
   const monthKey = (selectedDayKey ?? today).slice(0, 7);
 
   return (
@@ -215,6 +216,9 @@ function TodayButton({ getCtx }: { getCtx: () => PluginContext }) {
                 Effect.promise(async () => {
                   setPending(true);
                   try {
+                    // Badges subscribe to the local-day store; refresh before
+                    // mint so a stale "Today" on yesterday flips to Yesterday.
+                    refreshLocalDateKey();
                     const dayId = await getOrCreateDay(localDateKey(), {
                       seedEntryLine: true,
                     });
@@ -263,13 +267,15 @@ function ThisWeekButton({ getCtx }: { getCtx: () => PluginContext }) {
               const ctx = getCtx();
               // Ensure today's day shell exists (seed-free — not a write-intent
               // surface, ADR 0041), then zoom the week. Minting today also
-              // builds Daily > Y > M > W; opening the week re-renders day
-              // badges so Yesterday / Today stay current after a day rollover.
-              // Cmd+K period go-to stays scaffold-only (ADR 0057).
+              // builds Daily > Y > M > W. Refresh the local-day store first so
+              // day badges (and the week strip) flip Yesterday / Today after a
+              // rollover — React Compiler otherwise keeps memoized badges on
+              // unchanged props. Cmd+K period go-to stays scaffold-only (ADR 0057).
               ctx.run(
                 Effect.promise(async () => {
                   setPending(true);
                   try {
+                    refreshLocalDateKey();
                     const today = localDateKey();
                     const weekKey = dayKeyToWeekKey(today);
                     if (!weekKey) return;
@@ -346,7 +352,8 @@ function DailyBadge({
   dayKey: string;
   placement: "row" | "title";
 }) {
-  const isToday = dayKey === localDateKey();
+  const today = useLocalDateKey();
+  const isToday = dayKey === today;
   return (
     <Badge
       variant={isToday ? "default" : "secondary"}
@@ -361,7 +368,7 @@ function DailyBadge({
       data-daily-today={isToday ? "" : undefined}
     >
       {isToday && <SunIcon className="shrink-0" />}
-      {formatDayBadge(dayKey)}
+      {formatDayBadge(dayKey, today)}
     </Badge>
   );
 }
@@ -377,7 +384,8 @@ function WeekBadge({
   weekKey: string;
   placement: "row" | "title";
 }) {
-  const relative = formatWeekRelative(weekKey);
+  const today = useLocalDateKey();
+  const relative = formatWeekRelative(weekKey, today);
   const thisWeek = relative === "This week";
   const label = relative
     ? `${relative} · ${formatWeekRange(weekKey)}`
