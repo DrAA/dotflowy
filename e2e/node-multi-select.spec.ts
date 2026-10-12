@@ -386,6 +386,7 @@ test.describe("Node multi-selection", () => {
     await focus(page, "a");
     await page.keyboard.press("Shift+ArrowDown"); // enter -> [a]
     await page.keyboard.press("Shift+ArrowDown"); // extend -> [a, b]
+    await page.keyboard.press("Enter"); // open actions menu
 
     const menu = page.getByRole("listbox");
     // Anchor to the label: "Send to Today"'s description also contains "Move".
@@ -419,7 +420,9 @@ test.describe("Node multi-selection", () => {
     await page.keyboard.press("Shift+ArrowDown"); // enter -> [a]
     await page.keyboard.press("Shift+ArrowDown"); // extend -> [a, b]
 
-    // The actions menu auto-appears anchored to the active (focus) edge.
+    // Enter opens the actions menu (it does not auto-appear on select).
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await page.keyboard.press("Enter");
     const menu = page.getByRole("listbox");
     await expect(menu).toBeVisible();
     await menu.getByRole("option", { name: "To-do" }).click();
@@ -444,9 +447,10 @@ test.describe("Node multi-selection", () => {
         .boundingBox())!;
     const menuBox = async () => (await menu.boundingBox())!;
 
-    // Enter on a single node: the menu sits just below the focused row (there's
-    // plenty of room below in the default tall viewport, so no flip).
+    // Select a single node, then Enter to open the menu below the focused row
+    // (plenty of room below in the default tall viewport, so no flip).
     await page.keyboard.press("Shift+ArrowDown"); // -> [a], focus a
+    await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
     let row = await rowBox("a");
     let m = await menuBox();
@@ -454,8 +458,8 @@ test.describe("Node multi-selection", () => {
     expect(m.y).toBeLessThanOrEqual(row.y + row.height + 16);
     const yBelowA = m.y;
 
-    // Extend down twice: the menu drops to the NEW bottom node each time, never
-    // parking over the run's text up top.
+    // Extend down twice: the menu (still open) drops to the NEW bottom node
+    // each time, never parking over the run's text up top.
     await page.keyboard.press("Shift+ArrowDown"); // -> [a, b], focus b
     await page.keyboard.press("Shift+ArrowDown"); // -> [a, b, c], focus c
     row = await rowBox("c");
@@ -477,6 +481,7 @@ test.describe("Node multi-selection", () => {
     await page.keyboard.press("Shift+ArrowUp"); // -> [c, d]
     await page.keyboard.press("Shift+ArrowUp"); // -> [b, c, d]
     await page.keyboard.press("Shift+ArrowUp"); // -> [a, b, c, d], focus a (top)
+    await page.keyboard.press("Enter");
 
     const menu = page.getByRole("listbox");
     await expect(menu).toBeVisible();
@@ -495,10 +500,29 @@ test.describe("Node multi-selection", () => {
 
     await page.keyboard.press("Shift+ArrowDown"); // enter -> [n0]
     for (let i = 0; i < 12; i++) await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("Enter");
 
     const menu = page.getByRole("listbox");
     await expect(menu).toBeVisible();
     // shift()/flip() keep the menu in view even though the run runs past the fold.
     expectInViewport((await menu.boundingBox())!, page.viewportSize()!);
+  });
+
+  test("Enter opens the actions menu; Escape closes it without clearing selection", async ({
+    page,
+  }) => {
+    await load(page);
+    await focus(page, "a");
+    await page.keyboard.press("Shift+ArrowDown"); // -> [a]
+    await page.keyboard.press("Shift+ArrowDown"); // -> [a, b]
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("listbox")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(li(page, "a")).toHaveAttribute("data-selected", /.*/);
+    await expect(li(page, "b")).toHaveAttribute("data-selected", /.*/);
   });
 });

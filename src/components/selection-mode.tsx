@@ -16,6 +16,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type RefObject,
 } from "react";
@@ -388,24 +389,61 @@ function makeSelectionOps({
   };
 }
 
+function wrapIndex(i: number, n: number): number {
+  if (n <= 0) return 0;
+  return ((i % n) + n) % n;
+}
+
+/** Keep the focus-edge row on screen while selecting (menu or not). */
+function scrollFocusRowIntoView(): void {
+  const state = getSelectionState();
+  if (!state) return;
+  const row = document.querySelector(
+    `li[data-node-id="${state.focusId}"] > .outline-row`,
+  );
+  if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
+}
+
 /**
  * Install the while-selected keyboard (only while a selection is active) and
  * expose the ops + the active flag. The window listeners read live selection
  * state, so the only effect dep is `active` (toggles the listeners) plus the
  * stable `ops`.
+ *
+ * The actions menu is opt-in: `Enter` opens it, `Escape` closes it (keeping the
+ * selection) or exits selection when closed. It does NOT auto-appear on enter
+ * (ADR 0018 amendment).
  */
-export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
+export function useSelectionMode({
+  refs,
+  pendingFocus,
+  getCtx,
+}: SelectionModeArgs & { getCtx: () => PluginContext }): {
   active: boolean;
   ops: SelectionOps;
+  menuOpen: boolean;
+  menuHover: number;
+  setMenuHover: (i: number) => void;
 } {
   // refs is a stable useState Map and pendingFocus a stable ref -- so ops keeps
   // its identity and the listener effect below only re-subscribes when `active`
-  // flips, never per render. (getCtx is only for the menu's plugin commands.)
+  // flips, never per render.
   const ops = useMemo(
     () => makeSelectionOps({ refs, pendingFocus }),
     [refs, pendingFocus],
   );
   const active = useIsSelectionActive();
+  const rootIds = useSelectionRootIds();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuHover, setMenuHover] = useState(0);
+  // Live refs so the capture listener always sees the latest open/hover without
+  // re-subscribing on every hover tick.
+  const menuOpenRef = useRef(menuOpen);
+  const menuHoverRef = useRef(menuHover);
+  const getCtxRef = useRef(getCtx);
+  menuOpenRef.current = menuOpen;
+  menuHoverRef.current = menuHover;
+  getCtxRef.current = getCtx;
 
   // Clear any stale selection carried across an editor (re)mount -- the
   // singleton outlives the per-zoom remount, but a new view starts caret-first.
@@ -413,12 +451,31 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
     clearSelection();
   }, []);
 
+  // Leaving selection closes the menu; extending while open keeps it open.
+  useEffect(() => {
+    if (!active) {
+      setMenuOpen(false);
+      setMenuHover(0);
+    }
+  }, [active]);
+
+  // Focus-edge row stays on screen as the run grows, even with the menu closed.
+  useLayoutEffect(() => {
+    if (!active) return;
+    scrollFocusRowIntoView();
+  }, [active, rootIds]);
+
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (e.key === "Escape") {
         e.preventDefault();
+        if (menuOpenRef.current) {
+          setMenuOpen(false);
+          setMenuHover(0);
+          return;
+        }
         ops.exitToCaret();
         return;
       }
@@ -467,6 +524,43 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
         extendSelection("up");
         return;
       }
+      // Enter opens the actions menu; while open, Enter runs the hovered item
+      // and ↑/↓ move the highlight (slash-menu parity).
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (!menuOpenRef.current) {
+          setMenuOpen(true);
+          setMenuHover(0);
+          return;
+        }
+        const ids = getSelectionRootIds();
+        const items = ids.length ? buildItems(ids, ops, getCtxRef.current) : [];
+        const item = items[menuHoverRef.current];
+        if (!item) return;
+        item.run();
+        // Copy keeps the selection (and menu); Cut clears after clipboard write;
+        // everything else exits selection (active effect closes the menu).
+        if (item.id !== "sel-copy" && item.id !== "sel-cut") clearSelection();
+        return;
+      }
+      if (menuOpenRef.current && e.key === "ArrowDown") {
+        e.preventDefault();
+        const ids = getSelectionRootIds();
+        const n = ids.length
+          ? buildItems(ids, ops, getCtxRef.current).length
+          : 0;
+        setMenuHover((i) => wrapIndex(i + 1, n));
+        return;
+      }
+      if (menuOpenRef.current && e.key === "ArrowUp") {
+        e.preventDefault();
+        const ids = getSelectionRootIds();
+        const n = ids.length
+          ? buildItems(ids, ops, getCtxRef.current).length
+          : 0;
+        setMenuHover((i) => wrapIndex(i - 1, n));
+        return;
+      }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         ops.caretBelow();
@@ -508,7 +602,13 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
     };
   }, [active, ops]);
 
-  return { active, ops };
+  return {
+    active,
+    ops,
+    menuOpen,
+    menuHover,
+    setMenuHover,
+  };
 }
 
 // --- the actions menu -------------------------------------------------------
@@ -516,41 +616,48 @@ export function useSelectionMode({ refs, pendingFocus }: SelectionModeArgs): {
 type SelItem = MenuListItem & { run: () => void };
 
 /**
- * The selection actions menu: auto-appears anchored to the **active (focus) edge**
- * of the selection -- the newest node a `Shift+arrow` just added -- and re-anchors
- * to it on every extension, so it tracks the node you're selecting instead of
+ * The selection actions menu: opens on `Enter` while a selection is active
+ * (does not auto-appear). Anchored to the **active (focus) edge** of the
+ * selection -- the newest node a `Shift+arrow` just added -- and re-anchors on
+ * every extension while open, so it tracks the node you're selecting instead of
  * sitting over the run's text (ADR 0018). Positioning is delegated to floating-ui
  * (the same engine Base UI uses): its preferred side is the OUTER edge of the run
  * (below when the run grows down, above when it grows up, below for a lone single
  * node) so it stays off the selected text, while `flip()` + `shift()` keep it
  * fully on screen at any viewport edge -- flipping below at the top boundary
  * rather than clipping off-screen. `autoUpdate` re-solves on scroll/resize too.
- * The focus row itself is kept on screen with a stock `scrollIntoView` (selection
- * extension never focuses a row, so nothing else scrolls it).
+ * Focus-edge scroll-into-view lives in {@link useSelectionMode} so it runs even
+ * when the menu is closed.
  *
  * Reuses `SlashMenuList`'s look (no second menu style). Lists the core
  * Copy + Cut + Move + Delete, plus every plugin command that opted into
- * `runMany` and applies to at least one selected node. Mouse-driven (the
- * while-selected arrows are taken for caret motion); Copy, Cut, and Delete
- * also have direct keys.
+ * `runMany` and applies to at least one selected node. While open, ↑/↓ and
+ * Enter navigate/run (slash-menu parity); Copy, Cut, and Delete also have
+ * direct keys that work with the menu closed.
  */
 export function SelectionActionsMenu({
   ops,
   getCtx,
+  open,
+  hover,
+  onHover,
 }: {
   ops: SelectionOps;
   getCtx: () => PluginContext;
+  open: boolean;
+  hover: number;
+  onHover: (i: number) => void;
 }) {
   const active = useIsSelectionActive();
   const rootIds = useSelectionRootIds();
-  const [hover, setHover] = useState(0);
+  const show = active && open;
 
   // The focus edge (newest selected node) and its outer side. The run is
   // anchor..focus in visible order, so focus is always an end: the LAST root when
   // the run grew down (menu below), otherwise the top (menu above). A lone
   // single-node run reads as "below". Read live -- the rootIds subscription
   // re-renders on every selection change, so this stays in sync.
-  const state = active ? getSelectionState() : null;
+  const state = show ? getSelectionState() : null;
   const focusId = state?.focusId;
   const side =
     focusId && focusId === rootIds[rootIds.length - 1]
@@ -572,7 +679,7 @@ export function SelectionActionsMenu({
   // (fresh identity each commit), so the Map can lag a commit; the `data-node-id`
   // row is in the DOM by the layout phase.
   useLayoutEffect(() => {
-    if (!active || !focusId) {
+    if (!show || !focusId) {
       refs.setReference(null);
       return;
     }
@@ -580,21 +687,16 @@ export function SelectionActionsMenu({
       `li[data-node-id="${focusId}"] > .outline-row`,
     );
     if (row instanceof HTMLElement) {
-      // Keep the node you're selecting on screen -- selection extension never
-      // focuses a row, so nothing else scrolls it. floating-ui then keeps the
-      // MENU on screen relative to the row.
-      row.scrollIntoView({ block: "nearest" });
       refs.setReference(row);
     } else {
       refs.setReference(null);
     }
     update();
-    setHover(0);
-  }, [active, focusId, rootIds, refs, update]);
+  }, [show, focusId, rootIds, refs, update]);
 
   const items =
-    active && rootIds.length ? buildItems(rootIds, ops, getCtx) : null;
-  if (!active || !focusId || !items) return null;
+    show && rootIds.length ? buildItems(rootIds, ops, getCtx) : null;
+  if (!show || !focusId || !items) return null;
 
   const onSelect = (i: number) => {
     const item = items[i];
@@ -612,7 +714,7 @@ export function SelectionActionsMenu({
       style={floatingStyles}
       items={items}
       activeIndex={hover}
-      onHover={setHover}
+      onHover={onHover}
       onSelect={onSelect}
     />,
     document.body,

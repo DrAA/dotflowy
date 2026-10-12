@@ -60,9 +60,12 @@ nudge reads accurate state). **Deferred:** drag, cut, paste — paste needs a no
 insertion logic that doesn't exist, and drag is a single-node imperative system
 (`use-drag-reorder.ts`) that needs real surgery to carry a selection.
 
-**The actions menu, and `runMany`.** When a selection exists, a menu **auto-appears anchored to the
-active (focus) edge — the newest node a `Shift+arrow` just added — and re-anchors to it on every
-extension**, so it tracks the node you're selecting instead of parking over the run's text.
+**The actions menu, and `runMany`.** When a selection exists, **`Enter` opens** an actions menu
+anchored to the active (focus) edge — the newest node a `Shift+arrow` just added — and it
+re-anchors on every extension while open, so it tracks the node you're selecting instead of parking
+over the run's text. The menu does **not** auto-appear on enter/extend (keeps Shift+arrow selection
+uncluttered); **`Escape` closes the menu** and keeps the selection, or clears selection to caret when
+the menu is already closed. While the menu is open, ↑/↓ and Enter navigate/run like the slash palette.
 **Positioning is delegated to floating-ui** (`@floating-ui/react-dom` — the same engine Base UI uses):
 its preferred side is the **outer edge** of the run (below the focus row when the run grows down,
 above when it grows up; below for a lone single node) so it stays off the selected text, while

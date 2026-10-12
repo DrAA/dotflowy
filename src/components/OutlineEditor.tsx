@@ -699,7 +699,12 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // Node multi-selection (ADR 0018): the while-selected keyboard handler + the
   // actions menu's ops. Installs window key/mouse listeners only while a
   // selection is active, and clears any stale selection on this view's mount.
-  const selection = useSelectionMode({ refs, pendingFocus });
+  // Enter opens the actions menu (it does not auto-appear).
+  const selection = useSelectionMode({
+    refs,
+    pendingFocus,
+    getCtx: pluginCtx,
+  });
 
   // The pruned visible-set for the active filter (matches + ancestor context),
   // or null when no filter. A plugin-contributed Seam-G transform (the tags
@@ -944,7 +949,13 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         pendingFocusAtStart={pendingFocusAtStart}
         pendingFlash={pendingFlash}
       />
-      <SelectionActionsMenu ops={selection.ops} getCtx={pluginCtx} />
+      <SelectionActionsMenu
+        ops={selection.ops}
+        getCtx={pluginCtx}
+        open={selection.menuOpen}
+        hover={selection.menuHover}
+        onHover={selection.setMenuHover}
+      />
       <div className="relative sticky top-0 z-10" ref={headerRef}>
         <Header getCtx={pluginCtx}>
           <BreadcrumbTrail
