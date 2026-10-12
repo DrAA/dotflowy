@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-In-app: **⋯ → Keyboard shortcuts**, or `Cmd/Ctrl+Shift+S`. The live list lives in
+In-app: **⋯ → Keyboard shortcuts**, or `Cmd/Ctrl+/`. The live list lives in
 `src/data/keyboard-shortcuts.ts` (keep this table in sync when adding a chord).
 
 | Key                               | Action                                                                                                                        |
@@ -16,10 +16,10 @@ In-app: **⋯ → Keyboard shortcuts**, or `Cmd/Ctrl+Shift+S`. The live list liv
 | `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` | Undo / redo                                                                                                                   |
 | `Shift+↑` / `↓`                   | Select whole nodes (then `Tab` indents the run, `Backspace` deletes it, `Enter` opens actions, …)                             |
 | `Cmd/Ctrl+B` / `I` / `U`          | Bold / italic / underline                                                                                                     |
-| `Cmd/Ctrl+Shift+X` / `H` / `Y`    | Strikethrough / highlight / spoiler                                                                                           |
+| `Cmd/Ctrl+Shift+X` / `H` / `S`    | Strikethrough / highlight / spoiler                                                                                           |
 | `Cmd/Ctrl+K`                      | Link selected text (opens the create-link popover)                                                                            |
 | `Cmd/Ctrl+Shift+K`                | Open the command center                                                                                                       |
-| `Cmd/Ctrl+Shift+S`                | Keyboard shortcuts dialog                                                                                                     |
+| `Cmd/Ctrl+/`                      | Keyboard shortcuts dialog                                                                                                     |
 | `Cmd/Ctrl+F`                      | Filter the current view (`?q=` — tags, operators, free text)                                                                  |
 | `Escape`                          | Toggle search: open the filter from a bullet when idle; when open, clear `?q=` and collapse (overlays/menus own Escape first) |
 | `q`                               | Quick-add capture (files to Today without leaving where you are)                                                              |

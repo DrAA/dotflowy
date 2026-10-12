@@ -81,7 +81,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { keys: ["Mod", "U"], action: "Underline" },
       { keys: ["Mod", "Shift", "X"], action: "Strikethrough" },
       { keys: ["Mod", "Shift", "H"], action: "Highlight" },
-      { keys: ["Mod", "Shift", "Y"], action: "Spoiler" },
+      { keys: ["Mod", "Shift", "S"], action: "Spoiler" },
       { keys: ["Mod", "Enter"], action: "Toggle complete" },
       { keys: ["Mod", "D"], action: "Toggle complete" },
       { keys: ["Mod", "K"], action: "Create / edit link" },
@@ -107,7 +107,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { keys: ["Mod", "Z"], action: "Undo" },
       { keys: ["Mod", "Shift", "Z"], action: "Redo" },
       {
-        keys: ["Mod", "Shift", "S"],
+        keys: ["Mod", "/"],
         action: "Keyboard shortcuts (this dialog)",
       },
     ],

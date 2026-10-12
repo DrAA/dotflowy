@@ -10,11 +10,16 @@ describe("keyboard-shortcuts catalog", () => {
     }
   });
 
-  test("Mod+Shift+S is listed as the shortcuts dialog chord", () => {
+  test("Mod+/ is listed as the shortcuts dialog chord", () => {
     const global = SHORTCUT_GROUPS.find((g) => g.title === "Global");
-    expect(global?.items.some((i) => i.keys.join("+") === "Mod+Shift+S")).toBe(
-      true,
-    );
+    expect(global?.items.some((i) => i.keys.join("+") === "Mod+/")).toBe(true);
+  });
+
+  test("spoiler keeps Mod+Shift+S", () => {
+    const formatting = SHORTCUT_GROUPS.find((g) => g.title === "Formatting");
+    expect(
+      formatting?.items.some((i) => i.keys.join("+") === "Mod+Shift+S"),
+    ).toBe(true);
   });
 
   test("displayKeyToken maps Mod to ⌘ on Mac and Ctrl elsewhere", () => {

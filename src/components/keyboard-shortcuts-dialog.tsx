@@ -17,7 +17,8 @@ import { Kbd, KbdGroup } from "./ui/kbd";
 
 /**
  * Keyboard shortcuts cheat sheet. Mounted once in `__root.tsx`; opened from
- * the More menu, Cmd+K, and Mod+Shift+S (capture-phase, toggles).
+ * the More menu, Cmd+K, and Mod+/ (capture-phase, toggles). Spoiler keeps
+ * Mod+Shift+S (ADR 0043); Edge steals Ctrl+Shift+S for Save as.
  */
 export function KeyboardShortcutsDialog() {
   const [open, setOpen] = useState(false);
@@ -31,13 +32,12 @@ export function KeyboardShortcutsDialog() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      // Mod+Shift+S — same shape as the command center's Mod+Shift+K.
-      // Spoiler moved to Mod+Shift+P so this chord is free (ADR 0043).
+      // Mod+/ — Notion/Slack-shaped help. Bare `/` stays the slash menu.
       if (
         (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
+        !e.shiftKey &&
         !e.altKey &&
-        (e.key === "s" || e.key === "S")
+        (e.key === "/" || e.code === "Slash")
       ) {
         e.preventDefault();
         setOpen(!openRef.current);
@@ -59,8 +59,7 @@ export function KeyboardShortcutsDialog() {
             Press{" "}
             <KbdGroup className="mx-0.5 align-middle">
               <Kbd>{displayKeyToken("Mod", meta)}</Kbd>
-              <Kbd>{displayKeyToken("Shift", meta)}</Kbd>
-              <Kbd>S</Kbd>
+              <Kbd>/</Kbd>
             </KbdGroup>{" "}
             anytime to open or close this list.
           </DialogDescription>

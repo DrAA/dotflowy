@@ -3,9 +3,7 @@ import { expect, test } from "@playwright/test";
 import { seedOutline } from "./fixtures";
 
 test.describe("Keyboard shortcuts dialog", () => {
-  test("Mod+Shift+S opens and toggles the shortcuts dialog", async ({
-    page,
-  }) => {
+  test("Mod+/ opens and toggles the shortcuts dialog", async ({ page }) => {
     await seedOutline(page, [
       { id: "a", parentId: null, prevSiblingId: null, text: "alpha" },
     ]);
@@ -14,12 +12,12 @@ test.describe("Keyboard shortcuts dialog", () => {
       page.locator('li[data-node-id="a"] > .outline-row .node-text'),
     ).toBeVisible();
 
-    await page.keyboard.press("Control+Shift+S");
+    await page.keyboard.press("Control+/");
     const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("Open the command center")).toBeVisible();
 
-    await page.keyboard.press("Control+Shift+S");
+    await page.keyboard.press("Control+/");
     await expect(dialog).toHaveCount(0);
   });
 

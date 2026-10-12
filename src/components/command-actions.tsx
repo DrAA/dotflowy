@@ -273,7 +273,7 @@ export function useGlobalActions(opts: {
         icon: KeyboardIcon,
         scope: "global",
         keywords: ["keyboard", "shortcuts", "hotkeys", "keys", "cheatsheet"],
-        hotkey: ["⇧", prefersMetaKey() ? "⌘" : "Ctrl", "S"],
+        hotkey: [prefersMetaKey() ? "⌘" : "Ctrl", "/"],
         run: () => openKeyboardShortcuts(),
       },
       {

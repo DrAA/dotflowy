@@ -6,7 +6,7 @@ import { seedOutline, type SeedNode } from "./fixtures";
 // folded, the run is one atomic span skinned as an opaque bar (fences hidden);
 // revealed (caret on the run), the `||` fences show as real walk-through text
 // INSIDE the container (the inline-code fence-in-container model). Creation via
-// /spoiler + Mod+Shift+Y + the desktop toolbar's Eye button, all through the
+// /spoiler + Mod+Shift+S + the desktop toolbar's Eye button, all through the
 // shared plain-marker toggle. Redaction is Worker-side (worker/outline-ops.ts),
 // covered by worker/outline-ops.test.ts — e2e can't reach it (seedOutline mocks
 // the Worker).
@@ -177,13 +177,13 @@ test.describe("Spoiler: reveal + re-fold via caret", () => {
 });
 
 test.describe("Spoiler: creation", () => {
-  test("Mod+Shift+Y wraps a selection in ||...||", async ({ page }) => {
+  test("Mod+Shift+S wraps a selection in ||...||", async ({ page }) => {
     await load(page, [
       { id: "n", parentId: null, prevSiblingId: null, text: "alphabravo" },
     ]);
     await text(page, "n").click();
     await page.keyboard.press("ControlOrMeta+a");
-    await page.keyboard.press("ControlOrMeta+Shift+y");
+    await page.keyboard.press("ControlOrMeta+Shift+s");
     // Caret sits in the fresh run, so it's REVEALED: fences inside the container.
     await expect(text(page, "n").locator("[data-spoiler-reveal]")).toHaveText(
       "||alphabravo||",
