@@ -105,6 +105,9 @@ test.describe("zoom performance (focus-gated bullet keymaps)", () => {
       .locator('li[data-node-id="many"] [aria-label="Zoom in"]')
       .click();
     await expect(page).toHaveURL(/\/many$/);
+    // Snapshot-seeded echoedText must not leave the page title blank (the
+    // ZoomedTitle mount-seed / null-syncedKey hold regression).
+    await expect(page.locator("h2.zoomed-title .node-text")).toHaveText("Many");
     await expect(page.locator('li[data-node-id="many-c0"]')).toBeVisible();
 
     const count = await settledRegistrationCount(page);

@@ -139,6 +139,7 @@ import {
   blurReconcileStoreText,
   classifyFocusedStoreSync,
   shouldHoldUnfocusedAckGap,
+  shouldKeepMountedDom,
   textPaintKey,
 } from "./editable-sync";
 import { consumeFlashAfterNav, flashRow } from "./flash-node";
@@ -2283,6 +2284,29 @@ function ZoomedTitle({
         ) : null,
     },
   ];
+
+  // Mount: seed the title span before the update effect's echo hold can skip
+  // paint. Same two-render-paths trap as OutlineRow — without this, a zoom into
+  // a snapshot-seeded node leaves an empty page title (echoedText === storeText
+  // and syncedRef is still null).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const domText = readSource(el);
+    if (
+      shouldKeepMountedDom({
+        focused: document.activeElement === el,
+        domText,
+        storeText: node.text,
+      })
+    ) {
+      syncedRef.current = textPaintKey(domText, highlightKey);
+      return;
+    }
+    decorate(el, node.text, null, false, searchHighlights);
+    syncedRef.current = renderKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useLayoutEffect(() => {
     const el = ref.current;

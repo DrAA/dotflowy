@@ -62,6 +62,18 @@ describe("shouldHoldUnfocusedAckGap", () => {
       }),
     ).toBe(false);
   });
+
+  test("does not hold on a never-painted element (null syncedKey)", () => {
+    // Fresh ZoomedTitle / remount: echoedText === storeText for every
+    // snapshot-seeded node. Holding here would leave the title blank forever.
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "hello",
+        echoedText: "hello",
+        syncedKey: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("classifyFocusedStoreSync", () => {
@@ -151,6 +163,17 @@ describe("classifyFocusedStoreSync", () => {
         liveText: "base",
         echoedText: undefined,
         syncedKey: textPaintKey("base typed", ""),
+      }),
+    ).toBe("apply");
+  });
+
+  test("applies store on a never-painted focused element (null syncedKey)", () => {
+    expect(
+      classifyFocusedStoreSync({
+        storeText: "hello",
+        liveText: "hello",
+        echoedText: "hello",
+        syncedKey: null,
       }),
     ).toBe("apply");
   });

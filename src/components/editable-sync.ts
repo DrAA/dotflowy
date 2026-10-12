@@ -83,7 +83,10 @@ export function classifyFocusedStoreSync(args: {
   if (liveText != null && liveText !== storeText) return "hold";
   const syncedText = textPaintSource(syncedKey);
   if (syncedText === storeText) return "caught-up";
-  if (echoedText === storeText) return "hold";
+  // No prior paint key: apply store. Holding on a null key leaves a fresh
+  // contentEditable blank forever (zoomed title mount; echo === store for
+  // every snapshot-seeded node).
+  if (syncedKey != null && echoedText === storeText) return "hold";
   return "apply";
 }
 
@@ -92,12 +95,16 @@ export function classifyFocusedStoreSync(args: {
  * back to the last echo while `syncedKey` still carries newer DOM text; blur
  * pushes DOM → store (ADR 0010), but a paint can run before that commit lands
  * (This week click, pending spinner). Hold the DOM until store catches up.
+ *
+ * A null `syncedKey` means this element has never painted — do not hold, or a
+ * fresh ZoomedTitle / remount stays empty while echoedText === storeText.
  */
 export function shouldHoldUnfocusedAckGap(args: {
   storeText: string;
   echoedText: string | undefined;
   syncedKey: string | null;
 }): boolean {
+  if (args.syncedKey == null) return false;
   const syncedText = textPaintSource(args.syncedKey);
   return args.echoedText === args.storeText && syncedText !== args.storeText;
 }
