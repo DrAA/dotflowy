@@ -11,6 +11,7 @@ import {
   FileUpIcon,
   FilterIcon,
   FocusIcon,
+  KeyboardIcon,
   LogOutIcon,
   MessageSquareWarningIcon,
   MonitorIcon,
@@ -29,6 +30,7 @@ import { exportContentBackupFile } from "../data/content-backup";
 import { openFeedbackReport } from "../data/feedback";
 import { isLocalDataEnabled } from "../data/flags";
 import { capture } from "../data/history";
+import { prefersMetaKey } from "../data/keyboard-shortcuts";
 import { toggleBookmark } from "../data/mutations";
 import { useTree } from "../data/useTree";
 import { signOutAndReload } from "../lib/auth-client";
@@ -39,6 +41,7 @@ import {
   exportOutlineAsOpml,
   setViewCollapsed,
 } from "./header-more-menu";
+import { openKeyboardShortcuts } from "./keyboard-shortcuts-opener";
 import { openOpmlImport } from "./opml-import-opener";
 import { openFilterInput } from "./query-filter-nav";
 import { openQuickAdd } from "./quick-add-opener";
@@ -262,6 +265,16 @@ export function useGlobalActions(opts: {
         scope: "global",
         keywords: ["mcp", "connect", "apps", "agent", "ai", "claude"],
         run: openConnect,
+      },
+      {
+        id: "g:keyboard-shortcuts",
+        label: "Keyboard shortcuts",
+        description: "List every chord in the editor",
+        icon: KeyboardIcon,
+        scope: "global",
+        keywords: ["keyboard", "shortcuts", "hotkeys", "keys", "cheatsheet"],
+        hotkey: ["⇧", prefersMetaKey() ? "⌘" : "Ctrl", "S"],
+        run: () => openKeyboardShortcuts(),
       },
       {
         id: "g:changelog",

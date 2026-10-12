@@ -6,6 +6,7 @@ import {
   ClipboardCopyIcon,
   FileTextIcon,
   FocusIcon,
+  KeyboardIcon,
   LogOutIcon,
   MessageSquareWarningIcon,
   MoreHorizontalIcon,
@@ -34,6 +35,7 @@ import { getViewRootId } from "../data/view-state";
 import { signOutAndReload } from "../lib/auth-client";
 import { openChangelog } from "./changelog-opener";
 import { HeaderTooltip } from "./header-tooltip";
+import { openKeyboardShortcuts } from "./keyboard-shortcuts-opener";
 import { useShowCompleted } from "./show-completed-provider";
 import { setSpotlightEnabled, useSpotlightEnabled } from "./spotlight-mode";
 import { Button } from "./ui/button";
@@ -249,6 +251,11 @@ export function HeaderMoreMenu() {
         </DropdownMenuCheckboxItem>
 
         <DropdownMenuSeparator />
+
+        <DropdownMenuItem onClick={() => openKeyboardShortcuts()}>
+          <KeyboardIcon />
+          Keyboard shortcuts
+        </DropdownMenuItem>
 
         <DropdownMenuItem onClick={() => void navigate({ to: "/settings" })}>
           <SettingsIcon />

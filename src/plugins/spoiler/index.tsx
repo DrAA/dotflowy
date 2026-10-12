@@ -138,12 +138,13 @@ export default definePlugin({
     },
   ],
 
-  // Seam D: Mod+Shift+S (free of the reserved-key denylist; emphasis owns
-  // Mod+Shift+X, highlight Mod+Shift+H -- ADR 0043).
+  // Seam D: Mod+Shift+Y (emphasis owns Mod+Shift+X, highlight Mod+Shift+H;
+  // Mod+Shift+S opens the Keyboard shortcuts dialog -- ADR 0043). Avoid
+  // Mod+Shift+P (Chromium command menu) and Shift+punctuation (hotkeys deny).
   keymap: [
     {
       id: "spoiler",
-      hotkey: "Mod+Shift+S",
+      hotkey: "Mod+Shift+Y",
       run: (nodeId: string, ctx: PluginContext) =>
         toggleWrapSelection(nodeId, SPOILER_MARKER, ctx.mutations.onTextChange),
     },

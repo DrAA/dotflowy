@@ -19,6 +19,7 @@ import { ContentBackupDialog } from "../components/content-backup-dialog";
 import { DeleteConfirmDialog } from "../components/delete-confirm-dialog";
 import { DocumentTitle } from "../components/document-title";
 import { HistoryRestoreDialog } from "../components/history-restore";
+import { KeyboardShortcutsDialog } from "../components/keyboard-shortcuts-dialog";
 import { LunoraSyncHost } from "../components/lunora-sync-host";
 import { MirrorPlaces } from "../components/mirror-places";
 import { MoveDialog } from "../components/move-dialog";
@@ -186,6 +187,7 @@ function RootComponent() {
                     <DeleteConfirmDialog />
                     <HistoryRestoreDialog />
                     <ChangelogDialog />
+                    <KeyboardShortcutsDialog />
                     <MirrorPlaces />
                     <TagColorStyles />
                     <SpotlightController />

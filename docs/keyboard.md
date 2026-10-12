@@ -1,8 +1,11 @@
 # Keyboard shortcuts
 
+In-app: **⋯ → Keyboard shortcuts**, or `Cmd/Ctrl+Shift+S`. The live list lives in
+`src/data/keyboard-shortcuts.ts` (keep this table in sync when adding a chord).
+
 | Key                               | Action                                                                                                                        |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `Enter`                           | Split at the caret into a new sibling below (at the end of an expanded bullet, adds a child at the top instead)               |
+| `Enter`                           | Split at the caret (or add a child at the top of an expanded bullet); while nodes are selected, open the actions menu         |
 | `Tab` / `Shift+Tab`               | Indent / outdent                                                                                                              |
 | `Shift+Alt/Option+↑` / `↓`        | Move the bullet among siblings; at the edge reparent into the parent's adjacent sibling                                       |
 | `Cmd/Ctrl+↑` / `↓`                | Collapse / expand                                                                                                             |
@@ -11,9 +14,12 @@
 | `Backspace` on an empty bullet    | Delete it and focus the previous one                                                                                          |
 | `Arrow ↑` / `↓` at line edges     | Move between bullets (preserves the caret column)                                                                             |
 | `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` | Undo / redo                                                                                                                   |
-| `Shift+↑` / `↓`                   | Select whole nodes (then `Tab` indents the run, `Backspace` deletes it, …)                                                    |
+| `Shift+↑` / `↓`                   | Select whole nodes (then `Tab` indents the run, `Backspace` deletes it, `Enter` opens actions, …)                             |
+| `Cmd/Ctrl+B` / `I` / `U`          | Bold / italic / underline                                                                                                     |
+| `Cmd/Ctrl+Shift+X` / `H` / `Y`    | Strikethrough / highlight / spoiler                                                                                           |
 | `Cmd/Ctrl+K`                      | Link selected text (opens the create-link popover)                                                                            |
 | `Cmd/Ctrl+Shift+K`                | Open the command center                                                                                                       |
+| `Cmd/Ctrl+Shift+S`                | Keyboard shortcuts dialog                                                                                                     |
 | `Cmd/Ctrl+F`                      | Filter the current view (`?q=` — tags, operators, free text)                                                                  |
 | `Escape`                          | Toggle search: open the filter from a bullet when idle; when open, clear `?q=` and collapse (overlays/menus own Escape first) |
 | `q`                               | Quick-add capture (files to Today without leaving where you are)                                                              |
