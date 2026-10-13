@@ -610,6 +610,74 @@ function AccountSection() {
 function ConnectionsSection({ plan }: { plan: PlanName | null }) {
   const [connectOpen, setConnectOpen] = useState(false);
   const free = plan === "free";
+  const [copilotStatus, setCopilotStatus] = useState<{
+    configured: boolean;
+    connected: boolean;
+    mock: boolean;
+  } | null>(null);
+  const [copilotBusy, setCopilotBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/copilot/status", { credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as {
+          configured: boolean;
+          connected: boolean;
+          mock: boolean;
+        };
+      })
+      .then((s) => {
+        if (!cancelled && s) setCopilotStatus(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Toast after OAuth return (?copilot=connected|error).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get("copilot");
+    if (!flag) return;
+    if (flag === "connected") {
+      toast.success("Microsoft account connected");
+      setCopilotStatus((s) =>
+        s
+          ? { ...s, connected: true }
+          : { configured: true, connected: true, mock: false },
+      );
+    } else if (flag === "error") {
+      toast.error("Couldn't connect Microsoft");
+    }
+    params.delete("copilot");
+    const next = params.toString();
+    const url = next ? `/settings?${next}` : "/settings";
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  async function disconnectCopilot() {
+    setCopilotBusy(true);
+    try {
+      const res = await fetch("/api/copilot/disconnect", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error("disconnect failed");
+      setCopilotStatus((s) =>
+        s
+          ? { ...s, connected: false }
+          : { configured: true, connected: false, mock: false },
+      );
+      toast.success("Microsoft disconnected");
+    } catch {
+      toast.error("Couldn't disconnect");
+    } finally {
+      setCopilotBusy(false);
+    }
+  }
 
   return (
     <Section
@@ -631,6 +699,41 @@ function ConnectionsSection({ plan }: { plan: PlanName | null }) {
             </Button>
           }
         />
+        {copilotStatus?.configured && (
+          <SettingRow
+            icon={<PlugZapIcon />}
+            title="Microsoft 365 Copilot"
+            description={
+              copilotStatus.connected
+                ? copilotStatus.mock
+                  ? "Connected (mock)."
+                  : "Connected. Use /copilot on a bullet."
+                : "Connect a work account to use /copilot."
+            }
+            action={
+              copilotStatus.connected ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={copilotBusy || copilotStatus.mock}
+                  onClick={() => void disconnectCopilot()}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    window.location.href = "/api/copilot/connect";
+                  }}
+                >
+                  Connect
+                </Button>
+              )
+            }
+          />
+        )}
       </RowGroup>
       {free && (
         <p className="text-sm text-muted-foreground">

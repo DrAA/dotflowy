@@ -138,6 +138,7 @@ describe("deleteResidualUserRows", () => {
     expect(bySql("oauthAccessToken")!.args).toEqual(["user-abc"]);
     expect(bySql("oauthConsent")!.args).toEqual(["user-abc"]);
     expect(bySql("oauthApplication")!.args).toEqual(["user-abc"]);
+    expect(bySql("microsoft_token")!.args).toEqual(["user-abc"]);
     expect(bySql("DELETE FROM waitlist")!.args).toEqual(["user@example.com"]);
     expect(bySql("DELETE FROM invites")!.args).toEqual(["user@example.com"]);
     expect(bySql("subscription")).toBeUndefined();

@@ -36,6 +36,7 @@ New feature or design: `ls docs/adr/` and read the ADRs that match the surface. 
 | Touch targets, reading size, and the bullet dot        | 0029                                                   |
 | Spotlight dim + typewriter centering                   | 0033, 0060                                             |
 | Lunora sync (experimental, flag-gated)                 | 0058                                                   |
+| Microsoft 365 Copilot `/copilot`                       | 0062                                                   |
 
 ## Architecture
 

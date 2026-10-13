@@ -61,6 +61,18 @@ INVITE_CODES=dev-invite
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
 
+# Optional: Microsoft 365 Copilot Chat (ADR 0062). Entra app registration with
+# the seven delegated Graph scopes the Chat API requires (Sites.Read.All,
+# Mail.Read, People.Read.All, OnlineMeetingTranscript.Read.All, Chat.Read,
+# ChannelMessage.Read.All, ExternalItem.Read.All) + offline_access. Redirect
+# URI: http://localhost:8787/api/copilot/callback (or your BETTER_AUTH_URL).
+# Unset = /api/copilot/* fails closed (503) unless COPILOT_MOCK=true.
+# MICROSOFT_CLIENT_ID=
+# MICROSOFT_CLIENT_SECRET=
+# MICROSOFT_TENANT_ID=organizations
+# Exact literal "true" → mock chat (no Graph). Local / e2e only.
+# COPILOT_MOCK=true
+
 # Owner's Better Auth user.id. Maps that account to the `default` Durable Object
 # (where pre-auth outline data lives) and is required for daily archive backups
 # (deploy/archive-backup.sh) to sweep the real outline. Find via:

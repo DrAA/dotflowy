@@ -8,6 +8,7 @@
 import type { PluginDef } from "./types";
 
 import code from "./code";
+import copilot from "./copilot";
 import daily from "./daily";
 import emphasis from "./emphasis";
 import highlight from "./highlight";
@@ -37,4 +38,5 @@ export const plugins: PluginDef[] = [
   spoiler,
   daily,
   images,
+  copilot,
 ];

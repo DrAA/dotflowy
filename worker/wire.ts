@@ -120,3 +120,10 @@ export const AdminSnapshotRestorePostBody = Schema.Struct({
   userId: Schema.optional(Schema.String),
   date: Schema.String,
 });
+
+/** POST /api/copilot/chat — Microsoft 365 Copilot one-shot (ADR 0062).
+ *  Prompt length is enforced in the route (trim + max); schema only guards shape. */
+export const CopilotChatBody = Schema.Struct({
+  prompt: Schema.String,
+  timeZone: Schema.optional(Schema.String),
+});

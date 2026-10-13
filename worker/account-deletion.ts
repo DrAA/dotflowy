@@ -152,6 +152,8 @@ export async function cancelActiveSubscriptions(
  * - the mcp OAuth tables (migration 0004) DO declare `ON DELETE CASCADE`, so
  *   they may already be gone; deleting them by `userId` is idempotent and makes
  *   cleanup correct whether or not D1 enforced the cascade.
+ * - `microsoft_token` (migration 0010 / ADR 0062) likewise cascades on user
+ *   delete; explicit delete keeps wipe correct if the FK was ever absent.
  * - the `waitlist` row (migration 0005) and the `invites` row (migration 0007)
  *   are keyed on the EMAIL, not a user id — a user who joined the waitlist or
  *   was invited still has one, both carry PII (the address), and "delete my
@@ -174,6 +176,8 @@ export function deleteResidualUserRows(
     db.prepare("DELETE FROM oauthAccessToken WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM oauthConsent WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM oauthApplication WHERE userId = ?").bind(userId),
+    // Microsoft 365 Copilot delegated tokens (ADR 0062 / migration 0010).
+    db.prepare("DELETE FROM microsoft_token WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM waitlist WHERE email = ?").bind(normalized),
     db.prepare("DELETE FROM invites WHERE email = ?").bind(normalized),
   ]);

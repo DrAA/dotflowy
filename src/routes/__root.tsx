@@ -16,6 +16,7 @@ import {
 import { AuthScreen } from "../components/auth-screen";
 import { ChangelogDialog } from "../components/changelog-dialog";
 import { ContentBackupDialog } from "../components/content-backup-dialog";
+import { CopilotDialog } from "../components/copilot-dialog";
 import { DeleteConfirmDialog } from "../components/delete-confirm-dialog";
 import { DocumentTitle } from "../components/document-title";
 import { HistoryRestoreDialog } from "../components/history-restore";
@@ -188,6 +189,7 @@ function RootComponent() {
                     <HistoryRestoreDialog />
                     <ChangelogDialog />
                     <KeyboardShortcutsDialog />
+                    <CopilotDialog />
                     <MirrorPlaces />
                     <TagColorStyles />
                     <SpotlightController />

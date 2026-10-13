@@ -15,6 +15,7 @@ import { Schema } from "effect";
 
 import {
   AdminRestorePostBody,
+  CopilotChatBody,
   KvClaimBody,
   KvDeleteBody,
   KvUpsertBody,
@@ -191,5 +192,20 @@ describe("AdminRestorePostBody (POST /api/admin/restore)", () => {
 
   it("rejects a non-string email", () => {
     rejects(AdminRestorePostBody, { email: 42 });
+  });
+});
+
+describe("CopilotChatBody (POST /api/copilot/chat)", () => {
+  it("accepts a prompt with optional timeZone", () => {
+    accepts(CopilotChatBody, { prompt: "What's on my calendar?" });
+    accepts(CopilotChatBody, {
+      prompt: "Summarize",
+      timeZone: "America/New_York",
+    });
+  });
+
+  it("rejects a missing prompt", () => {
+    rejects(CopilotChatBody, {});
+    rejects(CopilotChatBody, { timeZone: "UTC" });
   });
 });

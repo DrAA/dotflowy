@@ -50,6 +50,7 @@ import {
   isBackupDateKey,
   utcDateKey,
 } from "./backup";
+import { handleCopilot } from "./copilot";
 import {
   OWNER_DO_ID,
   isAdminSession,
@@ -153,6 +154,14 @@ interface Env extends LunoraEnv {
    *  key = no widget in the client (and the plugin is unregistered server-side
    *  when TURNSTILE_SECRET_KEY is also unset — dev/no-key parity). */
   TURNSTILE_SITE_KEY?: string;
+  /** Entra app registration for Microsoft 365 Copilot Chat (ADR 0062). Both
+   *  unset = Copilot routes fail closed (503) unless COPILOT_MOCK=true. */
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
+  /** Entra tenant for Copilot OAuth. Default `organizations` (work/school). */
+  MICROSOFT_TENANT_ID?: string;
+  /** Exact `"true"` enables mock Copilot chat (no Graph). Local/e2e only. */
+  COPILOT_MOCK?: string;
 }
 
 /** A legacy D1 node row (booleans as 0/1). Only read during the one-time import
@@ -1013,6 +1022,14 @@ function handleApiRequest(
     if (!session) return json({ error: "unauthorized" }, 401);
 
     const userId = resolveUserId(session.user.id, env);
+
+    // Microsoft 365 Copilot Chat proxy (ADR 0062). DO-independent: tokens live
+    // in D1 keyed by Better Auth user.id. Session already validated above.
+    if (url.pathname.startsWith("/api/copilot")) {
+      return yield* Effect.promise(() =>
+        handleCopilot(request, url, env, session.user.id),
+      );
+    }
 
     // Link title unfurl (ADR 0016): fetch a pasted URL's <title> server-side so
     // a bare-url link can upgrade its label. DO-independent, so it runs before
