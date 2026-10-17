@@ -62,7 +62,7 @@ export type SyncEvent =
   | { _tag: "Message"; message: ServerMessage }
   | { _tag: "InitialError"; error: Error };
 
-/** The producer surface: a stream of events + a control effect to force resync. */
+/** The producer surface: a stream of events + control effects for resync/wake. */
 export interface SyncStream {
   /** Server frames + `InitialError`, in connection order. */
   events: Stream.Stream<SyncEvent, never, Socket.WebSocketConstructor>;
@@ -70,6 +70,13 @@ export interface SyncStream {
    *  the cursor, so the server replies with a fresh snapshot the collection
    *  truncates onto. */
   resync: Effect.Effect<void>;
+  /** Soft reconnect: drop the current socket (or interrupt backoff) and open a
+   *  fresh one that still sends `hello { since: cursor }`. Used after a long
+   *  tab sleep — Chromium/Edge sleeping tabs leave half-open sockets that stay
+   *  `OPEN` while delivering nothing; without a wake poke the close is only
+   *  noticed seconds later, and a mid-session snapshot then races typing
+   *  (ADR 0010 overnight class). */
+  reconnect: Effect.Effect<void>;
 }
 
 /** Exponential backoff floor. */
@@ -157,10 +164,13 @@ export const makeSyncStream = (
     const everDelivered = yield* Ref.make(false);
     // The next connect should ignore the cursor (a pending resync).
     const forceSnapshot = yield* Ref.make(false);
-    // Opened by `resync` to drop the current connection; closed at each connect
-    // so a resync requested while disconnected doesn't interrupt the fresh
-    // connection it asked for (forceSnapshot already carries the intent).
+    // Opened by `resync` / `reconnect` to drop the current connection; closed at
+    // each connect so a request while disconnected doesn't interrupt the fresh
+    // connection it asked for (forceSnapshot already carries resync intent).
     const resyncLatch = yield* Latch.make(false);
+    // Opened by `reconnect` to interrupt an in-progress backoff sleep so a tab
+    // wake does not wait out a climbed exponential delay.
+    const wakeLatch = yield* Latch.make(false);
 
     const events = Stream.callback<
       SyncEvent,
@@ -168,10 +178,11 @@ export const makeSyncStream = (
       Socket.WebSocketConstructor
     >((out) => {
       // One connection attempt. Fails on drop or hello-timeout (-> backoff and
-      // reconnect); succeeds when `resync` opens the latch (-> reconnect now).
+      // reconnect); succeeds when `resync`/`reconnect` opens the latch.
       const connectOnce = Effect.scoped(
         Effect.gen(function* () {
           yield* resyncLatch.close;
+          yield* wakeLatch.close;
           const force = yield* Ref.getAndSet(forceSnapshot, false);
           const since = force ? null : yield* cursor;
 
@@ -216,7 +227,7 @@ export const makeSyncStream = (
 
           // First to settle wins: `run` failing (drop) or `watchdog` failing
           // (hello-timeout) ends the connection as a failure; the latch opening
-          // (resync) ends it as a success.
+          // (resync / soft reconnect) ends it as a success.
           yield* Effect.raceFirst(
             Effect.raceFirst(run, watchdog),
             resyncLatch.await,
@@ -225,7 +236,8 @@ export const makeSyncStream = (
       );
 
       // The forever loop. On a failed connection, surface InitialError (if no
-      // data ever arrived) then back off; on a resync success, reconnect at once.
+      // data ever arrived) then back off (interruptible by wake); on a
+      // resync/reconnect success, reconnect at once.
       const loop: Effect.Effect<void, never, Socket.WebSocketConstructor> =
         Effect.gen(function* () {
           const exit = yield* Effect.exit(connectOnce);
@@ -238,7 +250,12 @@ export const makeSyncStream = (
               });
             }
             const n = yield* Ref.getAndUpdate(attempt, (x) => x + 1);
-            yield* Effect.sleep(yield* backoffDelay(n));
+            // Soft reconnect on tab wake opens wakeLatch so we do not sit in a
+            // climbed backoff after Edge/Chrome unfreezes the page.
+            yield* Effect.raceFirst(
+              Effect.sleep(yield* backoffDelay(n)),
+              wakeLatch.await,
+            );
           }
           return yield* Effect.suspend(() => loop);
         });
@@ -246,13 +263,28 @@ export const makeSyncStream = (
       return loop;
     });
 
-    // Set the intent BEFORE opening the latch, so by the time the loop wakes and
-    // reconnects, `forceSnapshot` is already true (the next connect ignores the
-    // cursor). Opening first would race the loop reading a not-yet-set flag.
-    const resync = Ref.set(forceSnapshot, true).pipe(
+    // Soft wake reconnect: keep the cursor (resume when possible). Reset
+    // backoff first so a long sleep does not leave attempt at the 30s cap.
+    // Open wakeLatch (interrupt backoff) AND resyncLatch (drop a live/half-open
+    // socket). Do NOT set forceSnapshot — overnight typing already survives a
+    // mid-session snapshot via ADR 0010; waking every long hide on a forced
+    // truncate would widen that window for no gain.
+    const reconnect = Ref.set(attempt, 0).pipe(
+      Effect.andThen(wakeLatch.open),
       Effect.andThen(resyncLatch.open),
       Effect.asVoid,
     );
 
-    return { events, resync };
+    // Set the intent BEFORE opening the latch, so by the time the loop wakes and
+    // reconnects, `forceSnapshot` is already true (the next connect ignores the
+    // cursor). Opening first would race the loop reading a not-yet-set flag.
+    // Also open wakeLatch so a resync requested during backoff is immediate.
+    const resync = Ref.set(forceSnapshot, true).pipe(
+      Effect.andThen(Ref.set(attempt, 0)),
+      Effect.andThen(wakeLatch.open),
+      Effect.andThen(resyncLatch.open),
+      Effect.asVoid,
+    );
+
+    return { events, resync, reconnect };
   });

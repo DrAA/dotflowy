@@ -36,6 +36,7 @@ import {
   nextStreak,
   notifySyncInterrupted,
 } from "./sync-supervision";
+import { bindSyncWakeHandlers } from "./sync-wake";
 import { buildTreeIndex, childrenOf, now } from "./tree";
 import {
   enqueueWrite,
@@ -728,12 +729,17 @@ export const nodesCollection = createCollection({
       // fiber onto the app runtime. The fiber drains the event stream for the
       // session; the cleanup interrupts it, which closes the WebSocket via the
       // socket's scope finalizer.
-      const { events, resync } = Effect.runSync(
+      const { events, resync, reconnect } = Effect.runSync(
         makeSyncStream(Effect.sync(getCursor)),
       );
       resyncFn = () => {
         appRuntime.runFork(resync);
       };
+      // Soft reconnect on long tab sleep / online / Page Lifecycle resume —
+      // closes the half-open Edge sleep window before typing races a snapshot.
+      const unbindWake = bindSyncWakeHandlers(() => {
+        appRuntime.runFork(reconnect);
+      });
 
       // Drain the event stream once. A throw inside `applyMessage` (schema drift,
       // a future wire change) surfaces here as a DIE — without supervision it
@@ -806,6 +812,7 @@ export const nodesCollection = createCollection({
 
       return () => {
         resyncFn = null;
+        unbindWake();
         appRuntime.runFork(Fiber.interrupt(fiber));
       };
     },

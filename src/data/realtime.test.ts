@@ -110,6 +110,11 @@ function nth(sockets: FakeWebSocket[], i: number): FakeWebSocket {
   return ws;
 }
 
+interface SyncControls {
+  resync: Effect.Effect<void>;
+  reconnect: Effect.Effect<void>;
+}
+
 /**
  * Run `body` with a fresh fake-socket layer. `body` drives the sockets and
  * asserts; the surrounding scope tears everything down (interrupting the loop's
@@ -117,7 +122,7 @@ function nth(sockets: FakeWebSocket[], i: number): FakeWebSocket {
  */
 function withHarness(
   cursor: () => number | null,
-  body: (h: Harness, resync: Effect.Effect<void>) => Effect.Effect<void>,
+  body: (h: Harness, controls: SyncControls) => Effect.Effect<void>,
 ): Promise<void> {
   const sockets: FakeWebSocket[] = [];
   const collected: SyncEvent[] = [];
@@ -128,14 +133,16 @@ function withHarness(
   }) as (url: string, protocols?: string | Array<string>) => WebSocket);
 
   const program = Effect.gen(function* () {
-    const { events, resync } = yield* makeSyncStream(Effect.sync(cursor));
+    const { events, resync, reconnect } = yield* makeSyncStream(
+      Effect.sync(cursor),
+    );
     yield* Stream.runForEach(events, (e: SyncEvent) =>
       Effect.sync(() => {
         collected.push(e);
       }),
     ).pipe(Effect.forkScoped);
     yield* settle; // let the first connection reach "waiting for open"
-    yield* body({ sockets, collected }, resync);
+    yield* body({ sockets, collected }, { resync, reconnect });
   });
 
   return Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(layer)));
@@ -184,7 +191,7 @@ describe("makeSyncStream", () => {
   test("resync drops the connection and reconnects ignoring the cursor", () =>
     withHarness(
       () => 99, // a non-null cursor we expect resync to IGNORE
-      ({ sockets }, resync) =>
+      ({ sockets }, { resync }) =>
         Effect.gen(function* () {
           nth(sockets, 0).driveOpen();
           nth(sockets, 0).driveMessage({ type: "snapshot", seq: 1, nodes: [] });
@@ -205,6 +212,33 @@ describe("makeSyncStream", () => {
           expect(helloOf(nth(sockets, 1))).toEqual({
             type: "hello",
             since: null,
+          });
+        }),
+    ));
+
+  test("soft reconnect drops the connection but keeps the cursor", () =>
+    withHarness(
+      () => 42,
+      ({ sockets }, { reconnect }) =>
+        Effect.gen(function* () {
+          nth(sockets, 0).driveOpen();
+          nth(sockets, 0).driveMessage({ type: "snapshot", seq: 1, nodes: [] });
+          yield* settle;
+          expect(helloOf(nth(sockets, 0))).toEqual({
+            type: "hello",
+            since: 42,
+          });
+
+          yield* reconnect;
+          yield* settle;
+          expect(nth(sockets, 0).closedWith).not.toBeNull();
+          expect(sockets.length).toBe(2);
+          nth(sockets, 1).driveOpen();
+          yield* settle;
+          // Wake poke: resume from cursor, not a forced snapshot.
+          expect(helloOf(nth(sockets, 1))).toEqual({
+            type: "hello",
+            since: 42,
           });
         }),
     ));
