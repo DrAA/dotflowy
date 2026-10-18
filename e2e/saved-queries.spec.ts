@@ -31,7 +31,7 @@ async function load(page: Page) {
 }
 
 async function summon(page: Page) {
-  await page.keyboard.press("ControlOrMeta+f");
+  await page.getByRole("button", { name: "Filter this view" }).click();
   await expect(input(page)).toBeVisible();
   await expect(input(page)).toBeFocused();
 }

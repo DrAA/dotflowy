@@ -3,12 +3,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { seedOutline, type SeedNode } from "./fixtures";
 
 // The `?q=` filter input (ADR 0047 §6, amended 2026-07-11): CORE subheader
-// chrome opened by Cmd+F / the header magnifier / the Cmd+K "Filter this view"
-// action. Live (debounced) filtering while composing; the raw query stays
-// RESIDENT in the input while `?q=` is active -- focused or not (the pill state
-// is dead). A trailing clear X. Escape toggles search: from a bullet it opens
-// the filter when idle; when open it closes the suggestion popover first, then
-// clears `?q=` and collapses the bar.
+// chrome opened by Escape / the header magnifier / the Cmd+K "Filter this view"
+// action (Cmd/Ctrl+F stays with the browser). Live (debounced) filtering while
+// composing; the raw query stays RESIDENT in the input while `?q=` is active --
+// focused or not (the pill state is dead). A trailing clear X. Escape toggles
+// search: from a bullet it opens the filter when idle; when open it closes the
+// suggestion popover first, then clears `?q=` and collapses the bar.
 
 const TREE: SeedNode[] = [
   {
@@ -38,16 +38,21 @@ async function load(page: Page) {
   await expect(row(page, "milk").first()).toBeVisible();
 }
 
+/** Summon with the magnifier so the suggestion popover opens (Escape skips it). */
 async function summon(page: Page) {
-  await page.keyboard.press("ControlOrMeta+f");
+  await page.getByRole("button", { name: "Filter this view" }).click();
   await expect(input(page)).toBeVisible();
   await expect(input(page)).toBeFocused();
 }
 
 test.describe("resident filter input (ADR 0047 §6)", () => {
-  test("Cmd+F opens the filter input, focused", async ({ page }) => {
+  test("Cmd/Ctrl+F does not open the filter (browser find stays free)", async ({
+    page,
+  }) => {
     await load(page);
-    await summon(page);
+    await expect(input(page)).toHaveCount(0);
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input(page)).toHaveCount(0);
   });
 
   test("the header magnifier opens the filter input", async ({ page }) => {

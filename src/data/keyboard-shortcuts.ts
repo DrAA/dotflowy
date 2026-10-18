@@ -95,7 +95,6 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     title: "Global",
     items: [
       { keys: ["Mod", "Shift", "K"], action: "Open the command center" },
-      { keys: ["Mod", "F"], action: "Filter this view" },
       {
         keys: ["Escape"],
         action: "Toggle / dismiss search (overlays own Escape first)",

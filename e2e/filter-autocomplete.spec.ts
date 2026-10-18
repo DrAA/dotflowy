@@ -33,8 +33,9 @@ async function load(page: Page) {
   await expect(row(page, "milk").first()).toBeVisible();
 }
 
+/** Magnifier (not Escape): empty-focus must show the operator cheat sheet. */
 async function summon(page: Page) {
-  await page.keyboard.press("ControlOrMeta+f");
+  await page.getByRole("button", { name: "Filter this view" }).click();
   await expect(input(page)).toBeFocused();
 }
 

@@ -7,10 +7,10 @@ import { scrollRowIntoView } from "../data/virtual-nav";
 
 // The `?q=` filter is CORE chrome now (the query grammar, ADR 0047 §6). This
 // module holds the route writers + the summon-opener singleton so surfaces
-// OUTSIDE the React tree (a tags-plugin chip click, the Cmd+F hotkey, the Cmd+K
-// "Filter this view" action) can drive the filter without a hook. The React
-// half (the hook + the bar/input UI) lives in `query-filter.tsx`, which binds
-// these on mount.
+// OUTSIDE the React tree (a tags-plugin chip click, Escape, the Cmd+K "Filter
+// this view" action) can drive the filter without a hook. The React half (the
+// hook + the bar/input UI) lives in `query-filter.tsx`, which binds these on
+// mount.
 
 type NavigateFn = ReturnType<typeof useNavigate>;
 
@@ -69,7 +69,7 @@ let opener: ((opts?: OpenFilterOpts) => void) | null = null;
 let closer: (() => void) | null = null;
 let isOpenProbe: (() => boolean) | null = null;
 
-/** Registered by `QueryFilterBar` so Cmd+F / the header magnifier / the Cmd+K
+/** Registered by `QueryFilterBar` so Escape / the header magnifier / the Cmd+K
  *  action can summon (or dismiss) the filter input from anywhere. */
 export function setFilterInputController(
   next: {
@@ -90,7 +90,7 @@ export function openFilterInput(opts?: OpenFilterOpts) {
 }
 
 /** Header-magnifier toggle: open when idle, dismiss (clear + collapse) when
- *  the filter row is showing. Cmd+F / Cmd+K keep the open-only path. */
+ *  the filter row is showing. Cmd+K keeps the open-only path. */
 export function toggleFilterInput() {
   if (isOpenProbe?.()) closer?.();
   else opener?.();

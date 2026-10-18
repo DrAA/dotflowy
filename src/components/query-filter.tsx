@@ -51,13 +51,14 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
 // The `?q=` filter is CORE chrome now (the query grammar, ADR 0047 §6): a
-// resident input in the subheader, opened by Cmd+F, the Cmd+K "Filter this view"
-// action, or the header magnifier. It shows the RAW query text (live-as-you-type,
-// debounced `router.replace`) and STAYS resident -- focused or not -- as long as
-// `?q=` is non-empty (the blurred-with-pills state is dead, amended ADR 0047 §6).
-// The tags plugin no longer owns this -- it only contributes a `#tag` term on
-// chip click (Seam B, via {@link addTermToFilter}). Re-exported here so this file
-// is the single filter surface.
+// resident input in the subheader, opened by Escape (toggle), the Cmd+K "Filter
+// this view" action, or the header magnifier. Cmd/Ctrl+F is left to the browser.
+// It shows the RAW query text (live-as-you-type, debounced `router.replace`) and
+// STAYS resident -- focused or not -- as long as `?q=` is non-empty (the
+// blurred-with-pills state is dead, amended ADR 0047 §6). The tags plugin no
+// longer owns this -- it only contributes a `#tag` term on chip click (Seam B,
+// via {@link addTermToFilter}). Re-exported here so this file is the single
+// filter surface.
 export { addTermToFilter };
 
 const DEBOUNCE_MS = 200;
@@ -443,11 +444,11 @@ function SuggestionPopover({
 /**
  * The core subheader filter surface: a resident input whenever a filter is
  * active OR the input was summoned, and NOTHING (so the subheader collapses)
- * when idle with no query. Summoned via {@link toggleFilterInput} / Cmd+F /
- * the Cmd+K action; the header magnifier toggles (open ↔ dismiss). The
- * blurred-with-pills state is gone
- * (ADR 0047 §6, amended): while `?q=` is non-empty the raw query stays in the
- * input, focused or not.
+ * when idle with no query. Summoned via Escape / {@link toggleFilterInput} /
+ * the Cmd+K action; the header magnifier toggles (open ↔ dismiss). Cmd/Ctrl+F
+ * stays with the browser. The blurred-with-pills state is gone (ADR 0047 §6,
+ * amended): while `?q=` is non-empty the raw query stays in the input, focused
+ * or not.
  */
 export function QueryFilterBar() {
   const { rawQuery, active } = useQueryFilter();
@@ -482,7 +483,8 @@ export function QueryFilterBar() {
   // of dismissing search).
   const revealTimerRef = useRef<number | null>(null);
   // Escape-from-outline focuses the filter without suggestions so the next
-  // Escape can exit search (a clean toggle). Cmd+F still reveals the cheat sheet.
+  // Escape can exit search (a clean toggle). Magnifier / Cmd+K still reveal the
+  // cheat sheet.
   const skipSuggestionsRef = useRef(false);
   const cancelDeferredReveal = useCallback(() => {
     if (revealTimerRef.current != null) {
@@ -630,7 +632,7 @@ export function QueryFilterBar() {
   );
 
   // Dismiss: wipe any pending/active query and collapse the row. Used by the
-  // header magnifier's toggle-off path (open-only stays on Cmd+F / Cmd+K).
+  // header magnifier's toggle-off path (open-only stays on Cmd+K).
   const close = useCallback(() => {
     if (debounceRef.current != null) {
       window.clearTimeout(debounceRef.current);
@@ -653,26 +655,12 @@ export function QueryFilterBar() {
     [],
   );
 
-  // Register the summon/dismiss controller (Cmd+K / chip taps / magnifier).
+  // Register the summon/dismiss controller (Escape / Cmd+K / chip taps /
+  // magnifier). Cmd/Ctrl+F is not bound — leave browser find alone.
   useEffect(() => {
     setFilterInputController({ open, close, isOpen });
     return () => setFilterInputController(null);
   }, [open, close, isOpen]);
-
-  // Cmd+F summons the input (ADR 0047 §6): virtualization already broke native
-  // browser find, so hijacking it is a repair. Capture phase + preventDefault,
-  // works whether or not a bullet is focused.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
-        e.preventDefault();
-        open();
-      }
-    }
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKey, { capture: true });
-  }, [open]);
 
   // Focus + caret-to-end when the input is SUMMONED (not merely resident from a
   // URL query -- a page load with `?q=` must not steal the caret). Deferred a
