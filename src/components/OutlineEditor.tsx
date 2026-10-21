@@ -750,13 +750,24 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   useSyncSelectionFillRows(rows);
   // scrollMargin = the list container's distance from the document top (header +
   // title above it). Measured per zoom view; the editor remounts on zoom (route
-  // key), so a one-shot mount measure is current. listRef is set in the branch
-  // below, so this runs after the list paints once.
-  const [scrollMargin, setScrollMargin] = useState(0);
+  // key). null until that measure lands: rows stay unmounted so their first
+  // translateY is the final one. Mounting at 0 and then correcting (This week
+  // remounts straight onto an already-ready outline) changes translateY in the
+  // same frame contenteditable HTML and <img>s are painted. Edge keeps the
+  // pre-content compositor raster — text and images stay blank until a later
+  // invalidation or a reload, which paints once after the skeleton.
+  const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   useLayoutEffect(() => {
+    if (loading) return;
     const measure = () => {
       const el = listRef.current;
-      if (el) setScrollMargin(el.getBoundingClientRect().top + window.scrollY);
+      if (!el) return;
+      const next = el.getBoundingClientRect().top + window.scrollY;
+      // Sub-pixel header jitter must not rewrite every row's translateY —
+      // that is the Edge blank-raster trigger.
+      setScrollMargin((prev) =>
+        prev !== null && Math.abs(prev - next) < 0.5 ? prev : next,
+      );
     };
     measure();
     // Re-measure when the sticky header resizes (the tag-filter subheader is a
@@ -766,7 +777,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     const ro = new ResizeObserver(measure);
     ro.observe(header);
     return () => ro.disconnect();
-  }, [rootId, zoomedNode?.id]);
+  }, [rootId, zoomedNode?.id, loading]);
   // Typewriter well (ADR 0060): half-viewport padding so the first and last
   // rows can actually reach the vertical center. The virtualizer's own
   // paddingStart/End, not CSS -- absolute rows would ignore padding-box
@@ -880,7 +891,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
     count: rows.length,
     estimateSize: () => ROW_ESTIMATE,
     overscan: 8,
-    scrollMargin,
+    scrollMargin: scrollMargin ?? 0,
     paddingStart: typewriterPad,
     paddingEnd: typewriterPad,
     // Key by the row's render ADDRESS, not its node id: inside a mirror a
@@ -1059,36 +1070,37 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
                     height: virtualizer.getTotalSize(),
                   }}
                 >
-                  {virtualizer.getVirtualItems().map((vi) => {
-                    const row = rows[vi.index];
-                    if (!row) return null;
-                    return (
-                      <OutlineRow
-                        key={vi.key}
-                        nodeId={row.id}
-                        rowKey={row.key}
-                        contentId={row.contentId}
-                        isMirror={row.isMirror}
-                        capped={row.capped}
-                        broken={row.broken}
-                        depth={row.depth}
-                        ancestorCompleted={row.ancestorCompleted}
-                        commands={commands}
-                        pluginCtx={pluginCtx}
-                        registerRef={registerRef}
-                        pivotId={pivotId}
-                        isHidden={isHidden}
-                        filter={filter}
-                        pendingFocus={pendingFocus}
-                        pendingFocusAtStart={pendingFocusAtStart}
-                        pendingFlash={pendingFlash}
-                        index={vi.index}
-                        start={vi.start}
-                        scrollMargin={virtualizer.options.scrollMargin}
-                        measureRef={virtualizer.measureElement}
-                      />
-                    );
-                  })}
+                  {scrollMargin !== null &&
+                    virtualizer.getVirtualItems().map((vi) => {
+                      const row = rows[vi.index];
+                      if (!row) return null;
+                      return (
+                        <OutlineRow
+                          key={vi.key}
+                          nodeId={row.id}
+                          rowKey={row.key}
+                          contentId={row.contentId}
+                          isMirror={row.isMirror}
+                          capped={row.capped}
+                          broken={row.broken}
+                          depth={row.depth}
+                          ancestorCompleted={row.ancestorCompleted}
+                          commands={commands}
+                          pluginCtx={pluginCtx}
+                          registerRef={registerRef}
+                          pivotId={pivotId}
+                          isHidden={isHidden}
+                          filter={filter}
+                          pendingFocus={pendingFocus}
+                          pendingFocusAtStart={pendingFocusAtStart}
+                          pendingFlash={pendingFlash}
+                          index={vi.index}
+                          start={vi.start}
+                          scrollMargin={virtualizer.options.scrollMargin}
+                          measureRef={virtualizer.measureElement}
+                        />
+                      );
+                    })}
                 </ul>
                 {/* Click in the whitespace below the list adds a new top-level
                 bullet. Hidden while filtering -- there's no "add here" then.
@@ -2322,7 +2334,11 @@ function ZoomedTitle({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || composingRef.current) return;
-    if (syncedRef.current === renderKey) return;
+    if (syncedRef.current === renderKey) {
+      // Same Edge hole as OutlineRow: a matching paint key must not skip when
+      // the contenteditable was emptied out from under us.
+      if (document.activeElement === el || readSource(el) === node.text) return;
+    }
     // Same focused-skip as OutlineRow: don't paint a lagging/stale store over
     // local typing (classic echoedText + Lunora overlay gap). Layout, not
     // passive: a delayed effect can rewind the caret one character when the

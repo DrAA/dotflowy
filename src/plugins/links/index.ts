@@ -56,7 +56,8 @@ function linkHost(url: string): string | null {
 // image icon. Chosen over smaller services for longevity (it renders on every
 // link, forever). `sz=64` stays crisp on hi-dpi at the small render box. It
 // rides INSIDE the folded <a>, so a click on it opens the link like any other
-// part of the anchor, and `loading="lazy"` keeps offscreen links cheap.
+// part of the anchor. Not lazy: the row is already windowed, and translateY
+// rows sit at layout top 0, so Edge would defer the icon until scroll/reload.
 function faviconImgEl(host: string): El {
   return {
     tag: "img",
@@ -66,7 +67,6 @@ function faviconImgEl(host: string): El {
       alt: "",
       "aria-hidden": "true",
       draggable: "false",
-      loading: "lazy",
     },
   };
 }

@@ -268,11 +268,24 @@ export function decorate(
   highlightRanges?: readonly SourceHighlightRange[],
 ): void {
   const html = inlineMarkupHtml(text, revealOffset, highlightRanges);
-  if (renderCache.get(el) === html) return;
+  // Cache hit is not enough: Edge can drop a contenteditable's children when
+  // its translateY changes (This week remount) while this WeakMap still says
+  // the HTML is current. A matching source read is what makes the skip safe.
+  if (renderCache.get(el) === html && readSource(el) === text) return;
   const offset = preserveCaret ? getCaretOffset(el) : -1;
   el.innerHTML = html;
   renderCache.set(el, html);
   if (offset >= 0) setCaretOffset(el, offset);
+}
+
+/** Rewrite the cached HTML onto `el`. Edge keeps a blank compositor raster
+ *  when `translateY` changes under text and images; a DOM rewrite dirties
+ *  that layer so the next paint includes them. No-op if `decorate` has never
+ *  run for this element. */
+export function repaintText(el: HTMLElement): void {
+  const html = renderCache.get(el);
+  if (html == null) return;
+  el.innerHTML = html;
 }
 
 // Absolute count of SOURCE characters before the collapsed caret within `el`. A

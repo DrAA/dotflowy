@@ -100,10 +100,12 @@ function ImageBlock({
         disabled={!onOpen}
       >
         {src ? (
+          // Eager, not lazy: the row is already windowed, and translateY
+          // puts every row at layout top 0, so Edge treats in-view images
+          // as off-screen until a later scroll or a reload.
           <img
             src={src}
             alt=""
-            loading="lazy"
             width={width || undefined}
             height={height || undefined}
             style={ratio}

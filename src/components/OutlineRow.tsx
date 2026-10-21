@@ -45,6 +45,7 @@ import {
   decorate,
   getCaretOffset,
   readSource,
+  repaintText,
   revealLinkAtCaret,
   setCaretOffset,
   watchCaretReveal,
@@ -210,6 +211,9 @@ function RowChrome({
 }: RowChromeProps) {
   const textRef = useRef<HTMLSpanElement | null>(null);
   const syncedRef = useRef<string | null>(null);
+  // Last scrollMargin we reconciled. A change means translateY just moved
+  // (zoom remount / header resize) — the moment Edge clears the editing host.
+  const marginSeen = useRef<number | null>(null);
   const composingRef = useRef(false);
   const caretWatchRef = useRef<(() => void) | null>(null);
 
@@ -370,7 +374,25 @@ function RowChrome({
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el || composingRef.current) return;
-    if (syncedRef.current === renderKey) return;
+    // null → first margin is the initial paint (rows mount only after the
+    // margin is measured). Only a later change means translateY moved
+    // under content that already rasterized.
+    const marginMoved =
+      marginSeen.current !== null && marginSeen.current !== scrollMargin;
+    marginSeen.current = scrollMargin;
+    if (syncedRef.current === renderKey) {
+      // Keys match, so this usually skips. A scroll only changes `start` —
+      // leave that path as a compare. A scrollMargin change rewrites the
+      // row's translateY (This week remount, header resize). Edge then keeps
+      // the pre-content raster: text and images stay blank until reload.
+      // Rewriting the HTML dirties the layer. Skip the focused row so a
+      // header resize can't jump the caret.
+      if (!marginMoved || document.activeElement === el) return;
+      if (readSource(el) === content.text) {
+        repaintText(el);
+        return;
+      }
+    }
     if (document.activeElement === el) {
       const decision = classifyFocusedStoreSync({
         storeText: content.text,
