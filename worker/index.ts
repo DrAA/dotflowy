@@ -493,8 +493,17 @@ function handleKv(
       }
       case "DELETE": {
         const { keys } = yield* decodeBody(request, KvDeleteBody);
-        if (keys.length)
-          yield* Effect.promise(() => stub.deleteKv(collection, keys));
+        if (keys.length) {
+          // Media rows on a live node are kept unless the client marks an
+          // intentional detach / undo / backup replace. Tree-absence GC does
+          // not send the header; a second browser used to wipe those rows.
+          const allowLiveNode =
+            collection === "media" &&
+            request.headers.get("x-media-allow-live-node") === "1";
+          yield* Effect.promise(() =>
+            stub.deleteKv(collection, keys, allowLiveNode),
+          );
+        }
         return json({ ok: true });
       }
       default:

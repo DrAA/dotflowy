@@ -87,7 +87,11 @@ export const kvPut = (
   });
 };
 
-export const kvDelete = (collection: string, keys: string[]): Promise<void> => {
+export const kvDelete = (
+  collection: string,
+  keys: string[],
+  opts?: { allowLiveNode?: boolean },
+): Promise<void> => {
   if (isLocalDataEnabled()) {
     const next = { ...readLocalKvRecord(collection) };
     for (const key of keys) delete next[key];
@@ -95,7 +99,7 @@ export const kvDelete = (collection: string, keys: string[]): Promise<void> => {
     rememberKv(collection, next);
     return Promise.resolve();
   }
-  return runPromise(kvDeleteE(collection, keys)).then(() => {
+  return runPromise(kvDeleteE(collection, keys, opts)).then(() => {
     const next = { ...kvMemory.get(collection) };
     for (const key of keys) delete next[key];
     rememberKv(collection, next);

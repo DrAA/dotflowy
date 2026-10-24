@@ -72,12 +72,22 @@ export const mediaCollection = createCollection(
     },
     onDelete: async ({ transaction }) => {
       const keys = toKvKeys(transaction);
+      const allowLiveNode = mediaDeletePermitsLiveNode(
+        keys,
+        liveNodeMediaDeletes,
+      );
+      for (const key of keys) liveNodeMediaDeletes.delete(key);
       mediaLog("warn", "kv.delete", {
         count: keys.length,
         ids: keys,
+        allowLiveNode,
         via: "collection.onDelete",
       });
-      await kvDelete(KV, keys);
+      await kvDelete(
+        KV,
+        keys,
+        allowLiveNode ? { allowLiveNode: true } : undefined,
+      );
       return { refetch: false };
     },
   }),
@@ -138,6 +148,26 @@ const listeners = new Set<() => void>();
 let started = false;
 let restoring = false;
 
+/**
+ * Media ids the user (or undo / backup restore) asked to remove even though
+ * the bullet still exists. Tree-absence GC must not be in this set: the DO
+ * ignores a hosted delete of those rows. See `mediaDeleteKeys`.
+ */
+const liveNodeMediaDeletes = new Set<string>();
+
+/** Ids whose next kv delete is an intentional detach, not orphan GC. */
+export function permitLiveNodeMediaDelete(ids: readonly string[]): void {
+  for (const id of ids) liveNodeMediaDeletes.add(id);
+}
+
+/** True when every key in this delete was marked with `permitLiveNodeMediaDelete`. */
+export function mediaDeletePermitsLiveNode(
+  keys: readonly string[],
+  permitted: ReadonlySet<string>,
+): boolean {
+  return keys.length > 0 && keys.every((key) => permitted.has(key));
+}
+
 function rebuild(): void {
   // Slice so useSyncExternalStore sees a new snapshot when blob URLs hydrate
   // without the kv rows changing (same toArray identity would skip the paint
@@ -153,10 +183,12 @@ function restoreMediaSnapshot(data: unknown): void {
     const keep = new Set(next.map((r) => r.id));
     const removed: string[] = [];
     for (const row of mediaCollection.toArray) {
-      if (keep.has(row.id)) continue;
-      removed.push(row.id);
-      mediaCollection.delete(row.id);
+      if (!keep.has(row.id)) removed.push(row.id);
     }
+    // Undo drops attachments on bullets that still exist. Mark them before
+    // delete so the DO does not treat the request as tree-absence GC.
+    permitLiveNodeMediaDelete(removed);
+    for (const id of removed) mediaCollection.delete(id);
     if (removed.length > 0) {
       mediaLog("warn", "history.restore.drop", {
         keep: next.length,
@@ -176,11 +208,10 @@ function restoreMediaSnapshot(data: unknown): void {
 }
 
 /**
- * How long a freshly uploaded attachment is immune to tree-driven orphan GC.
- * Enter / mid-session snapshot can briefly omit a live node from `byId`;
- * persist-deleting in that window left R2 orphans and empty image bullets.
- * Real node deletes still drop media on the DO (`deleteNodes`); this only
- * delays the redundant client pass.
+ * How long a freshly uploaded attachment is immune to local-data orphan GC.
+ * Hosted mode does not absence-delete at all (the DO `deleteNodes` path does).
+ * Local-data mode has one tree and no DO, so this grace still covers a brief
+ * gap where `byId` is incomplete right after upload.
  */
 export const MEDIA_GC_GRACE_MS = 120_000;
 
@@ -203,6 +234,12 @@ export function mediaOrphansToDelete(
 }
 
 function gcOrphans(): void {
+  // Hosted sync lags. Another browser refetches media on focus before resume
+  // inserts bullets created elsewhere; those node ids are absent, not deleted.
+  // Persist-deleting there erased the kv pointer in every browser (R2 kept the
+  // bytes). The DO `deleteNodes` path removes attachments when a node is
+  // actually removed. Local-data mode has no DO and a single complete tree.
+  if (!isLocalDataEnabled()) return;
   if (restoring || isMediaGcSuppressed()) return;
   const index = getTreeIndex();
   // Empty means "not loaded yet" or a snapshot truncate in flight — never a
@@ -528,7 +565,10 @@ export function detachMedia(id: string, ctx: PluginContext): void {
     nodeId: row?.nodeId ?? null,
   });
   capture(ctx.tree, row?.nodeId ?? null);
-  if (mediaCollection.has(id)) mediaCollection.delete(id);
+  if (mediaCollection.has(id)) {
+    permitLiveNodeMediaDelete([id]);
+    mediaCollection.delete(id);
+  }
 }
 
 /** Open a hidden file picker and attach the chosen images. */

@@ -13,6 +13,7 @@ import type { RestorePoint } from "./restore";
 
 import { SNAPSHOT_VERSION } from "./backup";
 import { planChangeFrames } from "./changelog";
+import { mediaDeleteKeys } from "./media";
 import { batchExceedsNodeLimit, countNetGrowth } from "./plan";
 import { APP_VERSION } from "./version";
 
@@ -744,13 +745,67 @@ export class UserOutlineDO extends DurableObject<Env> {
     }
   }
 
-  deleteKv(collection: string, keys: readonly string[]): void {
-    for (const k of keys)
+  deleteKv(
+    collection: string,
+    keys: readonly string[],
+    allowLiveNode = false,
+  ): void {
+    const drop =
+      collection === "media"
+        ? this.mediaKeysToDelete(keys, allowLiveNode)
+        : keys;
+    for (const k of drop)
       this.sql.exec(
         "DELETE FROM kv WHERE collection = ? AND key = ?",
         collection,
         k,
       );
+  }
+
+  /**
+   * Drop media pointers for deleted nodes. Refuse the rest unless the client
+   * opted in (detach, undo, backup replace). See `mediaDeleteKeys`.
+   */
+  private mediaKeysToDelete(
+    keys: readonly string[],
+    allowLiveNode: boolean,
+  ): string[] {
+    const nodeIdByMediaId = new Map<string, string>();
+    for (const key of keys) {
+      const row = this.sql
+        .exec<{ value: string }>(
+          "SELECT value FROM kv WHERE collection = ? AND key = ?",
+          "media",
+          key,
+        )
+        .toArray()[0];
+      if (!row) continue;
+      try {
+        const nodeId = (JSON.parse(row.value) as { nodeId?: unknown }).nodeId;
+        if (typeof nodeId === "string") nodeIdByMediaId.set(key, nodeId);
+      } catch {
+        // Malformed row: the caller asked to delete it, and it names no node.
+      }
+    }
+    const liveNodeIds = new Set<string>();
+    for (const nodeId of new Set(nodeIdByMediaId.values())) {
+      const hit = this.sql
+        .exec<{ id: string }>("SELECT id FROM nodes WHERE id = ?", nodeId)
+        .toArray()[0];
+      if (hit) liveNodeIds.add(nodeId);
+    }
+    const decision = mediaDeleteKeys({
+      keys,
+      nodeIdByMediaId,
+      liveNodeIds,
+      allowLiveNode,
+    });
+    if (decision.keptLive.length) {
+      console.warn("[media] kv.delete.kept-live-node", {
+        kept: decision.keptLive,
+      });
+    }
+    return decision.deleteKeys;
   }
 
   /**

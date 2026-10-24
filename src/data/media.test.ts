@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isAttachableImage,
   MEDIA_GC_GRACE_MS,
+  mediaDeletePermitsLiveNode,
   mediaOrphansToDelete,
   nodeHasImage,
   retainFileBytes,
@@ -47,6 +48,15 @@ describe("retainFileBytes", () => {
     expect(copy.name).toBe("dot.png");
     expect(copy.type).toBe("image/png");
     expect(new Uint8Array(await copy.arrayBuffer())).toEqual(src);
+  });
+});
+
+describe("mediaDeletePermitsLiveNode", () => {
+  test("requires every key to be an intentional detach or undo", () => {
+    const permitted = new Set(["m1"]);
+    expect(mediaDeletePermitsLiveNode(["m1"], permitted)).toBe(true);
+    expect(mediaDeletePermitsLiveNode(["m1", "m2"], permitted)).toBe(false);
+    expect(mediaDeletePermitsLiveNode([], permitted)).toBe(false);
   });
 });
 

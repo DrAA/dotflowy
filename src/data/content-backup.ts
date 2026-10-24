@@ -29,7 +29,7 @@ import {
 } from "./local-store";
 import { classicDailyRowToImport } from "./lunora-migrate-plan";
 import { getLunoraOutlineContext } from "./lunora-sync";
-import { mediaCollection } from "./media";
+import { mediaCollection, permitLiveNodeMediaDelete } from "./media";
 import { nodeSchema } from "./schema";
 import { runStructural, runStructuralSliced } from "./structural";
 import { buildTreeIndex, childrenOf } from "./tree";
@@ -367,7 +367,13 @@ async function replaceKvCollection(
   const keys = current
     .map((value) => inferKvKey(value, ""))
     .filter((key) => key.length > 0);
-  if (keys.length) await kvDelete(collection, keys);
+  if (keys.length) {
+    await kvDelete(
+      collection,
+      keys,
+      collection === "media" ? { allowLiveNode: true } : undefined,
+    );
+  }
   if (rows.length) await kvPut(collection, [...rows]);
 }
 
@@ -431,13 +437,16 @@ async function mergeMediaRows(
     }
   }
   // Drop collection rows for replaced node attachments that were not re-uploaded.
+  const dropIds: string[] = [];
   for (const value of current) {
     const row = value as MediaRow;
     if (!row?.id || !row.nodeId) continue;
     if (!replaceNodeIds.has(row.nodeId)) continue;
     if (restoredMedia.some((r) => r.id === row.id)) continue;
-    if (mediaCollection.has(row.id)) mediaCollection.delete(row.id);
+    if (mediaCollection.has(row.id)) dropIds.push(row.id);
   }
+  permitLiveNodeMediaDelete(dropIds);
+  for (const id of dropIds) mediaCollection.delete(id);
 }
 
 async function restoreLunoraKv(

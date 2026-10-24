@@ -47,11 +47,15 @@ plugin side-collection.
 
 Detaching an image deletes the kv row immediately. R2 objects stay until
 account wipe so Cmd+Z can restore the kv row and GET still works.
-Node delete GCs kv rows for those `nodeId`s (client + DO); R2 remains until
-wipe. Client tree-driven orphan GC also skips attachments younger than two
-minutes so a just-uploaded row cannot be persist-deleted while `byId` is
-briefly incomplete (Enter / mid-session snapshot). The DO delete path is the
-source of truth for intentional node removal.
+Node delete GCs kv rows on the DO (`deleteNodes`); R2 remains until wipe.
+The client must not persist-delete an attachment because its node is missing
+from the local tree. A second browser refetches media on focus before resume
+has inserted bullets created elsewhere; those ids are absent, not deleted, and
+an absence scan erased the pointers (the bytes stayed in R2). A hosted kv
+delete of a media row whose node still exists is ignored unless the client
+marks an intentional detach, undo, or backup replace. Local-data mode still
+GCs orphans from its own tree, skipping rows younger than two minutes,
+because that mode has no DO.
 
 ## Export / MCP
 

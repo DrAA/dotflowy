@@ -669,9 +669,9 @@ export const nodesCollection = createCollection({
           // changelog window. The cursor survives truncate (separate store).
           // Capture focused DOM text BEFORE truncate: after PATCH-ack the
           // overlay is gone, and a remount cannot recover an empty fresh span
-          // (overnight + This week resync). Same window: stash media rows —
-          // tree-driven orphan GC can persist-delete attachments while byId is
-          // mid-rebuild, and unlike text they are not in the contentEditable.
+          // (overnight + This week resync). Same window: stash media rows so a
+          // mid-rebuild refetch cannot drop attachments that are not on the
+          // node wire. Hosted mode does not delete those rows on absence.
           const alreadyReady = ready;
           const focusedTyping = alreadyReady ? captureFocusedNodeText() : null;
           const mediaStash = alreadyReady ? captureMediaForSnapshot() : [];

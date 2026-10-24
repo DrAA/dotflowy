@@ -26,6 +26,35 @@ export function mediaR2Key(userId: string, attachmentId: string): string {
 }
 
 /**
+ * Which media kv keys a delete may remove.
+ *
+ * A row whose node still exists is kept unless the caller opted in
+ * (`allowLiveNode`). Focus-refetch on a second browser loads attachments
+ * before resume inserts the new bullets; an absence scan then looks like a
+ * delete and erases the pointer in every browser. Detach, undo, and backup
+ * replace opt in. Node removal does not need the opt-in: `deleteNodes` drops
+ * the node row first, so the id is no longer live.
+ */
+export function mediaDeleteKeys(input: {
+  keys: readonly string[];
+  nodeIdByMediaId: ReadonlyMap<string, string>;
+  liveNodeIds: ReadonlySet<string>;
+  allowLiveNode: boolean;
+}): { deleteKeys: string[]; keptLive: string[] } {
+  if (input.allowLiveNode) {
+    return { deleteKeys: [...input.keys], keptLive: [] };
+  }
+  const deleteKeys: string[] = [];
+  const keptLive: string[] = [];
+  for (const key of input.keys) {
+    const nodeId = input.nodeIdByMediaId.get(key);
+    if (nodeId && input.liveNodeIds.has(nodeId)) keptLive.push(key);
+    else deleteKeys.push(key);
+  }
+  return { deleteKeys, keptLive };
+}
+
+/**
  * Magic-byte sniff. Rejects SVG (and anything else that isn't a raster we
  * allow) even if Content-Type claims otherwise.
  */
@@ -131,7 +160,11 @@ type MediaStub = {
     collection: string,
     rows: readonly { key: string; value: unknown }[],
   ): void | Promise<void>;
-  deleteKv(collection: string, keys: readonly string[]): void | Promise<void>;
+  deleteKv(
+    collection: string,
+    keys: readonly string[],
+    allowLiveNode?: boolean,
+  ): void | Promise<void>;
 };
 
 /**
@@ -277,7 +310,8 @@ async function getMedia(
 
 async function deleteMedia(id: string, stub: MediaStub): Promise<Response> {
   mediaLog("info", "delete.api", { mediaId: id });
-  await stub.deleteKv("media", [id]);
+  // Explicit DELETE /api/media/:id is a user detach, not tree-absence GC.
+  await stub.deleteKv("media", [id], true);
   return json({ ok: true });
 }
 

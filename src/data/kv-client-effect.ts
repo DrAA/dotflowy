@@ -70,6 +70,7 @@ interface FetchArgs {
   body?: unknown;
   /** Query suffix appended after `?collection=...` (e.g. `&op=claim`). */
   suffix?: string;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -83,6 +84,7 @@ function request({
   method,
   body,
   suffix,
+  headers,
 }: FetchArgs): Effect.Effect<
   Response,
   KvTransportError | KvResponseError | KvTimeoutError
@@ -96,7 +98,7 @@ function request({
     try: (signal) =>
       fetch(u, {
         method,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
       }),
@@ -162,11 +164,16 @@ export function kvPutE(
 export function kvDeleteE(
   collection: string,
   keys: string[],
+  opts?: { allowLiveNode?: boolean },
 ): Effect.Effect<void, KvTransportError | KvResponseError | KvTimeoutError> {
   return request({
     collection,
     method: "DELETE",
     body: { keys },
+    headers:
+      opts?.allowLiveNode === true
+        ? { "x-media-allow-live-node": "1" }
+        : undefined,
   }).pipe(Effect.asVoid);
 }
 

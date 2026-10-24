@@ -1,12 +1,45 @@
 import { describe, expect, test } from "bun:test";
 
-import { sniffImage } from "./media";
+import { mediaDeleteKeys, sniffImage } from "./media";
 
 function pad(bytes: number[], min = 12): Uint8Array {
   const out = new Uint8Array(Math.max(bytes.length, min));
   out.set(bytes);
   return out;
 }
+
+describe("mediaDeleteKeys", () => {
+  const nodeIdByMediaId = new Map([
+    ["m-live", "n-live"],
+    ["m-gone", "n-gone"],
+  ]);
+  const liveNodeIds = new Set(["n-live"]);
+
+  test("keeps attachments whose node still exists", () => {
+    expect(
+      mediaDeleteKeys({
+        keys: ["m-live", "m-gone", "m-missing"],
+        nodeIdByMediaId,
+        liveNodeIds,
+        allowLiveNode: false,
+      }),
+    ).toEqual({
+      deleteKeys: ["m-gone", "m-missing"],
+      keptLive: ["m-live"],
+    });
+  });
+
+  test("detach and undo may delete an attachment on a live node", () => {
+    expect(
+      mediaDeleteKeys({
+        keys: ["m-live"],
+        nodeIdByMediaId,
+        liveNodeIds,
+        allowLiveNode: true,
+      }),
+    ).toEqual({ deleteKeys: ["m-live"], keptLive: [] });
+  });
+});
 
 describe("sniffImage", () => {
   test("accepts jpeg, png, gif, webp, and avif magic bytes", () => {
