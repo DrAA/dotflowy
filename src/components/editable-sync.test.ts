@@ -39,8 +39,22 @@ describe("shouldHoldUnfocusedAckGap", () => {
         storeText: "base",
         echoedText: "base",
         syncedKey: textPaintKey("base typed", ""),
+        paintedEcho: "base",
       }),
     ).toBe(true);
+  });
+
+  test("does not hold a remote edit that advanced the echo", () => {
+    // The other page's text arrives as a new echo equal to the store. The
+    // paint key is still the old caption. Holding here left only the image.
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "from the other page",
+        echoedText: "from the other page",
+        syncedKey: textPaintKey("Bravo", ""),
+        paintedEcho: "Bravo",
+      }),
+    ).toBe(false);
   });
 
   test("does not hold when store has caught up to the DOM", () => {
@@ -49,6 +63,7 @@ describe("shouldHoldUnfocusedAckGap", () => {
         storeText: "base typed",
         echoedText: "base",
         syncedKey: textPaintKey("base typed", ""),
+        paintedEcho: "base",
       }),
     ).toBe(false);
   });
@@ -59,6 +74,7 @@ describe("shouldHoldUnfocusedAckGap", () => {
         storeText: "base",
         echoedText: undefined,
         syncedKey: textPaintKey("base typed", ""),
+        paintedEcho: undefined,
       }),
     ).toBe(false);
   });
@@ -71,6 +87,7 @@ describe("shouldHoldUnfocusedAckGap", () => {
         storeText: "hello",
         echoedText: "hello",
         syncedKey: null,
+        paintedEcho: "hello",
       }),
     ).toBe(false);
   });

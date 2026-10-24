@@ -98,13 +98,19 @@ export function classifyFocusedStoreSync(args: {
  *
  * A null `syncedKey` means this element has never painted — do not hold, or a
  * fresh ZoomedTitle / remount stays empty while echoedText === storeText.
+ *
+ * `paintedEcho` is the echo this element last observed. A remote edit advances
+ * the echo in the same frame as the store; holding whenever echo === store
+ * would treat that as an ack-gap and the other page's text would never paint.
  */
 export function shouldHoldUnfocusedAckGap(args: {
   storeText: string;
   echoedText: string | undefined;
   syncedKey: string | null;
+  paintedEcho: string | undefined;
 }): boolean {
   if (args.syncedKey == null) return false;
+  if (args.echoedText !== args.paintedEcho) return false;
   const syncedText = textPaintSource(args.syncedKey);
   return args.echoedText === args.storeText && syncedText !== args.storeText;
 }

@@ -20,6 +20,7 @@ import {
 } from "./flags";
 import { captureFocusedNodeText, focusedTextToReapply } from "./focused-typing";
 import { readLocalNodes, writeLocalNodes } from "./local-store";
+import { applyRemoteMedia } from "./media-live";
 import {
   captureMediaForSnapshot,
   reapplyMediaAfterSnapshot,
@@ -659,6 +660,12 @@ export const nodesCollection = createCollection({
       // Apply one decoded server frame. Unchanged from the old onMessage body —
       // it just runs on the sync fiber now (driven by Stream.runForEach below).
       const applyMessage = (msg: ServerMessage): void => {
+        // Image pointers ride the same socket as outline ops, but they are not
+        // sequenced with them and carry no server version.
+        if (msg.type === "media") {
+          applyRemoteMedia(msg);
+          return;
+        }
         // Both handshake frames carry the Worker's version; a mismatch means this
         // tab's bundle is stale and offers a reload (ADR 0046). Live `change`
         // frames don't carry it -- a reconnect is when the deploy gap appears.

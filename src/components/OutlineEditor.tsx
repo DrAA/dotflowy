@@ -2260,6 +2260,7 @@ function ZoomedTitle({
   // Mirror OutlineRow's live inline-`code` decoration so a backtick run in the
   // title renders as a mono chip too. See inline-code.ts and OutlineRow.
   const syncedRef = useRef<string | null>(null);
+  const echoSeenRef = useRef<string | undefined>(undefined);
   const composingRef = useRef(false);
   const caretWatchRef = useRef<(() => void) | null>(null);
   // The protection rules (no delete/blank/to-do/complete) apply to the zoomed
@@ -2316,6 +2317,7 @@ function ZoomedTitle({
     const el = ref.current;
     if (!el) return;
     const domText = readSource(el);
+    echoSeenRef.current = echoedTextFor(node.id);
     if (
       shouldKeepMountedDom({
         focused: document.activeElement === el,
@@ -2334,7 +2336,12 @@ function ZoomedTitle({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || composingRef.current) return;
+    const echo = echoedTextFor(node.id);
+    const noteEcho = () => {
+      if (echo === node.text) echoSeenRef.current = echo;
+    };
     if (syncedRef.current === renderKey) {
+      noteEcho();
       // Same Edge hole as OutlineRow: a matching paint key must not skip when
       // the contenteditable was emptied out from under us.
       if (document.activeElement === el || readSource(el) === node.text) return;
@@ -2348,19 +2355,21 @@ function ZoomedTitle({
       const decision = classifyFocusedStoreSync({
         storeText: node.text,
         liveText: getTreeIndex().byId.get(node.id)?.text,
-        echoedText: echoedTextFor(node.id),
+        echoedText: echo,
         syncedKey: syncedRef.current,
       });
       if (decision === "hold") return;
       if (decision === "caught-up") {
         syncedRef.current = renderKey;
+        noteEcho();
         return;
       }
     } else if (
       shouldHoldUnfocusedAckGap({
         storeText: node.text,
-        echoedText: echoedTextFor(node.id),
+        echoedText: echo,
         syncedKey: syncedRef.current,
+        paintedEcho: echoSeenRef.current,
       })
     ) {
       return;
@@ -2375,6 +2384,7 @@ function ZoomedTitle({
       focused ? undefined : searchHighlights,
     );
     syncedRef.current = renderKey;
+    noteEcho();
   });
 
   // The `/` palette (Seam C) on the zoomed title too, mirroring OutlineRow --

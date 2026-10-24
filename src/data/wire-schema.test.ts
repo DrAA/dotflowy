@@ -97,6 +97,26 @@ describe("ServerMessageSchema (DO → client frames)", () => {
     ).toBe(true);
   });
 
+  it("accepts a live media frame", () => {
+    expect(
+      decodes(ServerMessageSchema, {
+        type: "media",
+        upserts: [
+          {
+            id: "m1",
+            nodeId: "n1",
+            contentType: "image/png",
+            bytes: 12,
+            width: 1,
+            height: 1,
+            createdAt: 1,
+          },
+        ],
+        deletes: ["m0"],
+      }),
+    ).toBe(true);
+  });
+
   it("rejects an unknown frame type", () => {
     expect(decodes(ServerMessageSchema, { type: "bogus", seq: 1 })).toBe(false);
   });

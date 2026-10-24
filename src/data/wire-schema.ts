@@ -113,6 +113,25 @@ const ChangeMessage = Schema.Struct({
   ops: Schema.Array(ChangeOpSchema),
 });
 
+/** One hosted image pointer. Bytes stay in R2; this is the kv row. */
+export const MediaSyncRowSchema = Schema.Struct({
+  id: Schema.String,
+  nodeId: Schema.String,
+  contentType: Schema.String,
+  bytes: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+  createdAt: Schema.Number,
+});
+export type MediaSyncRow = Schema.Schema.Type<typeof MediaSyncRowSchema>;
+
+/** Live image attach/detach. Not sequenced with outline ops — a side collection. */
+const MediaMessage = Schema.Struct({
+  type: Schema.Literal("media"),
+  upserts: Schema.Array(MediaSyncRowSchema),
+  deletes: Schema.Array(Schema.String),
+});
+
 /** The union of every DO→client frame. `realtime.ts` decodes inbound frames
  *  against this (closing the last unchecked `as ServerMessage` cast); the DO
  *  builds these frames and `satisfies` this type on the way out. */
@@ -120,5 +139,6 @@ export const ServerMessageSchema = Schema.Union([
   SnapshotMessage,
   ResumeMessage,
   ChangeMessage,
+  MediaMessage,
 ]);
 export type ServerMessage = Schema.Schema.Type<typeof ServerMessageSchema>;

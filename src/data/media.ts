@@ -14,6 +14,7 @@ import {
   localMediaObjectUrl,
   putLocalBlob,
 } from "./local-store";
+import { bindMediaLive, type RemoteMediaRow } from "./media-live";
 import {
   bindMediaSnapshot,
   isMediaGcSuppressed,
@@ -302,13 +303,50 @@ function bindSnapshotHandlers(): void {
   });
 }
 
+function applyRemoteMediaRows(rows: readonly RemoteMediaRow[]): void {
+  // writeUpsert lands in the synced store and does not PUT back to the server.
+  // A local upload that already inserted the row is an update of the same id.
+  for (const row of rows) {
+    try {
+      mediaCollection.utils.writeUpsert(row);
+    } catch (err) {
+      mediaLog("warn", "remote.upsert.skip", {
+        mediaId: row.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+function applyRemoteMediaDeletes(ids: readonly string[]): void {
+  const present = ids.filter((id) => mediaCollection.has(id));
+  if (present.length === 0) return;
+  try {
+    mediaCollection.utils.writeDelete(present);
+  } catch (err) {
+    mediaLog("warn", "remote.delete.skip", {
+      ids: present,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function bindLiveHandlers(): void {
+  bindMediaLive({
+    upsert: applyRemoteMediaRows,
+    remove: applyRemoteMediaDeletes,
+  });
+}
+
 bindSnapshotHandlers();
+bindLiveHandlers();
 
 function ensureStarted(): void {
   if (started || typeof window === "undefined") return;
   started = true;
   // Re-bind in case a unit test swapped the media-snapshot handlers.
   bindSnapshotHandlers();
+  bindLiveHandlers();
   mediaCollection.subscribeChanges(() => rebuild(), {
     includeInitialState: true,
   });
@@ -485,7 +523,8 @@ async function uploadAll(
         });
       }
       const row = await postMedia(file, contentId, width, height, batchId, i);
-      mediaCollection.insert(row);
+      // The live echo can land before this insert. A second insert throws.
+      if (!mediaCollection.has(row.id)) mediaCollection.insert(row);
       mediaLog("info", "upload.ok", {
         batchId,
         index: i,

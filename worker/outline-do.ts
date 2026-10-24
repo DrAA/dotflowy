@@ -5,6 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   ChangeFrame,
   ChangeOp,
+  MediaSyncRow,
   Node,
   ServerMessage,
 } from "../src/data/wire-schema";
@@ -519,11 +520,12 @@ export class UserOutlineDO extends DurableObject<Env> {
             dropCount: drop.length,
             drop,
           });
-          this.deleteKv("media", drop);
+          this.deleteKvInner("media", drop);
         }
         return this.recordChange(ops);
       }),
     );
+    this.flushMediaBroadcast();
   }
 
   // --- realtime sync (WebSocket Hibernation) ---------------------------------
@@ -731,21 +733,53 @@ export class UserOutlineDO extends DurableObject<Env> {
     collection: string,
     rows: readonly { key: string; value: unknown }[],
   ): void {
+    this.upsertKvInner(collection, rows);
+    this.flushMediaBroadcast();
+  }
+
+  deleteKv(
+    collection: string,
+    keys: readonly string[],
+    allowLiveNode = false,
+  ): void {
+    this.deleteKvInner(collection, keys, allowLiveNode);
+    this.flushMediaBroadcast();
+  }
+
+  private upsertKvInner(
+    collection: string,
+    rows: readonly { key: string; value: unknown }[],
+  ): void {
     const ts = Date.now();
     for (const r of rows) {
+      const json = JSON.stringify(r.value);
+      let previous: string | undefined;
+      if (collection === "media") {
+        previous = this.sql
+          .exec<{ value: string }>(
+            "SELECT value FROM kv WHERE collection = ? AND key = ?",
+            collection,
+            r.key,
+          )
+          .toArray()[0]?.value;
+      }
       this.sql.exec(
         `INSERT INTO kv (collection, key, value, updatedAt)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(collection, key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
         collection,
         r.key,
-        JSON.stringify(r.value),
+        json,
         ts,
       );
+      if (collection === "media" && previous !== json) {
+        const row = asMediaSyncRow(r.value);
+        if (row) this.mediaPendingUpserts.push(row);
+      }
     }
   }
 
-  deleteKv(
+  private deleteKvInner(
     collection: string,
     keys: readonly string[],
     allowLiveNode = false,
@@ -754,12 +788,42 @@ export class UserOutlineDO extends DurableObject<Env> {
       collection === "media"
         ? this.mediaKeysToDelete(keys, allowLiveNode)
         : keys;
-    for (const k of drop)
+    for (const k of drop) {
       this.sql.exec(
         "DELETE FROM kv WHERE collection = ? AND key = ?",
         collection,
         k,
       );
+      if (collection === "media") this.mediaPendingDeletes.push(k);
+    }
+  }
+
+  /** Image frames queued inside a transaction and sent after it commits. */
+  private mediaPendingUpserts: MediaSyncRow[] = [];
+  private mediaPendingDeletes: string[] = [];
+
+  private flushMediaBroadcast(): void {
+    if (
+      this.mediaPendingUpserts.length === 0 &&
+      this.mediaPendingDeletes.length === 0
+    ) {
+      return;
+    }
+    const msg = {
+      type: "media",
+      upserts: this.mediaPendingUpserts,
+      deletes: this.mediaPendingDeletes,
+    } satisfies ServerMessage;
+    this.mediaPendingUpserts = [];
+    this.mediaPendingDeletes = [];
+    const data = JSON.stringify(msg);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(data);
+      } catch {
+        // already gone
+      }
+    }
   }
 
   /**
@@ -1029,4 +1093,28 @@ export class UserOutlineDO extends DurableObject<Env> {
     this.deferredAbort("snapshot restore");
     return { previousBookmark, nodes: data.nodes.length, kv: data.kv.length };
   }
+}
+
+function asMediaSyncRow(value: unknown): MediaSyncRow | null {
+  if (!value || typeof value !== "object") return null;
+  const r = value as Record<string, unknown>;
+  if (typeof r.id !== "string" || typeof r.nodeId !== "string") return null;
+  if (typeof r.contentType !== "string") return null;
+  if (
+    typeof r.bytes !== "number" ||
+    typeof r.width !== "number" ||
+    typeof r.height !== "number" ||
+    typeof r.createdAt !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: r.id,
+    nodeId: r.nodeId,
+    contentType: r.contentType,
+    bytes: r.bytes,
+    width: r.width,
+    height: r.height,
+    createdAt: r.createdAt,
+  };
 }

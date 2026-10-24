@@ -211,6 +211,8 @@ function RowChrome({
 }: RowChromeProps) {
   const textRef = useRef<HTMLSpanElement | null>(null);
   const syncedRef = useRef<string | null>(null);
+  // Echo value last painted. A remote edit moves this; an ack-gap does not.
+  const echoSeenRef = useRef<string | undefined>(undefined);
   // Last scrollMargin we reconciled. A change means translateY just moved
   // (zoom remount / header resize) — the moment Edge clears the editing host.
   const marginSeen = useRef<number | null>(null);
@@ -317,6 +319,7 @@ function RowChrome({
     const el = textRef.current;
     if (!el) return;
     const domText = readSource(el);
+    echoSeenRef.current = echoedTextFor(content.id);
     if (
       shouldKeepMountedDom({
         focused: document.activeElement === el,
@@ -380,7 +383,12 @@ function RowChrome({
     const marginMoved =
       marginSeen.current !== null && marginSeen.current !== scrollMargin;
     marginSeen.current = scrollMargin;
+    const echo = echoedTextFor(content.id);
+    const noteEcho = () => {
+      if (echo === content.text) echoSeenRef.current = echo;
+    };
     if (syncedRef.current === renderKey) {
+      noteEcho();
       // Keys match, so this usually skips. A scroll only changes `start` —
       // leave that path as a compare. A scrollMargin change rewrites the
       // row's translateY (This week remount, header resize). Edge then keeps
@@ -397,19 +405,21 @@ function RowChrome({
       const decision = classifyFocusedStoreSync({
         storeText: content.text,
         liveText: getTreeIndex().byId.get(content.id)?.text,
-        echoedText: echoedTextFor(content.id),
+        echoedText: echo,
         syncedKey: syncedRef.current,
       });
       if (decision === "hold") return;
       if (decision === "caught-up") {
         syncedRef.current = renderKey;
+        noteEcho();
         return;
       }
     } else if (
       shouldHoldUnfocusedAckGap({
         storeText: content.text,
-        echoedText: echoedTextFor(content.id),
+        echoedText: echo,
         syncedKey: syncedRef.current,
+        paintedEcho: echoSeenRef.current,
       })
     ) {
       return;
@@ -424,6 +434,7 @@ function RowChrome({
       focused ? undefined : searchHighlights,
     );
     syncedRef.current = renderKey;
+    noteEcho();
   });
 
   // Unmount: tear down the caret-reveal watcher if it's still live. onBlur

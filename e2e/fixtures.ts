@@ -524,6 +524,9 @@ export async function seedOutline(
       classicSyncPushSnapshot = () => {
         if (socket) sendSnapshot(socket);
       };
+      classicSyncPushFrame = (frame) => {
+        socket?.send(JSON.stringify(frame));
+      };
       ws.onMessage(() => sendSnapshot(ws));
     },
   );
@@ -532,6 +535,7 @@ export async function seedOutline(
 /** Push a mid-session classic `/api/sync` snapshot (server truth from the mock
  *  store). Specs use this to reproduce overnight/This-week resync while typing. */
 let classicSyncPushSnapshot: (() => void) | null = null;
+let classicSyncPushFrame: ((frame: unknown) => void) | null = null;
 export function pushClassicSyncSnapshot(): void {
   if (!classicSyncPushSnapshot) {
     throw new Error(
@@ -539,6 +543,16 @@ export function pushClassicSyncSnapshot(): void {
     );
   }
   classicSyncPushSnapshot();
+}
+
+/** Push one raw `/api/sync` frame (another device's text or image). */
+export function pushClassicSyncFrame(frame: unknown): void {
+  if (!classicSyncPushFrame) {
+    throw new Error(
+      "pushClassicSyncFrame: no classic sync socket (seedOutline first; Lunora path unsupported)",
+    );
+  }
+  classicSyncPushFrame(frame);
 }
 
 /**
