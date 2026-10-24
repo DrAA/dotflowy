@@ -76,6 +76,37 @@ test.describe("hosted image under a bullet", () => {
     }, mediaId);
     expect(status).toBe(404);
   });
+
+  test("caption stays visible above the image after blur", async ({ page }) => {
+    await seedOutline(page, [
+      { id: "alpha", parentId: null, prevSiblingId: null, text: "Alpha" },
+      { id: "cap", parentId: null, prevSiblingId: "alpha", text: "" },
+    ]);
+    await page.goto("/");
+    await expect(text(page, "cap")).toBeVisible();
+
+    await pastePng(page, "cap");
+    await expect(row(page, "cap").locator("img")).toBeVisible();
+
+    // A blank image bullet still collapses the empty line.
+    await text(page, "alpha").click();
+    const caption = text(page, "cap");
+    await expect(caption).toHaveAttribute("data-blank", "true");
+    const collapsed = await caption.boundingBox();
+    expect(collapsed?.height ?? 1).toBe(0);
+
+    // The blank line is collapsed to 0px, so a click cannot land on it.
+    await caption.evaluate((el: HTMLElement) => el.focus());
+    await expect(caption).toBeFocused();
+    await page.keyboard.type("Caption");
+    await text(page, "alpha").click();
+
+    await expect(caption).toContainText("Caption");
+    await expect(caption).not.toHaveAttribute("data-blank");
+    const shown = await caption.boundingBox();
+    expect(shown?.height ?? 0).toBeGreaterThan(8);
+    await expect(row(page, "cap").locator("img")).toBeVisible();
+  });
 });
 
 test.describe("browser-only image under a bullet", () => {

@@ -1352,11 +1352,12 @@ body.dragging-active * {
 }
 
 /*
- * Image-only bullet: hide the text line so the photo is the bullet. Focus
- * restores the box if someone wants a caption.
+ * Image-only bullet: collapse a blank text line so the photo sits beside the
+ * dot. A caption stays visible above the image after the caret leaves —
+ * hiding every unfocused line made typed text vanish until you focused again.
  */
-.row-body:has(.node-images) .node-text:not(:focus),
-.zoomed-title-block:has(.node-images) .node-text:not(:focus) {
+.row-body:has(.node-images) .node-text[data-blank]:not(:focus),
+.zoomed-title-block:has(.node-images) .node-text[data-blank]:not(:focus) {
   min-height: 0;
   height: 0;
   padding: 0;
