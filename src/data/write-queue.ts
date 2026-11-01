@@ -36,6 +36,58 @@ let queue: WriteQueueEntry[] = loadQueue();
 let flushing = false;
 let started = false;
 
+/** Live outline text, bound by the collection so a flush can see keystrokes
+ *  that landed after a queued field patch was captured. */
+let liveTextLookup: (id: string) => string | undefined = () => undefined;
+
+/** Sends a queued field patch. Production binds this to the field-edit
+ *  semaphore so it cannot overtake a newer coalesced PATCH. */
+let sendFieldUpdates: (
+  updates: { id: string; changes: Partial<Node> }[],
+) => Promise<void> = async (updates) => {
+  await runPromise(updateNodesE(updates));
+};
+
+export function bindLiveTextLookup(
+  fn: (id: string) => string | undefined,
+): void {
+  liveTextLookup = fn;
+}
+
+export function bindFieldUpdateSender(
+  fn: (updates: { id: string; changes: Partial<Node> }[]) => Promise<void>,
+): void {
+  sendFieldUpdates = fn;
+}
+
+/**
+ * Drop a queued `text` that the live outline has already moved past. Other
+ * fields on the same patch stay. An older PATCH must not land after newer
+ * keystrokes and broadcast the stale sentence back (the load-while-offline
+ * rewind).
+ */
+export function fieldUpdatesStillCurrent(
+  updates: { id: string; changes: Partial<Node> }[],
+  liveText: (id: string) => string | undefined,
+): { id: string; changes: Partial<Node> }[] {
+  const out: { id: string; changes: Partial<Node> }[] = [];
+  for (const u of updates) {
+    if (typeof u.changes.text !== "string") {
+      out.push(u);
+      continue;
+    }
+    const current = liveText(u.id);
+    if (current != null && current !== u.changes.text) {
+      const { text: _dropped, ...rest } = u.changes;
+      if (Object.keys(rest).length === 0) continue;
+      out.push({ ...u, changes: rest });
+      continue;
+    }
+    out.push(u);
+  }
+  return out;
+}
+
 const queueListeners = new Set<() => void>();
 
 function emitQueueChange(): void {
@@ -148,9 +200,12 @@ async function dispatchEntry(entry: WriteQueueEntry): Promise<void> {
     case "structural":
       await runPromise(sendBatchE(entry.ops));
       return;
-    case "field":
-      await runPromise(updateNodesE(entry.updates));
+    case "field": {
+      const updates = fieldUpdatesStillCurrent(entry.updates, liveTextLookup);
+      if (updates.length === 0) return;
+      await sendFieldUpdates(updates);
       return;
+    }
     case "create":
       await runPromise(createNodesE(entry.nodes));
       return;
@@ -255,6 +310,10 @@ export function resetWriteQueueForTests(): void {
   queue = [];
   flushing = false;
   started = false;
+  liveTextLookup = () => undefined;
+  sendFieldUpdates = async (updates) => {
+    await runPromise(updateNodesE(updates));
+  };
   clearPersistedQueue();
   emitQueueChange();
 }

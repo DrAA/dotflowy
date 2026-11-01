@@ -38,7 +38,18 @@ export function bindSyncWakeHandlers(reconnect: () => void): () => void {
     if (away >= STALE_HIDDEN_MS) reconnect();
   };
 
+  // `online` also fires while a page is still coming up (the radio reporting
+  // "up" after the first socket has already started). Reconnecting then drops
+  // that socket and a second full snapshot lands a few seconds later, rewinding
+  // keystrokes typed into the first one. Only a real offline → online edge
+  // is a wake.
+  let sawOffline = false;
+  const onOffline = () => {
+    sawOffline = true;
+  };
   const onOnline = () => {
+    if (!sawOffline) return;
+    sawOffline = false;
     reconnect();
   };
 
@@ -54,12 +65,14 @@ export function bindSyncWakeHandlers(reconnect: () => void): () => void {
   };
 
   document.addEventListener("visibilitychange", onVisibilityChange);
+  window.addEventListener("offline", onOffline);
   window.addEventListener("online", onOnline);
   document.addEventListener("resume", onResume);
   window.addEventListener("pageshow", onPageShow);
 
   return () => {
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.removeEventListener("offline", onOffline);
     window.removeEventListener("online", onOnline);
     document.removeEventListener("resume", onResume);
     window.removeEventListener("pageshow", onPageShow);

@@ -13,7 +13,11 @@ import {
   sendBatchE,
   updateNodesE,
 } from "./nodes-client-effect";
-import { enqueueWrite } from "./write-queue";
+import {
+  bindFieldUpdateSender,
+  enqueueWrite,
+  fieldUpdatesStillCurrent,
+} from "./write-queue";
 
 /**
  * Throw-based client for the /api/nodes Worker (which routes to the user's
@@ -140,6 +144,8 @@ let fieldSem = Semaphore.makeUnsafe(1);
 let currentGen: FieldGen | null = null;
 /** Bumped to cancel parked field generations before a structural restore. */
 let fieldEpoch = 0;
+/** The field patch that has left the coalesce map and is on the wire. */
+let inFlightFieldUpdates: { id: string; changes: Partial<Node> }[] = [];
 
 /**
  * Drop in-flight field-generation bookkeeping and mint fresh semaphores.
@@ -148,6 +154,7 @@ let fieldEpoch = 0;
  */
 export function resetApiCoordinatorsForTests(): void {
   currentGen = null;
+  inFlightFieldUpdates = [];
   fieldEpoch++;
   writeSem = Semaphore.makeUnsafe(1);
   fieldSem = Semaphore.makeUnsafe(1);
@@ -204,20 +211,33 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
           id,
           changes,
         }));
+        inFlightFieldUpdates = capturedUpdates;
         return updateNodesE(capturedUpdates);
       }),
     ),
   );
-  return runPromise(flush).catch((err) => {
-    if (isRetriableNodesError(err) && capturedUpdates.length > 0) {
-      enqueueWrite(
-        { kind: "field", updates: capturedUpdates },
-        nodesCollection.toArray as Node[],
-      );
-      return;
-    }
-    throw err;
-  });
+  let sentBatch: { id: string; changes: Partial<Node> }[] | null = null;
+  return runPromise(flush)
+    .then((value) => {
+      sentBatch = capturedUpdates;
+      return value;
+    })
+    .catch((err) => {
+      sentBatch = capturedUpdates;
+      if (isRetriableNodesError(err) && capturedUpdates.length > 0) {
+        enqueueWrite(
+          { kind: "field", updates: capturedUpdates },
+          nodesCollection.toArray as Node[],
+        );
+        return;
+      }
+      throw err;
+    })
+    .finally(() => {
+      if (sentBatch && inFlightFieldUpdates === sentBatch) {
+        inFlightFieldUpdates = [];
+      }
+    });
 }
 
 /**
@@ -232,6 +252,40 @@ export function peekCoalescedFieldUpdates(): {
   if (!currentGen || currentGen.pending.size === 0) return [];
   return [...currentGen.pending].map(([id, changes]) => ({ id, changes }));
 }
+
+/** Field patch that has left the coalesce map but not yet settled. */
+export function peekInFlightFieldUpdates(): {
+  id: string;
+  changes: Partial<Node>;
+}[] {
+  return inFlightFieldUpdates;
+}
+
+function liveNodeText(id: string): string | undefined {
+  const row = (nodesCollection.toArray as Node[]).find((n) => n.id === id);
+  return row?.text;
+}
+
+/**
+ * Queue flush for a field patch. Waits out any coalesced PATCH already on the
+ * wire, then drops text the live outline has superseded so an older save
+ * cannot broadcast back over newer keystrokes.
+ */
+export function sendQueuedFieldUpdates(
+  updates: { id: string; changes: Partial<Node> }[],
+): Promise<void> {
+  return runPromise(
+    fieldSem.withPermits(1)(
+      Effect.suspend(() => {
+        const fresh = fieldUpdatesStillCurrent(updates, liveNodeText);
+        if (fresh.length === 0) return Effect.void;
+        return updateNodesE(fresh);
+      }),
+    ),
+  );
+}
+
+bindFieldUpdateSender(sendQueuedFieldUpdates);
 
 export function updateNodes(
   updates: { id: string; changes: Partial<Node> }[],

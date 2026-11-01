@@ -83,12 +83,15 @@ describe("bindSyncWakeHandlers", () => {
     unbind();
   });
 
-  test("online and resume always soft-reconnect", () => {
+  test("online reconnects only after offline; resume always does", () => {
     const dom = installFakeDom("visible");
     let calls = 0;
     const unbind = bindSyncWakeHandlers(() => {
       calls++;
     });
+    dom.dispatch("online");
+    expect(calls).toBe(0);
+    dom.dispatch("offline");
     dom.dispatch("online");
     dom.dispatch("resume");
     expect(calls).toBe(2);

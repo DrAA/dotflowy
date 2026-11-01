@@ -4,6 +4,7 @@ import type { ChangeOp } from "./realtime";
 
 import {
   peekCoalescedFieldUpdates,
+  peekInFlightFieldUpdates,
   persistBatch,
   prepareStructuralWrite,
   resetApiCoordinatorsForTests,
@@ -126,6 +127,9 @@ describe("updateNodes field coalescer (fieldSem generations)", () => {
     updateNodes([{ id: "b", changes: { text: "b1" } }]);
     expect(peekCoalescedFieldUpdates()).toEqual([
       { id: "b", changes: { text: "b1" } },
+    ]);
+    expect(peekInFlightFieldUpdates()).toEqual([
+      { id: "a", changes: { text: "a1" } },
     ]);
     at(0).resolve(okField());
     await waitPending(2);

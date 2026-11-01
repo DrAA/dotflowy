@@ -13,6 +13,7 @@ import {
   clearWriteQueueMemoryForTests,
   dropQueuedFieldWrites,
   enqueueWrite,
+  fieldUpdatesStillCurrent,
   getPendingWriteCount,
   peekQueuedWrites,
   reloadWriteQueueFromStorage,
@@ -88,6 +89,24 @@ describe("isRetriableNodesError", () => {
     expect(isRetriableNodesError(new NodesResponseError({ status: 400 }))).toBe(
       false,
     );
+  });
+});
+
+describe("fieldUpdatesStillCurrent", () => {
+  test("drops text the live outline has already replaced", () => {
+    const live = new Map([["a", "hello!"]]);
+    expect(
+      fieldUpdatesStillCurrent(
+        [
+          { id: "a", changes: { text: "hello", completed: true } },
+          { id: "b", changes: { text: "kept" } },
+        ],
+        (id) => live.get(id),
+      ),
+    ).toEqual([
+      { id: "a", changes: { completed: true } },
+      { id: "b", changes: { text: "kept" } },
+    ]);
   });
 });
 

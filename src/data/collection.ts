@@ -10,6 +10,7 @@ import {
   createNodes,
   deleteNodes,
   peekCoalescedFieldUpdates,
+  peekInFlightFieldUpdates,
   updateNodes,
 } from "./api";
 import { noteServerVersion } from "./app-version";
@@ -18,7 +19,12 @@ import {
   isLunoraSyncEnabled,
   isMirrorsEnabled,
 } from "./flags";
-import { captureFocusedNodeText, focusedTextToReapply } from "./focused-typing";
+import {
+  captureFocusedNodeText,
+  nextUnconfirmedText,
+  resolveProtectedText,
+  type TextLayer,
+} from "./focused-typing";
 import { readLocalNodes, writeLocalNodes } from "./local-store";
 import { applyRemoteMedia } from "./media-live";
 import {
@@ -40,6 +46,7 @@ import {
 import { bindSyncWakeHandlers } from "./sync-wake";
 import { buildTreeIndex, childrenOf, now } from "./tree";
 import {
+  bindLiveTextLookup,
   enqueueWrite,
   getPendingWriteCount,
   peekQueuedWrites,
@@ -180,8 +187,88 @@ const seqWaiters = new Set<SeqWaiter>();
  * the contentEditable to the pre-edit store text.
  */
 const echoedText = new Map<string, string>();
+/**
+ * Text this client has that the server copy of a sync frame must not replace.
+ * Survives the optimistic overlay dropping when a save acks or times out —
+ * that drop is what rewinds the bullet a few seconds after typing into a page
+ * whose socket was not settled yet.
+ */
+const unconfirmedText = new Map<string, string>();
 export function echoedTextFor(id: string): string | undefined {
   return echoedText.get(id);
+}
+
+function textLayersFrom(
+  updates: readonly { id: string; changes: Partial<Node> }[],
+): TextLayer[] {
+  const out: TextLayer[] = [];
+  for (const u of updates) {
+    if (typeof u.changes.text === "string") {
+      out.push({ id: u.id, text: u.changes.text });
+    }
+  }
+  return out;
+}
+
+/** Rebuild the protect-set from pending field edits and the focused span. */
+function refreshUnconfirmedText(
+  focused: { id: string; text: string } | null,
+): void {
+  const layers = [
+    ...textLayersFrom(
+      peekQueuedWrites().flatMap((entry) =>
+        entry.kind === "field" ? entry.updates : [],
+      ),
+    ),
+    ...textLayersFrom(peekCoalescedFieldUpdates()),
+    ...textLayersFrom(peekInFlightFieldUpdates()),
+  ];
+  const next = nextUnconfirmedText({
+    echo: (id) => echoedText.get(id),
+    layers,
+    focused,
+  });
+  unconfirmedText.clear();
+  for (const [id, text] of next) unconfirmedText.set(id, text);
+}
+
+/** Send local text the server does not have yet. Skips patches already queued
+ *  or on the wire with this exact string. */
+function persistUnconfirmedText(): void {
+  const updates: { id: string; changes: Partial<Node> }[] = [];
+  const pending = [
+    ...peekQueuedWrites().flatMap((entry) =>
+      entry.kind === "field" ? entry.updates : [],
+    ),
+    ...peekCoalescedFieldUpdates(),
+    ...peekInFlightFieldUpdates(),
+  ];
+  for (const [id, text] of unconfirmedText) {
+    if (!nodesCollection.has(id)) continue;
+    const covered = pending.some((u) => u.id === id && u.changes.text === text);
+    if (covered) continue;
+    updates.push({ id, changes: { text } });
+  }
+  if (updates.length > 0) {
+    // Retriable failures enqueue inside updateNodes. A permanent rejection
+    // leaves the text in the synced row; the next snapshot tries again.
+    void updateNodes(updates).catch(() => {});
+  }
+}
+
+/** Seed echo from a snapshot, but keep the previous server echo for ids whose
+ *  text we refused to rewind — the DOM hold keys off that echo. */
+function reseedEchoFromSnapshot(nodes: readonly Pick<Node, "id" | "text">[]) {
+  const prev = new Map(echoedText);
+  echoedText.clear();
+  for (const n of nodes) {
+    if (unconfirmedText.has(n.id)) {
+      const old = prev.get(n.id);
+      if (old !== undefined) echoedText.set(n.id, old);
+    } else {
+      echoedText.set(n.id, n.text);
+    }
+  }
 }
 
 /** Replace the echo map with full server truth so the focused hold works before
@@ -512,77 +599,6 @@ function applyQueuedSnapshot(snapshot: readonly Node[]): void {
   seedEchoedTextFromNodes(snapshot);
 }
 
-/**
- * Mid-session wire snapshots truncate the collection to server truth. Pending
- * field writes that never reached the server would otherwise vanish (This week
- * get-or-create can force a resync after overnight disconnect). Re-layer only
- * the queued field patches — not the full localStorage snapshot — so unrelated
- * server rows that arrived since enqueue stay intact.
- */
-function reapplyQueuedFieldWrites(): void {
-  if (getPendingWriteCount() <= 0) return;
-  const entries = peekQueuedWrites();
-  withPersistSuppressed(() => {
-    for (const entry of entries) {
-      if (entry.kind !== "field") continue;
-      for (const u of entry.updates) {
-        if (!nodesCollection.has(u.id)) continue;
-        nodesCollection.update(u.id, (draft) => {
-          Object.assign(draft, u.changes);
-        });
-      }
-    }
-  });
-}
-
-/**
- * Coalesced keystrokes parked in `fieldSem` are not in the durable write-queue
- * yet. After a mid-session truncate, re-layer them with persist suppressed —
- * the open generation's flush still owns the PATCH.
- */
-function reapplyCoalescedFieldWrites(): void {
-  const updates = peekCoalescedFieldUpdates();
-  if (updates.length === 0) return;
-  withPersistSuppressed(() => {
-    for (const u of updates) {
-      if (!nodesCollection.has(u.id)) continue;
-      nodesCollection.update(u.id, (draft) => {
-        Object.assign(draft, u.changes);
-      });
-    }
-  });
-}
-
-/**
- * Typing that only survived in the focused contentEditable (PATCH ack already
- * dropped the overlay; not yet echoed; not queued) must be pushed back into the
- * collection after truncate — and persisted — or a remount paints server-old
- * text and the characters vanish a few seconds after overnight reconnect.
- */
-function reapplyFocusedTyping(
-  captured: { id: string; text: string } | null,
-): void {
-  if (captured == null || !nodesCollection.has(captured.id)) return;
-  const live = (nodesCollection.toArray as Node[]).find(
-    (n) => n.id === captured.id,
-  );
-  const text = focusedTextToReapply(captured, live?.text);
-  if (text == null) return;
-  // Do NOT suppress persist: this may be the only copy of the keystrokes.
-  nodesCollection.update(captured.id, (draft) => {
-    draft.text = text;
-  });
-}
-
-/** Local field state that a mid-session snapshot must not wipe (ADR 0010). */
-function reapplyLocalFieldEdits(
-  captured: { id: string; text: string } | null,
-): void {
-  reapplyQueuedFieldWrites();
-  reapplyCoalescedFieldWrites();
-  reapplyFocusedTyping(captured);
-}
-
 export const nodesCollection = createCollection({
   id: "nodes",
   getKey: (node: Node) => node.id,
@@ -646,9 +662,22 @@ export const nodesCollection = createCollection({
           if (op.op === "delete") {
             write({ type: "delete", key: op.key });
             echoedText.delete(op.key);
+            unconfirmedText.delete(op.key);
           } else {
-            write({ type: op.op, value: withNodeDefaults(op.value) });
-            echoedText.set(op.value.id, op.value.text);
+            const node = withNodeDefaults(op.value);
+            const text = resolveProtectedText(
+              node.id,
+              node.text,
+              unconfirmedText,
+            );
+            write({
+              type: op.op,
+              value: text === node.text ? node : { ...node, text },
+            });
+            // Only a server copy we actually accepted moves the echo. Keeping
+            // the previous echo is what lets the focused hold tell a stale
+            // rewind apart from this keystroke.
+            if (text === node.text) echoedText.set(node.id, node.text);
           }
         }
         metadata?.collection.set("cursor", seq);
@@ -680,21 +709,35 @@ export const nodesCollection = createCollection({
           // mid-rebuild refetch cannot drop attachments that are not on the
           // node wire. Hosted mode does not delete those rows on absence.
           const alreadyReady = ready;
-          const focusedTyping = alreadyReady ? captureFocusedNodeText() : null;
+          // Capture even on the first frame: InitialError marks the outline
+          // ready before this snapshot, and typing in that window lives only
+          // in the DOM / an in-flight PATCH.
+          const focusedTyping = captureFocusedNodeText();
+          refreshUnconfirmedText(focusedTyping);
           const mediaStash = alreadyReady ? captureMediaForSnapshot() : [];
           withMediaGcSuppressed(() => {
             begin();
             truncate();
-            for (const n of msg.nodes)
-              write({ type: "insert", value: withNodeDefaults(n) });
+            for (const n of msg.nodes) {
+              const node = withNodeDefaults(n);
+              const text = resolveProtectedText(
+                node.id,
+                node.text,
+                unconfirmedText,
+              );
+              write({
+                type: "insert",
+                value: text === node.text ? node : { ...node, text },
+              });
+            }
             metadata?.collection.set("cursor", msg.seq);
             commit();
           });
           // Arm the focused echo-hold for every node in this snapshot (ADR 0010).
-          // Live change/resume frames seed via applyOps; without this, a
-          // snapshot-only node leaves echoedText undefined and a PATCH-ack /
-          // delayed-WS-echo gap rewinds the contentEditable (stale-tab typing).
-          seedEchoedTextFromNodes(msg.nodes);
+          // Ids we refused to rewind keep their previous server echo so a later
+          // stale frame is still recognizable. Live change/resume frames seed
+          // via applyOps.
+          reseedEchoFromSnapshot(msg.nodes);
           // A fresh snapshot supersedes every earlier seq (and may be the
           // resolution a runStructural transaction is waiting on after a
           // reconnect or a same-page account switch), so reset the cursor to
@@ -702,13 +745,15 @@ export const nodesCollection = createCollection({
           resetAppliedSeq(msg.seq);
           initialError = null;
           // First ready may restore the full queued outline (reload path).
-          // Later snapshots must re-layer queued + coalesced + focused DOM
-          // text or a resync (This week / overnight reconnect) wipes typing.
+          // Local text was written into the rows above, so a snapshot that
+          // arrives while the socket is still settling cannot rewind it.
           // Hosted images (ADR 0061) re-layer here too — side-collection, not
           // a Node field, so the text path cannot cover them.
           ensureReady();
+          // Synced rows already carry the protected text. This PATCH is only
+          // for keystrokes no queued/in-flight write will send.
+          persistUnconfirmedText();
           if (alreadyReady) {
-            reapplyLocalFieldEdits(focusedTyping);
             reapplyMediaAfterSnapshot(mediaStash);
           }
           // Self-heal any persisted sibling-chain corruption now that the full
@@ -722,12 +767,16 @@ export const nodesCollection = createCollection({
         } else if (msg.type === "resume") {
           // The gap since our cursor. Empty = already current; the cursor is
           // unchanged so there's nothing to write.
+          refreshUnconfirmedText(captureFocusedNodeText());
           for (const frame of msg.changes) applyOps(frame.ops, frame.seq);
           initialError = null;
           ensureReady();
+          persistUnconfirmedText();
         } else {
           // A live change broadcast from this or another device.
+          refreshUnconfirmedText(captureFocusedNodeText());
           applyOps(msg.ops, msg.seq);
+          persistUnconfirmedText();
         }
       };
 
@@ -744,7 +793,11 @@ export const nodesCollection = createCollection({
       };
       // Soft reconnect on long tab sleep / online / Page Lifecycle resume —
       // closes the half-open Edge sleep window before typing races a snapshot.
+      // Ignore wake reconnects until the first frame has landed. An `online`
+      // or `resume` during the opening handshake would drop that socket and
+      // deliver a second snapshot over keystrokes typed into the first.
       const unbindWake = bindSyncWakeHandlers(() => {
+        if (!ready) return;
         appRuntime.runFork(reconnect);
       });
 
@@ -872,6 +925,11 @@ export const nodesCollection = createCollection({
     );
     return { refetch: false };
   },
+});
+
+bindLiveTextLookup((id) => {
+  const row = (nodesCollection.toArray as Node[]).find((n) => n.id === id);
+  return row?.text;
 });
 
 /** Snapshot the live outline into localStorage (local-data mode). */
