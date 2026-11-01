@@ -194,6 +194,14 @@ const echoedText = new Map<string, string>();
  * whose socket was not settled yet.
  */
 const unconfirmedText = new Map<string, string>();
+/**
+ * Text we already handed to `updateNodes` from a sync frame. A live echo of
+ * that save must not PATCH the same string again — the header dot stays red
+ * for as long as the write queue is non-empty, and a round-trip that doesn't
+ * compare equal (server normalization vs the focused DOM) otherwise re-sends
+ * on every broadcast.
+ */
+const persistAttempted = new Map<string, string>();
 export function echoedTextFor(id: string): string | undefined {
   return echoedText.get(id);
 }
@@ -245,8 +253,10 @@ function persistUnconfirmedText(): void {
   ];
   for (const [id, text] of unconfirmedText) {
     if (!nodesCollection.has(id)) continue;
+    if (persistAttempted.get(id) === text) continue;
     const covered = pending.some((u) => u.id === id && u.changes.text === text);
     if (covered) continue;
+    persistAttempted.set(id, text);
     updates.push({ id, changes: { text } });
   }
   if (updates.length > 0) {
@@ -663,6 +673,7 @@ export const nodesCollection = createCollection({
             write({ type: "delete", key: op.key });
             echoedText.delete(op.key);
             unconfirmedText.delete(op.key);
+            persistAttempted.delete(op.key);
           } else {
             const node = withNodeDefaults(op.value);
             const text = resolveProtectedText(
@@ -677,7 +688,10 @@ export const nodesCollection = createCollection({
             // Only a server copy we actually accepted moves the echo. Keeping
             // the previous echo is what lets the focused hold tell a stale
             // rewind apart from this keystroke.
-            if (text === node.text) echoedText.set(node.id, node.text);
+            if (text === node.text) {
+              echoedText.set(node.id, node.text);
+              persistAttempted.delete(node.id);
+            }
           }
         }
         metadata?.collection.set("cursor", seq);
@@ -771,12 +785,12 @@ export const nodesCollection = createCollection({
           for (const frame of msg.changes) applyOps(frame.ops, frame.seq);
           initialError = null;
           ensureReady();
-          persistUnconfirmedText();
         } else {
-          // A live change broadcast from this or another device.
+          // A live change broadcast from this or another device. Protect
+          // local text in the synced row, but do not PATCH from here — this
+          // frame is usually the echo of the save we just sent.
           refreshUnconfirmedText(captureFocusedNodeText());
           applyOps(msg.ops, msg.seq);
-          persistUnconfirmedText();
         }
       };
 
