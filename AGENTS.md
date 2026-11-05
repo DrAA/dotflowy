@@ -7,6 +7,7 @@ Keep this file brief. Put task-specific guidance behind a pointer.
 ## Gotchas
 
 - **Local dev is `bun run cf:dev` on port 8787.** `bun run dev` on :3000 has a broken database on Cam's machine. Why, and the rest of setup: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+- **`bun run deploy` respects `deploy.config.json`.** With `"cloudflareDeploy": false` (this host), it only builds — no `wrangler deploy`. Ship with `make -C .. deploy` (build + restart the local Worker).
 
 ## Guardrails
 

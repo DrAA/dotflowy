@@ -96,9 +96,9 @@ import { MonthPickerButton } from "./month-picker";
 import { formatWeekRange, formatWeekRelative } from "./scaffold";
 import { WeekCalendar } from "./week-calendar";
 
-// `getOrCreateDay` is re-exported for the `/today` route (routes/today.tsx),
-// which resolves the day without navigating through a PluginContext.
-export { getOrCreateDay };
+// Re-exported for the `/today` and `/this-week` routes, which resolve the
+// day/week without navigating through a PluginContext.
+export { getOrCreateDay, getOrCreateScaffold };
 
 // --- scaffold protection (issue #271) ---------------------------------------
 //

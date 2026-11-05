@@ -938,6 +938,31 @@ test.describe("daily notes", () => {
     await expect(titleBadge).toHaveAttribute("data-daily-today", "");
   });
 
+  test("/this-week redirects to this week's note (same as the header button)", async ({
+    page,
+  }) => {
+    await seedOutline(page, STANDARD_TREE);
+    await page.goto("/this-week");
+
+    await expect(page).not.toHaveURL(/\/this-week$/, { timeout: 15000 });
+    await expect(page).not.toHaveURL(/\/$/, { timeout: 10000 });
+
+    const { weekKey } = todayChain();
+    await expect(page.locator("h2.zoomed-title .node-text")).toHaveText(
+      weekLabel(weekKey),
+    );
+    const titleBadge = page.locator("h2.zoomed-title [data-daily-week]");
+    await expect(titleBadge).toBeVisible();
+    await expect(titleBadge).toContainText("This week");
+    await expect(titleBadge).toHaveAttribute("data-daily-this-week", "");
+    await expect(page.getByTestId("week-calendar")).toBeVisible();
+
+    // Seed-free like the header button — today's day shell is present, no
+    // forced entry line under the week zoom.
+    const todayBadge = page.locator("li[data-node-id] [data-daily-today]");
+    await expect(todayBadge).toBeVisible();
+  });
+
   test("/today is idempotent: a second visit lands on the same note", async ({
     page,
   }) => {
