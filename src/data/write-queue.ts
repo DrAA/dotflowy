@@ -35,6 +35,12 @@ export type WriteQueueEntry =
 let queue: WriteQueueEntry[] = loadQueue();
 let flushing = false;
 let started = false;
+/** One deferred retry while the queue stays non-empty after a retriable flush. */
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Backoff before another flush attempt when the network is "up" but writes still fail
+ *  (common on mobile after a backgrounded tab — `online` never re-fires). */
+const RETRY_AFTER_MS = 5_000;
 
 /** Live outline text, bound by the collection so a flush can see keystrokes
  *  that landed after a queued field patch was captured. */
@@ -215,11 +221,29 @@ async function dispatchEntry(entry: WriteQueueEntry): Promise<void> {
   }
 }
 
+function clearRetryTimer(): void {
+  if (retryTimer == null) return;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+/** Retry later if a flush failed while the browser already reports online. */
+function scheduleDelayedFlush(): void {
+  if (typeof window === "undefined" || retryTimer != null) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void flushWriteQueue();
+  }, RETRY_AFTER_MS);
+}
+
 /** Drain queued writes in order. Stops on the first retriable failure. */
 export async function flushWriteQueue(): Promise<void> {
   if (flushing || isLocalDataEnabled()) return;
   reloadWriteQueueFromStorage();
-  if (queue.length === 0) return;
+  if (queue.length === 0) {
+    clearRetryTimer();
+    return;
+  }
   flushing = true;
   try {
     while (queue.length > 0) {
@@ -239,6 +263,7 @@ export async function flushWriteQueue(): Promise<void> {
       } catch (err) {
         if (isRetriableNodesError(err)) {
           notifyPersistQueued(queue.length);
+          scheduleDelayedFlush();
           return;
         }
         queue.shift();
@@ -250,6 +275,7 @@ export async function flushWriteQueue(): Promise<void> {
         return;
       }
     }
+    clearRetryTimer();
     notifyPersistQueued(0);
   } finally {
     flushing = false;
@@ -261,6 +287,23 @@ function scheduleFlush(): void {
   queueMicrotask(() => {
     void flushWriteQueue();
   });
+}
+
+/** Tab wake / bfcache restore — mobile often fails writes while suspended, then
+ *  stays `navigator.onLine` so the `online` listener never runs again. */
+function onVisibilityWake(): void {
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState !== "visible"
+  ) {
+    return;
+  }
+  void flushWriteQueue();
+}
+
+function onPageShow(event: PageTransitionEvent): void {
+  if (!event.persisted) return;
+  void flushWriteQueue();
 }
 
 /**
@@ -292,7 +335,7 @@ function onStorageSync(event: StorageEvent): void {
   else notifyPersistQueued(0);
 }
 
-/** Wire online/reload retry. Idempotent. */
+/** Wire online / tab-wake / reload retry. Idempotent. */
 export function startWriteQueue(): void {
   if (started || typeof window === "undefined" || isLocalDataEnabled()) return;
   started = true;
@@ -302,11 +345,14 @@ export function startWriteQueue(): void {
     void flushWriteQueue();
   });
   window.addEventListener("storage", onStorageSync);
+  document.addEventListener("visibilitychange", onVisibilityWake);
+  window.addEventListener("pageshow", onPageShow);
   if (queue.length > 0) scheduleFlush();
 }
 
 /** @internal Reset module state between unit tests. */
 export function resetWriteQueueForTests(): void {
+  clearRetryTimer();
   queue = [];
   flushing = false;
   started = false;
@@ -320,6 +366,7 @@ export function resetWriteQueueForTests(): void {
 
 /** @internal Drop in-memory queue only (simulate a fresh page load). */
 export function clearWriteQueueMemoryForTests(): void {
+  clearRetryTimer();
   queue = [];
   flushing = false;
   started = false;
