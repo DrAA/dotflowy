@@ -15,7 +15,7 @@ import { memoizeIdentityPerRequest } from "lunorash/runtime";
 import type { AuthEnv } from "./auth";
 
 import { defineApp } from "../lunora/_generated/app";
-import { createAuth } from "./auth";
+import { authTrustedOrigins, createAuth } from "./auth";
 
 export type LunoraEnv = AuthEnv & {
   SHARD: ShardNamespaceLike;
@@ -30,8 +30,6 @@ export type LunoraEnv = AuthEnv & {
    * e2e `:3210` are always included — see `lunoraTrustedOrigins`.
    */
   LUNORA_TRUSTED_ORIGINS?: string;
-  /** Same comma-list as `.dev.vars.example` for Better Auth CSRF (optional). */
-  BETTER_AUTH_TRUSTED_ORIGINS?: string;
 };
 
 /**
@@ -41,33 +39,14 @@ export type LunoraEnv = AuthEnv & {
  * `bun run dev`, the browser Origin is Vite (`:3001`) while the Worker URL
  * (after `changeOrigin`) is wrangler (`:8787`) — without these trusted, cookie
  * WS upgrades return `FORBIDDEN_ORIGIN` 403 and the outline never leaves
- * "Loading outline". Mirrors Better Auth's `trustedOrigins` in `auth.ts`.
+ * "Loading outline". Built on Better Auth's `authTrustedOrigins`.
  */
 function lunoraTrustedOrigins(env: LunoraEnv): string[] {
-  const fromEnv = [
-    ...(env.LUNORA_TRUSTED_ORIGINS ?? "").split(","),
-    ...(env.BETTER_AUTH_TRUSTED_ORIGINS ?? "").split(","),
-  ]
+  const fromLunora = (env.LUNORA_TRUSTED_ORIGINS ?? "")
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const fromBase = env.BETTER_AUTH_URL
-    ? (() => {
-        try {
-          return [new URL(env.BETTER_AUTH_URL).origin];
-        } catch {
-          return [];
-        }
-      })()
-    : [];
-  return [
-    ...new Set([
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:3210",
-      ...fromBase,
-      ...fromEnv,
-    ]),
-  ];
+  return [...new Set([...authTrustedOrigins(env), ...fromLunora])];
 }
 
 const app = defineApp<LunoraEnv>()

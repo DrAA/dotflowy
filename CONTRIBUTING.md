@@ -112,7 +112,11 @@ BETTER_AUTH_TRUSTED_ORIGINS=http://app.dotflowy.com,https://app.dotflowy.com
 
 Without the first, discovery points MCP clients at the prod domain; without the
 second, Better Auth's CSRF check rejects local sign-in with `403 Invalid origin`.
-Neither is needed in prod (there the origin genuinely _is_ the prod domain). See
+`BETTER_AUTH_TRUSTED_ORIGINS` is applied in `worker/auth.ts` (`authTrustedOrigins`)
+from the Worker env — Better Auth's own `process.env` lookup does not see
+`.dev.vars` under workerd. Self-hosted behind a reverse proxy: set
+`BETTER_AUTH_URL` to the public origin browsers use, and add any rewritten
+proxy Origin (e.g. `http://127.0.0.1`) to `BETTER_AUTH_TRUSTED_ORIGINS`. See
 [ADR 0026](./docs/adr/0026-agent-native-mcp-server.md).
 
 ### Testing Stripe billing locally

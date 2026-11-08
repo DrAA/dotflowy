@@ -140,13 +140,17 @@ export function AuthScreen() {
       // page load, which is the hardReset teardown by construction. On an
       // MCP OAuth hop, the callbackURL IS the authorize resume — the same
       // top-level navigation the email path does by hand below.
+      // Relative paths stay same-origin under any reverse-proxy Host rewrite;
+      // a full https://… href is rejected when that public origin isn't in
+      // Better Auth's trustedOrigins (Invalid callbackURL).
+      const returnTo = `${window.location.pathname}${window.location.search}`;
       const res = await signIn.social({
         provider: "google",
         callbackURL: oauthQuery
           ? `/api/auth/mcp/authorize?${oauthQuery}`
-          : window.location.href,
+          : returnTo || "/",
         // Land failures back on this screen (keeps any OAuth query intact).
-        errorCallbackURL: window.location.href,
+        errorCallbackURL: returnTo || "/",
       });
       if (res.error) {
         setError(res.error.message ?? "Couldn't start Google sign-in.");

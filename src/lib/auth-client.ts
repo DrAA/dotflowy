@@ -43,10 +43,15 @@ export const NETWORK_ERROR_MESSAGE =
  * so no singleton teardown concerns (same user, same data).
  */
 export function connectGoogle() {
+  // Relative paths — same reason as AuthScreen's Google sign-in: a full
+  // public URL fails Better Auth's trustedOrigins check behind a reverse
+  // proxy that rewrites Host/Origin.
+  const returnTo =
+    `${window.location.pathname}${window.location.search}` || "/";
   void authClient.linkSocial({
     provider: "google",
-    callbackURL: window.location.href,
-    errorCallbackURL: window.location.href,
+    callbackURL: returnTo,
+    errorCallbackURL: returnTo,
     fetchOptions: {
       onError: () => {
         toast.error("Couldn't start Google connect. Try again.");

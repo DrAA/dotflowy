@@ -46,6 +46,11 @@ export interface AuthEnv {
   /** The deployment's public origin (e.g. https://dotflowy.example.com), used
    *  for cookie/redirect URLs and as a trusted origin. Unset in local dev. */
   BETTER_AUTH_URL?: string;
+  /** Extra trusted origins (comma-separated). Needed when a reverse proxy or
+   *  wrangler custom-domain simulation makes the browser Origin differ from
+   *  `BETTER_AUTH_URL` / the Worker URL. Read from the Worker env — Better
+   *  Auth's own `process.env` lookup does not see `.dev.vars` under workerd. */
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
   /** Comma-separated invite codes gating signup (alpha is invite-only). Unset
    *  or empty = signup CLOSED — nobody can create an account. Rotate the
    *  secret to revoke every outstanding code at once. */
@@ -134,6 +139,37 @@ function verifyEmail(url: string) {
   <p style="font-size: 13px; color: #666; line-height: 1.5;">If you didn't create an aaflowy account, ignore this email.</p>
 </div>`,
   };
+}
+
+/**
+ * Origins Better Auth may redirect to and accept as CSRF `Origin`.
+ * Local Vite/e2e ports always; plus `BETTER_AUTH_URL`'s origin and any
+ * `BETTER_AUTH_TRUSTED_ORIGINS` from the Worker env.
+ */
+export function authTrustedOrigins(
+  env: Pick<AuthEnv, "BETTER_AUTH_URL" | "BETTER_AUTH_TRUSTED_ORIGINS">,
+): string[] {
+  const fromEnv = (env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let fromBase: string[] = [];
+  if (env.BETTER_AUTH_URL) {
+    try {
+      fromBase = [new URL(env.BETTER_AUTH_URL).origin];
+    } catch {
+      fromBase = [];
+    }
+  }
+  return [
+    ...new Set([
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3210",
+      ...fromBase,
+      ...fromEnv,
+    ]),
+  ];
 }
 
 export function createAuth(
@@ -325,14 +361,10 @@ export function createAuth(
     },
     // Dev serves the SPA from Vite (:3001) and proxies /api to the Worker, so
     // a sign-in request's Origin is the Vite origin, not the Worker's. Trust
-    // the local dev origins explicitly; prod is covered by baseURL. e2e (:3210)
-    // mocks /api/auth, so it never reaches this, but trusting it costs nothing.
-    // :3000 stays trusted in case something still hits the old Vite port.
-    trustedOrigins: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:3210",
-    ],
+    // the local dev origins explicitly; prod/`BETTER_AUTH_URL` and any
+    // reverse-proxy origins ride `authTrustedOrigins` (e2e :3210 mocks
+    // /api/auth so it never reaches this, but trusting it costs nothing).
+    trustedOrigins: authTrustedOrigins(env),
     // Signup gate: /sign-up/email is the ONLY account-creation path (the mcp
     // plugin's dynamic registration creates OAuth clients, not users), so gating
     // it here controls signup entirely. Server-side on purpose — hiding the

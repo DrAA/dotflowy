@@ -40,24 +40,24 @@ INVITE_CODES=dev-invite
 # UserOutlineDO. Unset → per-user `account-prefs` / lunora-beta on classic DO.
 # LUNORA_OUTLINE=1
 
-# Optional: pin the OAuth issuer the MCP discovery metadata advertises (ADR
-# 0026). Needed to test the MCP OAuth flow against `wrangler dev` — without it
-# the dev proxy's custom-domain simulation makes the inferred origin the prod
-# domain. In prod set the real origin via BETTER_AUTH_URL.
+# Optional: pin the OAuth issuer / public origin (ADR 0026). Needed when a
+# reverse proxy or wrangler custom-domain simulation makes the inferred origin
+# wrong — set to the URL browsers actually use (e.g. http://localhost:8787 or
+# https://your.domain). Also added to Better Auth trustedOrigins via
+# worker/auth.ts `authTrustedOrigins`.
 # BETTER_AUTH_URL=http://localhost:8787
 
-# Optional companion to the above: the same custom-domain simulation also
-# rewrites the request Origin header to the prod domain, so Better Auth's CSRF
-# check rejects local sign-in unless that origin is trusted. Set this to make
-# the OAuth login flow work under `wrangler dev`. Local-only; in prod the origin
-# IS the prod domain and is already trusted via BETTER_AUTH_URL.
+# Extra trusted origins (comma-separated). Same situations as above: browser
+# Origin differs from the Worker URL (Vite :3001, nginx Host rewrite, wrangler
+# app.dotflowy.com simulation). Read from the Worker env in worker/auth.ts —
+# Better Auth's process.env lookup does NOT see `.dev.vars` under workerd.
 # BETTER_AUTH_TRUSTED_ORIGINS=http://app.dotflowy.com,https://app.dotflowy.com
 
 # Optional: Google OAuth client for "Sign in with Google" (Google Cloud console
-# -> Credentials -> OAuth client ID, type "Web application"). Local redirect
-# URI: http://localhost:3001/api/auth/callback/google. Unset = the provider
-# isn't registered and the button errors; email+password is unaffected. In
-# prod: `wrangler secret put GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+# -> Credentials -> OAuth client ID, type "Web application"). Redirect URI is
+# `{BETTER_AUTH_URL or request origin}/api/auth/callback/google`. Unset = the
+# provider isn't registered and the button errors; email+password is unaffected.
+# In Cloudflare prod: `wrangler secret put GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
 
