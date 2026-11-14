@@ -58,13 +58,17 @@ function NodeImages({
           if (!open) setOpenId(null);
         }}
       >
-        <DialogContent className="max-w-[min(90vw,960px)] p-2">
+        <DialogContent
+          // `sm:max-w-*` (not a bare `max-w-*`): DialogContent's base
+          // `sm:max-w-sm` outlives any unprefixed max-width at that breakpoint.
+          className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] p-1 sm:max-w-[calc(100vw-1rem)]"
+        >
           <DialogTitle className="sr-only">Attached image</DialogTitle>
           {openRow && (
             <img
               src={mediaUrl(openRow.id)}
               alt=""
-              className="max-h-[85vh] w-full object-contain"
+              className="max-h-[95vh] w-full object-contain"
             />
           )}
         </DialogContent>
