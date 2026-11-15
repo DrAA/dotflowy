@@ -438,6 +438,12 @@ export async function resealExistingMedia(): Promise<void> {
   ) {
     return;
   }
+  // Wait for kv hydrate — unlock often fires before media rows land.
+  try {
+    await mediaCollection.toArrayWhenReady();
+  } catch {
+    return;
+  }
   const pending = mediaCollection.toArray.filter((r) => !r.sealed);
   if (pending.length === 0) return;
   resealRunning = true;
