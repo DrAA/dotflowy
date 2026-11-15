@@ -46,6 +46,38 @@ export const OutlineSnapshotSchema = Schema.Struct({
 });
 export type OutlineSnapshot = Schema.Schema.Type<typeof OutlineSnapshotSchema>;
 
+/**
+ * Sealed outline daily backup (ADR 0063). Opaque envelope + keybag; no
+ * plaintext nodes. Same `backups/<doName>/<date>.json` key as classic exports.
+ */
+export const SEALED_BACKUP_KIND = "sealed" as const;
+
+export const SealedOutlineBackupSchema = Schema.Struct({
+  version: Schema.Number,
+  kind: Schema.Literal(SEALED_BACKUP_KIND),
+  exportedAt: Schema.Number,
+  seq: Schema.Number,
+  /** Opaque client sealed envelope (never decrypted on the server). */
+  envelope: Schema.Unknown,
+  /** Opaque keybag JSON, or null if missing (restore cannot unlock without it). */
+  keybag: Schema.NullOr(Schema.Unknown),
+  kv: Schema.Array(SnapshotKvRowSchema),
+});
+export type SealedOutlineBackup = Schema.Schema.Type<
+  typeof SealedOutlineBackupSchema
+>;
+
+/** True when an R2 backup object is a sealed envelope backup, not plaintext nodes. */
+export function isSealedOutlineBackup(
+  value: unknown,
+): value is SealedOutlineBackup {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    (value as { kind?: unknown }).kind === SEALED_BACKUP_KIND
+  );
+}
+
 /** The UTC calendar date a sweep runs on — one object per DO per day; a re-run
  *  the same day overwrites (idempotent), never duplicates. */
 export function utcDateKey(at: number): string {

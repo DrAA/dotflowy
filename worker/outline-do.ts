@@ -902,9 +902,9 @@ export class UserOutlineDO extends DurableObject<Env> {
   }
 
   // --- sealed outline (ADR 0063) ---------------------------------------------
-  // Keybag + sealed snapshot live in `meta` as opaque JSON. The DO never
-  // decrypts. Plaintext `nodes` remain until the client one-shot migration
-  // clears them (follow-up); getSealState reports both sides for the gate.
+  // Keybag + small flags live in `meta`. Bulk sealed snapshot/revisions live
+  // in R2 (Worker-owned) — a single meta value hits SQLITE_TOOBIG for large
+  // outlines. The DO never decrypts.
 
   private metaGet(key: string): string | null {
     const row = this.sql
@@ -921,16 +921,26 @@ export class UserOutlineDO extends DurableObject<Env> {
     );
   }
 
+  private metaDelete(key: string): void {
+    this.sql.exec("DELETE FROM meta WHERE key = ?", key);
+  }
+
   putSealKeybag(keybagJson: string): void {
     this.metaSet("seal_keybag", keybagJson);
   }
 
-  putSealedSnapshot(envelopeJson: string): void {
-    this.metaSet("seal_snapshot", envelopeJson);
+  /** Worker wrote the sealed snapshot to R2 — record a small presence flag. */
+  markSealedSnapshotStored(): void {
+    this.ctx.storage.transactionSync(() => {
+      this.metaSet("seal_snapshot_r2", "1");
+      // Drop any legacy in-meta blob / revision array (pre-R2 dogfood).
+      this.metaDelete("seal_snapshot");
+      this.metaDelete("seal_revisions");
+    });
   }
 
-  getSealedSnapshot(): string | null {
-    return this.metaGet("seal_snapshot");
+  hasSealedSnapshotFlag(): boolean {
+    return this.metaGet("seal_snapshot_r2") === "1";
   }
 
   /**
@@ -950,23 +960,13 @@ export class UserOutlineDO extends DurableObject<Env> {
     return this.metaGet("seal_active") === "1";
   }
 
-  /** Keep the last N sealed revision envelopes (opaque JSON strings). */
-  appendSealedRevision(envelopeJson: string): void {
-    const raw = this.metaGet("seal_revisions");
-    let list: string[] = [];
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (Array.isArray(parsed))
-          list = parsed.filter((x) => typeof x === "string");
-      } catch {
-        list = [];
-      }
-    }
-    list.push(envelopeJson);
-    const KEEP = 32;
-    if (list.length > KEEP) list = list.slice(list.length - KEEP);
-    this.metaSet("seal_revisions", JSON.stringify(list));
+  /** Allocate the next sealed-revision sequence (R2 object key suffix). */
+  nextSealRevSeq(): number {
+    const raw = this.metaGet("seal_rev_seq");
+    const prev = raw ? Number.parseInt(raw, 10) : 0;
+    const next = (Number.isFinite(prev) ? prev : 0) + 1;
+    this.metaSet("seal_rev_seq", String(next));
+    return next;
   }
 
   getSealState(): {
@@ -976,13 +976,12 @@ export class UserOutlineDO extends DurableObject<Env> {
     sealActive: boolean;
   } {
     const keybag = this.metaGet("seal_keybag");
-    const snap = this.metaGet("seal_snapshot");
     const count = this.sql
       .exec<{ n: number }>("SELECT COUNT(*) AS n FROM nodes")
       .toArray()[0];
     return {
       keybag,
-      hasSealedSnapshot: snap != null && snap.length > 0,
+      hasSealedSnapshot: this.hasSealedSnapshotFlag(),
       hasPlaintextNodes: (count?.n ?? 0) > 0,
       sealActive: this.metaGet("seal_active") === "1",
     };
@@ -1179,6 +1178,47 @@ export class UserOutlineDO extends DurableObject<Env> {
     });
     this.deferredAbort("snapshot restore");
     return { previousBookmark, nodes: data.nodes.length, kv: data.kv.length };
+  }
+
+  /**
+   * Restore a sealed outline control plane (ADR 0063): empty nodes, kv +
+   * keybag + seal flags. The Worker writes the envelope to R2 separately.
+   */
+  async restoreSealedOutline(data: {
+    keybag: string | null;
+    kv: readonly SnapshotKvRow[];
+  }): Promise<{ previousBookmark: string | null; kv: number }> {
+    let previousBookmark: string | null = null;
+    try {
+      previousBookmark = await this.ctx.storage.getCurrentBookmark();
+    } catch {
+      // PITR absent in local dev.
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM nodes");
+      this.sql.exec("DELETE FROM kv");
+      this.sql.exec("DELETE FROM changelog");
+      for (const r of data.kv) {
+        this.sql.exec(
+          "INSERT INTO kv (collection, key, value, updatedAt) VALUES (?, ?, ?, ?)",
+          r.collection,
+          r.key,
+          r.value,
+          r.updatedAt,
+        );
+      }
+      if (data.keybag) this.metaSet("seal_keybag", data.keybag);
+      this.metaSet("seal_snapshot_r2", "1");
+      this.metaSet("seal_active", "1");
+      this.metaDelete("seal_snapshot");
+      this.metaDelete("seal_revisions");
+      this.setSeq(this.currentSeq() + 1);
+      this.sql.exec(
+        "INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = '1'",
+      );
+    });
+    this.deferredAbort("sealed snapshot restore");
+    return { previousBookmark, kv: data.kv.length };
   }
 }
 

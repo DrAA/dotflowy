@@ -186,6 +186,9 @@ export async function handleMedia(
   if (request.method === "POST" && url.pathname === "/api/media") {
     return postMedia(request, stub, env, userId);
   }
+  if (request.method === "PUT" && idFromPath) {
+    return putSealedMedia(idFromPath, request, stub, env, userId);
+  }
   if (request.method === "GET" && idFromPath) {
     return getMedia(idFromPath, stub, env, userId);
   }
@@ -301,6 +304,58 @@ async function postMedia(
     height,
   });
   return json(row, 201);
+}
+
+/**
+ * Replace an existing attachment body with sealed ciphertext (ADR 0063
+ * one-shot media migrate). Keeps the same media id / nodeId / dims.
+ */
+async function putSealedMedia(
+  id: string,
+  request: Request,
+  stub: MediaStub,
+  env: MediaEnv,
+  userId: string,
+): Promise<Response> {
+  if (request.headers.get("x-seal-envelope") !== "1") {
+    return json({ error: "sealed envelope required" }, 400);
+  }
+  const claimed = request.headers.get("x-seal-content-type") ?? "";
+  if (!ALLOWED_IMAGE_TYPES.has(claimed)) {
+    return json({ error: "unsupported type" }, 415);
+  }
+  const contentType = claimed as SniffedImageType;
+  const rows = asMediaRows(await stub.getKv("media"));
+  const existing = rows.find((r) => r.id === id);
+  if (!existing) {
+    mediaLog("warn", "put.miss-kv", { userId, mediaId: id });
+    return json({ error: "not found" }, 404);
+  }
+  if (existing.sealed) {
+    return json(existing, 200);
+  }
+  const buf = new Uint8Array(await request.arrayBuffer());
+  if (buf.byteLength === 0) {
+    return json({ error: "empty body" }, 400);
+  }
+  const row: MediaRow = {
+    ...existing,
+    contentType,
+    bytes: buf.byteLength,
+    sealed: true,
+  };
+  await env.MEDIA.put(mediaR2Key(userId, id), buf, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { nodeId: existing.nodeId, sealed: "1" },
+  });
+  await stub.upsertKv("media", [{ key: id, value: row }]);
+  mediaLog("info", "put.sealed.ok", {
+    userId,
+    mediaId: id,
+    bytes: row.bytes,
+    contentType,
+  });
+  return json(row, 200);
 }
 
 async function getMedia(

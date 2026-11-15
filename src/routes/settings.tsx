@@ -34,7 +34,11 @@ import { useTheme } from "../components/theme-provider";
 import { Button } from "../components/ui/button";
 import { Slider } from "../components/ui/slider";
 import { Switch } from "../components/ui/switch";
-import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
+import {
+  setLunoraBetaEnabled,
+  turnOffLunoraBetaQuietly,
+  useLunoraBetaPref,
+} from "../data/account-prefs";
 import { exportContentBackupFile } from "../data/content-backup";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
@@ -949,17 +953,37 @@ function BetaSection() {
   // a double tap would fire two writes plus two reloads.
   const [saving, setSaving] = useState(false);
   const sealed = isSealedOutlineEnabled();
-  const onToggle = useCallback((checked: boolean) => {
-    setSaving(true);
-    setLunoraBetaEnabled(checked).catch(() => {
-      setSaving(false);
-      toast.error("Couldn't save that. Check your connection and try again.");
-    });
-    // No `finally`: on success `hardReset` tears this tree down, so leaving
-    // the switch disabled through the reload is the honest state.
-  }, []);
+  const onToggle = useCallback(
+    (checked: boolean) => {
+      if (checked && sealed) {
+        toast.error(
+          "Turn off sealed outline before enabling upgraded outline sync.",
+        );
+        return;
+      }
+      setSaving(true);
+      setLunoraBetaEnabled(checked).catch(() => {
+        setSaving(false);
+        toast.error("Couldn't save that. Check your connection and try again.");
+      });
+      // No `finally`: on success `hardReset` tears this tree down, so leaving
+      // the switch disabled through the reload is the honest state.
+    },
+    [sealed],
+  );
   const onSealedToggle = useCallback((checked: boolean) => {
     setSealedOutlineEnabled(checked);
+    if (checked) {
+      // Sealed migrate needs classic nodesCollection; Lunora leaves it idle.
+      void turnOffLunoraBetaQuietly()
+        .catch(() => {
+          // Still enable sealed; isLunoraSyncEnabled also force-offs when sealed.
+        })
+        .finally(() => {
+          hardReset();
+        });
+      return;
+    }
     hardReset();
   }, []);
   return (
@@ -978,13 +1002,14 @@ function BetaSection() {
               devices, and toggling reloads the app. Turning it off returns you
               to your last classic snapshot — edits you make while this is on
               stay on the upgraded backend until you turn it back on (one-way
-              for now; they do not copy back automatically).
+              for now; they do not copy back automatically). Incompatible with
+              sealed outline.
             </>
           }
           action={
             <Switch
-              checked={ready ? enabled : false}
-              disabled={!ready || saving}
+              checked={ready ? enabled && !sealed : false}
+              disabled={!ready || saving || sealed}
               onCheckedChange={onToggle}
               aria-label="Upgraded outline sync beta"
             />
@@ -992,7 +1017,7 @@ function BetaSection() {
         />
         <SettingRow
           title="Sealed outline (dogfood)"
-          description="Client seal passphrase; keybag stored on the server as opaque ciphertext (ADR 0063). Live sync still uses plaintext nodes until the sealed sync cutover — this flag exercises unlock UI and keybag storage. Reloads the app."
+          description="Client seal passphrase; outline and new images stay ciphertext on the server (ADR 0063). Turning this on migrates the outline after unlock, turns off upgraded outline sync, and reloads the app."
           action={
             <Switch
               checked={sealed}

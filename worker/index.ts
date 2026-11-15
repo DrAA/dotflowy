@@ -42,13 +42,17 @@ import {
 import { createAuth } from "./auth";
 import {
   OutlineSnapshotSchema,
+  SEALED_BACKUP_KIND,
   SNAPSHOT_VERSION,
+  SealedOutlineBackupSchema,
   backupKey,
   backupKeyForDate,
   backupPrefix,
   backupTargets,
   isBackupDateKey,
+  isSealedOutlineBackup,
   utcDateKey,
+  type SealedOutlineBackup,
 } from "./backup";
 import { handleCopilot } from "./copilot";
 import {
@@ -74,6 +78,7 @@ import { handleMedia } from "./media";
 import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
 import { FREE_NODE_LIMIT, getPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
+import { pruneSealRevisions, sealRevKey, sealSnapshotKey } from "./seal-r2";
 import { workerSentryOptions } from "./sentry";
 import { isHttpUrlString, unfurlTitleE } from "./unfurl";
 import {
@@ -946,6 +951,43 @@ function handleApiRequest(
         try: () => object.json(),
         catch: () => new BadRequest({ reason: "snapshot is not valid JSON" }),
       });
+      const snapshotStub = env.USER_OUTLINE.get(
+        env.USER_OUTLINE.idFromName(doName),
+      );
+      if (isSealedOutlineBackup(raw)) {
+        const sealed = yield* Schema.decodeUnknownEffect(
+          SealedOutlineBackupSchema,
+        )(raw).pipe(
+          Effect.mapError(
+            (issue) =>
+              new BadRequest({
+                reason: `sealed snapshot rejected: ${issue.message}`,
+              }),
+          ),
+        );
+        if (sealed.version !== SNAPSHOT_VERSION) {
+          return yield* Effect.fail(
+            new BadRequest({
+              reason: `unknown sealed snapshot version ${sealed.version}`,
+            }),
+          );
+        }
+        // Envelope under the Better Auth user id (same key as live seal writes).
+        const snapKey = sealSnapshotKey(targetUserId);
+        yield* Effect.promise(() =>
+          env.BACKUPS.put(snapKey, JSON.stringify(sealed.envelope), {
+            httpMetadata: { contentType: "application/json" },
+          }),
+        );
+        const result = yield* Effect.promise(() =>
+          snapshotStub.restoreSealedOutline({
+            keybag:
+              sealed.keybag == null ? null : JSON.stringify(sealed.keybag),
+            kv: sealed.kv,
+          }),
+        );
+        return json({ key, sealed: true, nodes: 0, ...result });
+      }
       const snapshot = yield* Schema.decodeUnknownEffect(OutlineSnapshotSchema)(
         raw,
       ).pipe(
@@ -961,9 +1003,6 @@ function handleApiRequest(
           }),
         );
       }
-      const snapshotStub = env.USER_OUTLINE.get(
-        env.USER_OUTLINE.idFromName(doName),
-      );
       const result = yield* Effect.promise(() =>
         snapshotStub.restoreSnapshot({
           nodes: snapshot.nodes,
@@ -1134,11 +1173,14 @@ function handleApiRequest(
       return json({ ok: true });
     }
     if (url.pathname === "/api/seal/snapshot") {
+      const snapKey = sealSnapshotKey(session.user.id);
       if (request.method === "GET") {
-        const raw = yield* Effect.promise(() => stub.getSealedSnapshot());
-        if (!raw) return json({ envelope: null }, 404);
+        // Bulk envelope in R2 — DO only has a presence flag (SQLITE_TOOBIG).
+        const obj = yield* Effect.promise(() => env.BACKUPS.get(snapKey));
+        if (!obj) return json({ envelope: null }, 404);
+        const raw = yield* Effect.promise(() => obj.text());
         try {
-          return json({ envelope: JSON.parse(raw) });
+          return json({ envelope: JSON.parse(raw) as unknown });
         } catch {
           return yield* Effect.fail(
             new BadRequest({ reason: "sealed snapshot is not valid JSON" }),
@@ -1147,9 +1189,13 @@ function handleApiRequest(
       }
       if (request.method === "PUT") {
         const body = yield* decodeBody(request, SealSnapshotPutBody);
+        const payload = JSON.stringify(body.envelope);
         yield* Effect.promise(() =>
-          stub.putSealedSnapshot(JSON.stringify(body.envelope)),
+          env.BACKUPS.put(snapKey, payload, {
+            httpMetadata: { contentType: "application/json" },
+          }),
         );
+        yield* Effect.promise(() => stub.markSealedSnapshotStored());
         return json({ ok: true });
       }
       return json({ error: "method not allowed" }, 405);
@@ -1162,10 +1208,17 @@ function handleApiRequest(
       return json({ ok: true });
     }
     if (url.pathname === "/api/seal/revisions" && request.method === "POST") {
-      // Append-only sealed revision log (opaque). Body is a single envelope.
+      // Append-only sealed revision log in R2 (opaque). DO allocates seq only.
       const body = yield* decodeBody(request, SealSnapshotPutBody);
+      const seq = yield* Effect.promise(() => stub.nextSealRevSeq());
+      const revKey = sealRevKey(session.user.id, seq);
       yield* Effect.promise(() =>
-        stub.appendSealedRevision(JSON.stringify(body.envelope)),
+        env.BACKUPS.put(revKey, JSON.stringify(body.envelope), {
+          httpMetadata: { contentType: "application/json" },
+        }),
+      );
+      yield* Effect.promise(() =>
+        pruneSealRevisions(env.BACKUPS, session.user.id),
       );
       return json({ ok: true });
     }
@@ -1190,7 +1243,74 @@ export type BackupSweepExport = {
   key: string;
   nodes: number;
   kv: number;
+  sealed?: boolean;
 };
+
+/**
+ * Write one user's daily backup object. Sealed accounts copy the live R2
+ * envelope + keybag/kv; classic accounts still export plaintext nodes.
+ */
+async function exportOneUserBackup(
+  env: Env,
+  userId: string,
+  now: number,
+): Promise<BackupSweepExport> {
+  const doName = resolveUserId(userId, env);
+  const stub = env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(doName));
+  const key = backupKey(doName, now);
+  const state = await stub.getSealState();
+  if (state.sealActive || state.hasSealedSnapshot) {
+    let sealObj = await env.BACKUPS.get(sealSnapshotKey(userId));
+    // Owner-bridge: live seal may be under user id while DO is `default`.
+    if (!sealObj && doName !== userId) {
+      sealObj = await env.BACKUPS.get(sealSnapshotKey(doName));
+    }
+    if (!sealObj) {
+      throw new Error(
+        `sealed outline missing R2 envelope for user ${userId} (do ${doName})`,
+      );
+    }
+    const envelope = JSON.parse(await sealObj.text()) as unknown;
+    const base = await stub.exportSnapshot();
+    const sealed: SealedOutlineBackup = {
+      version: SNAPSHOT_VERSION,
+      kind: SEALED_BACKUP_KIND,
+      exportedAt: now,
+      seq: base.seq,
+      envelope,
+      keybag: state.keybag ? (JSON.parse(state.keybag) as unknown) : null,
+      kv: base.kv,
+    };
+    const payload = JSON.stringify(sealed);
+    await env.BACKUPS.put(key, payload, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    // Mirror under the raw user id when the owner bridge uses `default`, so
+    // archive tooling that prefers the non-empty id still finds today's copy.
+    if (doName !== userId) {
+      await env.BACKUPS.put(backupKey(userId, now), payload, {
+        httpMetadata: { contentType: "application/json" },
+      });
+    }
+    return {
+      doName,
+      key,
+      nodes: 0,
+      kv: sealed.kv.length,
+      sealed: true,
+    };
+  }
+  const snapshot = await stub.exportSnapshot();
+  await env.BACKUPS.put(key, JSON.stringify(snapshot), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  return {
+    doName,
+    key,
+    nodes: snapshot.nodes.length,
+    kv: snapshot.kv.length,
+  };
+}
 
 /** True when the request targets this Worker on loopback (local cron / archive). */
 function isLoopbackRequest(request: Request): boolean {
@@ -1220,16 +1340,28 @@ async function runBackupSweep(
     id: string;
   }>();
   const userIds = results.map((r) => r.id);
-  const targets = [
-    ...new Set([
-      ...backupTargets(userIds, (id) => resolveUserId(id, env)),
-      ...userIds,
-      OWNER_DO_ID,
-    ]),
-  ];
   const exported: BackupSweepExport[] = [];
   let failed = 0;
-  for (const doName of targets) {
+  // Walk D1 users (not DO names) so sealed R2 keys keyed by user.id resolve.
+  for (const userId of userIds) {
+    try {
+      exported.push(await exportOneUserBackup(env, userId, now));
+    } catch (err) {
+      failed++;
+      console.error(`backup sweep: export failed for user ${userId}`, err);
+      Sentry.captureException(err);
+    }
+  }
+  // Also export orphan DO names from the classic target set that aren't a
+  // resolved user id (e.g. leftover `default` when OWNER_USER_ID is unset).
+  const covered = new Set(
+    userIds.flatMap((id) => {
+      const resolved = resolveUserId(id, env);
+      return resolved === id ? [id] : [id, resolved];
+    }),
+  );
+  for (const doName of backupTargets(userIds, (id) => resolveUserId(id, env))) {
+    if (covered.has(doName)) continue;
     try {
       const stub = env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(doName));
       const snapshot = await stub.exportSnapshot();
@@ -1250,7 +1382,7 @@ async function runBackupSweep(
     }
   }
   console.log(
-    `backup sweep: ${exported.length}/${targets.length} DOs exported` +
+    `backup sweep: ${exported.length} exported` +
       (failed ? ` (${failed} failed)` : ""),
   );
   return exported;

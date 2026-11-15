@@ -13,13 +13,15 @@ Ticket [#221](https://github.com/cameronapak/dotflowy/issues/221), research in
 - A **cron trigger** (`0 9 * * *` UTC, `wrangler.jsonc`) runs `runBackupSweep`
   (`worker/index.ts`): `SELECT id FROM "user"` in D1 (the authoritative id set —
   deliberately not the eventually-consistent DO enumeration API), owner mapped to
-  the `'default'` DO, then per DO: `exportSnapshot()` RPC → one JSON object in R2.
+  the `'default'` DO, then per user: classic `exportSnapshot()` **or** a sealed
+  copy of the live R2 envelope (ADR 0063) → one JSON object in R2.
 - **Key layout:** `backups/<doName>/<YYYY-MM-DD>.json` (UTC date). One object per
   DO per day; a same-day re-run overwrites, never duplicates. `<doName>` is the
   DO name (`user.id`, or `default` for the owner-bridge account).
-- **Snapshot shape** (`worker/backup.ts`, version-stamped): `{ version,
-exportedAt, seq, nodes, kv }`. kv `value`s stay the raw stored JSON TEXT, so a
-  restore round-trips the kv table byte-for-byte.
+- **Snapshot shape** (`worker/backup.ts`, version-stamped): classic
+  `{ version, exportedAt, seq, nodes, kv }`, or sealed
+  `{ version, kind: "sealed", exportedAt, seq, envelope, keybag, kv }` (opaque
+  ciphertext — no plaintext nodes). kv `value`s stay the raw stored JSON TEXT.
 - Per-user failures are contained (try/catch + Sentry + `console.error`); the
   sweep always finishes the list and logs `ok/total` to Workers Logs.
 - **Subrequest note:** each user costs ~2 subrequests (DO RPC + R2 put). A cron
@@ -58,10 +60,11 @@ Or straight from R2: `bunx wrangler r2 object get dotflowy-backups backups/<doNa
 
 ## Restoring a user from a snapshot
 
-**Destructive**: replaces the user's entire outline (nodes + side-collections)
-with the snapshot's contents, in one transaction. The response includes
-`previousBookmark` — the pre-restore PITR handle. **Save it**: the undo path is
-the existing PITR route with that bookmark
+**Destructive**: replaces the user's entire outline (nodes + side-collections,
+or sealed envelope + keybag + kv) with the snapshot's contents, in one
+transaction. Sealed backups restore ciphertext only — the client must unlock
+afterward. The response includes `previousBookmark` — the pre-restore PITR
+handle. **Save it**: the undo path is the existing PITR route with that bookmark
 (`POST /api/admin/restore {"userId": ..., "bookmark": ...}`).
 
 ```sh

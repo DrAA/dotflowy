@@ -6,6 +6,7 @@ import {
   isMirrorsEnabled,
   LOCAL_DATA_FLAG_KEY,
   LUNORA_SYNC_FLAG_KEY,
+  SEALED_OUTLINE_FLAG_KEY,
 } from "./flags";
 
 // bun test has no DOM — stub the surfaces flags.ts reads (see realtime.test.ts).
@@ -95,6 +96,12 @@ describe("isLunoraSyncEnabled", () => {
 
   test("stays off while local-data is on", () => {
     store.set(LOCAL_DATA_FLAG_KEY, "on");
+    store.set(LUNORA_SYNC_FLAG_KEY, "on");
+    expect(isLunoraSyncEnabled()).toBe(false);
+  });
+
+  test("stays off while sealed outline is on", () => {
+    store.set(SEALED_OUTLINE_FLAG_KEY, "on");
     store.set(LUNORA_SYNC_FLAG_KEY, "on");
     expect(isLunoraSyncEnabled()).toBe(false);
   });

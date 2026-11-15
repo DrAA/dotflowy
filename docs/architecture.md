@@ -14,8 +14,8 @@ Nothing is required from Cloudflare's hosted cloud for local `bun run dev` /
 `cf:dev`. Opt in to **this browser only** (localStorage + IndexedDB for
 images; no `/api/nodes` / `/api/kv` / `/api/media` / `/api/sync`) in Settings.
 See [the sync design](./adr/0008-sync-via-a-per-user-durable-object.md).
-**Sealed outline** (planned): the DO holds ciphertext envelopes unlocked with a
-client seal passphrase — [ADR 0063](./adr/0063-sealed-outline.md). The flat-row
+**Sealed outline** (dogfood): DO holds keybag + flags; bulk sealed envelopes live in R2;
+unlocked with a client seal passphrase — [ADR 0063](./adr/0063-sealed-outline.md). The flat-row
 data model means swapping the backend is a collection-options change, not a
 rewrite.
 

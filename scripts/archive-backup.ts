@@ -43,7 +43,12 @@ import {
 import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
-import { OutlineSnapshotSchema, utcDateKey } from "../worker/backup";
+import {
+  OutlineSnapshotSchema,
+  SealedOutlineBackupSchema,
+  isSealedOutlineBackup,
+  utcDateKey,
+} from "../worker/backup";
 import { mediaR2Key } from "../worker/media";
 import {
   type ContentBackupBlob,
@@ -64,6 +69,7 @@ const BACKUPS_BUCKET = "dotflowy-backups";
 const MEDIA_BUCKET = "dotflowy-media";
 
 const decodeSnapshot = Schema.decodeUnknownSync(OutlineSnapshotSchema);
+const decodeSealedBackup = Schema.decodeUnknownSync(SealedOutlineBackupSchema);
 
 type CliOptions = {
   archiveDir: string;
@@ -228,7 +234,11 @@ async function triggerBackupSweep(
   };
   const exported = body.exported ?? [];
   for (const row of exported) {
-    log(`sweep exported do=${row.doName} nodes=${row.nodes} kv=${row.kv}`);
+    const sealed =
+      "sealed" in row && (row as { sealed?: boolean }).sealed ? " sealed" : "";
+    log(
+      `sweep exported do=${row.doName} nodes=${row.nodes} kv=${row.kv}${sealed}`,
+    );
   }
   return exported;
 }
@@ -269,9 +279,7 @@ async function wranglerR2Get(
   );
 }
 
-async function fetchSnapshot(
-  opts: CliOptions,
-): Promise<ReturnType<typeof decodeSnapshot>> {
+async function fetchBackupObject(opts: CliOptions): Promise<unknown> {
   const key = snapshotR2Key(opts.doName, opts.date);
   log(
     `reading operator snapshot s3://${BACKUPS_BUCKET}/${key} (${opts.r2Mode})`,
@@ -282,8 +290,7 @@ async function fetchSnapshot(
       `no operator snapshot at ${key}; run the sweep first or pass --skip-sweep after exporting`,
     );
   }
-  const json = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-  return decodeSnapshot(json);
+  return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
 }
 
 async function fetchMediaBlobs(
@@ -376,7 +383,29 @@ async function main(): Promise<void> {
     }
   }
 
-  const snapshot = await fetchSnapshot({ ...opts, doName });
+  const raw = await fetchBackupObject({ ...opts, doName });
+  if (isSealedOutlineBackup(raw)) {
+    const sealed = decodeSealedBackup(raw);
+    // Opaque envelope archive — no plaintext content-backup (needs the DEK).
+    const compressed = gzipSync(Buffer.from(JSON.stringify(sealed)));
+    const outName = `${opts.date}-aaflowy-sealed-backup.json.gz`;
+    const outPath = resolve(opts.archiveDir, outName);
+    if (opts.dryRun) {
+      log(
+        `dry-run: would write sealed archive ${outPath} (${compressed.byteLength} bytes gzip)`,
+      );
+    } else {
+      mkdirSync(opts.archiveDir, { recursive: true });
+      writeFileSync(outPath, compressed);
+      log(
+        `wrote sealed archive ${outPath} (${compressed.byteLength} bytes gzip, kv=${sealed.kv.length})`,
+      );
+    }
+    applyRetention(opts);
+    return;
+  }
+
+  const snapshot = decodeSnapshot(raw);
   if (snapshot.nodes.length === 0) {
     throw new Error("refusing to archive an empty outline snapshot");
   }

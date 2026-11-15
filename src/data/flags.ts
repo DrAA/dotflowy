@@ -93,6 +93,8 @@ const LUNORA_SYNC_DEFAULT = false;
 export function isLunoraSyncEnabled(): boolean {
   // Browser-only mode never opens a sync socket, Lunora included.
   if (isLocalDataEnabled()) return false;
+  // Sealed migrate/sync uses nodesCollection; Lunora leaves it idle (ADR 0063).
+  if (isSealedOutlineEnabled()) return false;
   if (typeof window === "undefined") return LUNORA_SYNC_DEFAULT;
   try {
     const q = new URLSearchParams(window.location.search).get("lunora-sync");

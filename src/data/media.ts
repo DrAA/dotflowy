@@ -22,7 +22,7 @@ import {
   type MediaSnapshotRow,
 } from "./media-snapshot";
 import { queryClient } from "./query-client";
-import { sealMediaFile, unsealMediaBytes } from "./seal/media";
+import { sealMediaBytes, sealMediaFile, unsealMediaBytes } from "./seal/media";
 import { getSealDek } from "./seal/session";
 import { trueSourceOf } from "./tree";
 import { getTreeIndex, subscribeTree } from "./tree-store";
@@ -416,8 +416,103 @@ async function ensureSealedObjectUrl(id: string): Promise<void> {
 /** Decrypt sealed attachments after unlock (idempotent). */
 export function hydrateSealedMediaUrls(): void {
   if (!isSealedOutlineEnabled() || !getSealDek()) return;
-  for (const row of mediaCollection.toArray) {
-    if (row.sealed) void ensureSealedObjectUrl(row.id);
+  void resealExistingMedia().finally(() => {
+    for (const row of mediaCollection.toArray) {
+      void ensureSealedObjectUrl(row.id);
+    }
+  });
+}
+
+let resealRunning = false;
+
+/**
+ * One-shot: encrypt plaintext R2 attachments that predate sealing (ADR 0063).
+ * Same media id; replaces body via PUT /api/media/:id.
+ */
+export async function resealExistingMedia(): Promise<void> {
+  if (
+    resealRunning ||
+    !isSealedOutlineEnabled() ||
+    !getSealDek() ||
+    isLocalDataEnabled()
+  ) {
+    return;
+  }
+  const pending = mediaCollection.toArray.filter((r) => !r.sealed);
+  if (pending.length === 0) return;
+  resealRunning = true;
+  let sealed = 0;
+  let failed = 0;
+  mediaLog("info", "reseal.start", { count: pending.length });
+  try {
+    for (const row of pending) {
+      try {
+        const getRes = await fetch(`/api/media/${row.id}`, {
+          credentials: "same-origin",
+        });
+        if (!getRes.ok) {
+          failed++;
+          continue;
+        }
+        // Skip if server already marked sealed (other tab raced).
+        if (getRes.headers.get("x-seal-envelope") === "1") {
+          if (mediaCollection.has(row.id)) {
+            mediaCollection.update(row.id, (draft) => {
+              draft.sealed = true;
+            });
+          }
+          sealed++;
+          continue;
+        }
+        const plain = new Uint8Array(await getRes.arrayBuffer());
+        const packed = await sealMediaBytes(plain);
+        const contentType = row.contentType || "application/octet-stream";
+        const putRes = await fetch(`/api/media/${row.id}`, {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-seal-envelope": "1",
+            "x-seal-content-type": contentType,
+          },
+          body: packed,
+        });
+        if (!putRes.ok) {
+          failed++;
+          mediaLog("warn", "reseal.put-fail", {
+            mediaId: row.id,
+            status: putRes.status,
+          });
+          continue;
+        }
+        const next = (await putRes.json()) as MediaRow;
+        if (mediaCollection.has(row.id)) {
+          mediaCollection.update(row.id, (draft) => Object.assign(draft, next));
+        } else {
+          mediaCollection.utils.writeUpsert(next);
+        }
+        // Cache plaintext we still hold for immediate display.
+        const prev = sealedObjectUrls.get(row.id);
+        if (prev) URL.revokeObjectURL(prev);
+        const view = new Uint8Array(plain.byteLength);
+        view.set(plain);
+        sealedObjectUrls.set(
+          row.id,
+          URL.createObjectURL(new Blob([view], { type: contentType })),
+        );
+        sealed++;
+      } catch (err) {
+        failed++;
+        mediaLog("error", "reseal.one-fail", {
+          mediaId: row.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } finally {
+    resealRunning = false;
+    mediaLog("info", "reseal.done", { sealed, failed });
+    for (const cb of listeners) cb();
   }
 }
 

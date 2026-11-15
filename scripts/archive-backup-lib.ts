@@ -80,13 +80,27 @@ export function resolveMediaUserId(
 
 /** Pick the DO snapshot to archive — prefer the export with the most nodes. */
 export function resolveArchiveDoName(
-  exported: readonly { doName: string; nodes: number }[],
+  exported: readonly {
+    doName: string;
+    nodes: number;
+    kv?: number;
+    sealed?: boolean;
+  }[],
   explicitDoName: string,
 ): string {
   if (!exported.length) return explicitDoName;
-  const best = exported.reduce((a, row) => (row.nodes > a.nodes ? row : a));
+  const score = (row: {
+    nodes: number;
+    kv?: number;
+    sealed?: boolean;
+  }): number => {
+    // Sealed backups have nodes=0; prefer them over empty classic exports.
+    if (row.sealed) return 1_000_000_000 + (row.kv ?? 0);
+    return row.nodes * 1_000 + (row.kv ?? 0);
+  };
+  const best = exported.reduce((a, row) => (score(row) > score(a) ? row : a));
   const preferred = exported.find((row) => row.doName === explicitDoName);
-  if (preferred && preferred.nodes === best.nodes) return explicitDoName;
+  if (preferred && score(preferred) === score(best)) return explicitDoName;
   return best.doName;
 }
 

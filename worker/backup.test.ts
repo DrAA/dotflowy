@@ -14,11 +14,13 @@ import type { Node } from "../src/data/wire-schema";
 import {
   OutlineSnapshotSchema,
   SNAPSHOT_VERSION,
+  SealedOutlineBackupSchema,
   backupKey,
   backupKeyForDate,
   backupPrefix,
   backupTargets,
   isBackupDateKey,
+  isSealedOutlineBackup,
   utcDateKey,
 } from "./backup";
 
@@ -104,6 +106,25 @@ describe("backupTargets", () => {
 
   it("passes ids through an identity resolver untouched", () => {
     expect(backupTargets(["u1", "u2"], (id) => id)).toEqual(["u1", "u2"]);
+  });
+});
+
+describe("SealedOutlineBackupSchema", () => {
+  const decodeSealed = Schema.decodeUnknownSync(SealedOutlineBackupSchema);
+
+  it("accepts a sealed backup and isSealedOutlineBackup detects it", () => {
+    const sealed = {
+      version: SNAPSHOT_VERSION,
+      kind: "sealed" as const,
+      exportedAt: 1,
+      seq: 2,
+      envelope: { v: 1, iv: "x", ciphertext: "y" },
+      keybag: { v: 1 },
+      kv: SNAPSHOT.kv,
+    };
+    expect(() => decodeSealed(sealed)).not.toThrow();
+    expect(isSealedOutlineBackup(sealed)).toBe(true);
+    expect(isSealedOutlineBackup(SNAPSHOT)).toBe(false);
   });
 });
 

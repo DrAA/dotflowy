@@ -87,6 +87,12 @@ export async function setLunoraBetaEnabled(enabled: boolean): Promise<void> {
   hardReset(window.location.pathname + window.location.search);
 }
 
+/** Persist Lunora off + mirror flag without reload (sealed toggle owns the reset). */
+export async function turnOffLunoraBetaQuietly(): Promise<void> {
+  await writeLunoraBeta(false);
+  mirrorLunoraFlag(false);
+}
+
 // --- Reactive read -----------------------------------------------------------
 
 const HIDDEN = { ready: false, enabled: false } as const;

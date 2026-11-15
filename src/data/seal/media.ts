@@ -14,16 +14,21 @@ function asArrayBufferView(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return copy;
 }
 
-export async function sealMediaFile(
-  file: File,
+export async function sealMediaBytes(
+  plaintext: Uint8Array,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const dek = getSealDek();
   if (!dek) throw new Error("Seal is locked.");
-  const plaintext = new Uint8Array(await file.arrayBuffer());
   const { iv, ciphertext } = await encryptWithDek(dek, plaintext);
   return asArrayBufferView(
     concatBytes(base64UrlToBytes(iv), base64UrlToBytes(ciphertext)),
   );
+}
+
+export async function sealMediaFile(
+  file: File,
+): Promise<Uint8Array<ArrayBuffer>> {
+  return sealMediaBytes(new Uint8Array(await file.arrayBuffer()));
 }
 
 export async function unsealMediaBytes(
