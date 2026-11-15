@@ -130,13 +130,17 @@ describe("write-queue localStorage persistence", () => {
     expect(restoreQueuedSnapshotIfPresent()).toEqual(snapshot);
   });
 
-  test("peekQueuedWrites returns field entries after a storage reload", () => {
+  test("peekQueuedWrites reads memory only (does not reload mid-flush)", () => {
     const snapshot = [node({ id: "a", text: "queued" })];
     enqueueWrite(
       { kind: "field", updates: [{ id: "a", changes: { text: "typed" } }] },
       snapshot,
     );
     clearWriteQueueMemoryForTests();
+    // Stale localStorage must not resurrect entries on peek — that race left
+    // the red status dot stuck while sync echoes kept reloading the queue.
+    expect(peekQueuedWrites()).toHaveLength(0);
+    reloadWriteQueueFromStorage();
     const entries = peekQueuedWrites();
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({

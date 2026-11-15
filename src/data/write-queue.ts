@@ -151,11 +151,30 @@ export function getPendingWriteCount(): number {
   return queue.length;
 }
 
-/** In-memory queue entries (after a storage reload). Used to re-apply local
- *  field edits on top of a mid-session wire snapshot. */
+/**
+ * In-memory queue entries. Used to re-apply local field edits on top of a
+ * mid-session wire snapshot.
+ *
+ * Does NOT reload from `localStorage`: sync echoes call this on every frame,
+ * and a reload mid-`flushWriteQueue` would restore already-shifted entries and
+ * leave the red status dot stuck forever.
+ */
 export function peekQueuedWrites(): readonly WriteQueueEntry[] {
-  reloadWriteQueueFromStorage();
   return queue;
+}
+
+/** Persist the current in-memory queue length after a shift (or clear it). */
+function persistQueueProgress(): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (queue.length === 0) {
+      clearPersistedQueue();
+      return;
+    }
+    window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  } catch {
+    // Quota — in-memory drain still progresses this session.
+  }
 }
 
 /**
@@ -239,6 +258,8 @@ function scheduleDelayedFlush(): void {
 /** Drain queued writes in order. Stops on the first retriable failure. */
 export async function flushWriteQueue(): Promise<void> {
   if (flushing || isLocalDataEnabled()) return;
+  // One reload before we own the drain. While `flushing`, nothing else may
+  // reload — sync frames and storage events would undo shifts (stuck red dot).
   reloadWriteQueueFromStorage();
   if (queue.length === 0) {
     clearRetryTimer();
@@ -251,15 +272,7 @@ export async function flushWriteQueue(): Promise<void> {
       try {
         await dispatchEntry(entry);
         queue.shift();
-        const snapshotRaw =
-          typeof window !== "undefined"
-            ? window.localStorage.getItem(SNAPSHOT_NODES_KEY)
-            : null;
-        if (queue.length === 0) {
-          clearPersistedQueue();
-        } else if (snapshotRaw) {
-          window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-        }
+        persistQueueProgress();
       } catch (err) {
         if (isRetriableNodesError(err)) {
           notifyPersistQueued(queue.length);
@@ -267,12 +280,9 @@ export async function flushWriteQueue(): Promise<void> {
           return;
         }
         queue.shift();
-        if (queue.length === 0) clearPersistedQueue();
-        else if (typeof window !== "undefined") {
-          window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-        }
+        persistQueueProgress();
         notifyPersistFailed(err);
-        return;
+        // Keep draining — one permanent failure must not park the rest.
       }
     }
     clearRetryTimer();
@@ -329,6 +339,8 @@ export function restoreQueuedSnapshotIfPresent(): Node[] | null {
 
 function onStorageSync(event: StorageEvent): void {
   if (event.key !== QUEUE_KEY && event.key !== SNAPSHOT_NODES_KEY) return;
+  // This tab is mid-drain — a peer's write must not restore shifted entries.
+  if (flushing) return;
   reloadWriteQueueFromStorage();
   emitQueueChange();
   if (queue.length > 0) notifyPersistQueued(queue.length);

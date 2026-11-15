@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { isLocalDataEnabled, isLunoraSyncEnabled } from "../data/flags";
 import { useSyncReady } from "../data/tree-store";
 import {
+  flushWriteQueue,
   getPendingWriteCount,
   subscribePendingWrites,
 } from "../data/write-queue";
@@ -61,22 +62,33 @@ function saveStatusLabel(input: {
   }
   if (input.pending > 0) {
     return input.pending === 1
-      ? "1 change waiting to sync"
-      : `${input.pending} changes waiting to sync`;
+      ? "1 change waiting to sync — click to retry"
+      : `${input.pending} changes waiting to sync — click to retry`;
   }
   if (input.ok) return "Connected — all changes saved";
   return "Not synced";
 }
 
-function StatusDot({ ok, label }: { ok: boolean; label: string }) {
+function StatusDot({
+  ok,
+  label,
+  onRetry,
+}: {
+  ok: boolean;
+  label: string;
+  onRetry?: () => void;
+}) {
   return (
     <HeaderTooltip label={label}>
-      <span
+      <button
+        type="button"
         role="status"
         aria-label={label}
         data-testid="save-status-indicator"
         data-ok={ok ? "true" : "false"}
-        className="inline-flex size-7 shrink-0 items-center justify-center"
+        disabled={!onRetry}
+        onClick={onRetry}
+        className="inline-flex size-7 shrink-0 items-center justify-center disabled:pointer-events-none"
       >
         <span
           className={cn(
@@ -84,7 +96,7 @@ function StatusDot({ ok, label }: { ok: boolean; label: string }) {
             ok ? "bg-emerald-500" : "bg-red-500",
           )}
         />
-      </span>
+      </button>
     </HeaderTooltip>
   );
 }
@@ -101,7 +113,13 @@ function ClassicSaveStatusIndicator() {
     syncReady,
     localData: false,
   });
-  return <StatusDot ok={ok} label={label} />;
+  return (
+    <StatusDot
+      ok={ok}
+      label={label}
+      onRetry={pending > 0 ? () => void flushWriteQueue() : undefined}
+    />
+  );
 }
 
 function LunoraSaveStatusIndicator() {
@@ -121,7 +139,13 @@ function LunoraSaveStatusIndicator() {
           syncReady,
           localData: false,
         });
-  return <StatusDot ok={ok} label={label} />;
+  return (
+    <StatusDot
+      ok={ok}
+      label={label}
+      onRetry={pending > 0 ? () => void flushWriteQueue() : undefined}
+    />
+  );
 }
 
 /**
