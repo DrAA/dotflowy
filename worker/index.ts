@@ -87,6 +87,8 @@ import {
   NodesDeleteBody,
   NodesPatchBody,
   NodesPostBody,
+  SealKeybagPutBody,
+  SealSnapshotPutBody,
   WaitlistPostBody,
 } from "./wire";
 
@@ -1104,6 +1106,68 @@ function handleApiRequest(
       return yield* Effect.promise(() =>
         handleMedia(request, url, stub, env, session.user.id),
       );
+    }
+
+    // Sealed outline (ADR 0063): opaque keybag + snapshot. Worker never decrypts.
+    if (url.pathname === "/api/seal" && request.method === "GET") {
+      const state = yield* Effect.promise(() => stub.getSealState());
+      let keybag: unknown = null;
+      if (state.keybag) {
+        try {
+          keybag = JSON.parse(state.keybag);
+        } catch {
+          keybag = null;
+        }
+      }
+      return json({
+        keybag,
+        hasSealedSnapshot: state.hasSealedSnapshot,
+        hasPlaintextNodes: state.hasPlaintextNodes,
+        sealActive: state.sealActive,
+      });
+    }
+    if (url.pathname === "/api/seal/keybag" && request.method === "PUT") {
+      const body = yield* decodeBody(request, SealKeybagPutBody);
+      yield* Effect.promise(() =>
+        stub.putSealKeybag(JSON.stringify(body.keybag)),
+      );
+      return json({ ok: true });
+    }
+    if (url.pathname === "/api/seal/snapshot") {
+      if (request.method === "GET") {
+        const raw = yield* Effect.promise(() => stub.getSealedSnapshot());
+        if (!raw) return json({ envelope: null }, 404);
+        try {
+          return json({ envelope: JSON.parse(raw) });
+        } catch {
+          return yield* Effect.fail(
+            new BadRequest({ reason: "sealed snapshot is not valid JSON" }),
+          );
+        }
+      }
+      if (request.method === "PUT") {
+        const body = yield* decodeBody(request, SealSnapshotPutBody);
+        yield* Effect.promise(() =>
+          stub.putSealedSnapshot(JSON.stringify(body.envelope)),
+        );
+        return json({ ok: true });
+      }
+      return json({ error: "method not allowed" }, 405);
+    }
+    if (
+      url.pathname === "/api/seal/clear-plaintext" &&
+      request.method === "POST"
+    ) {
+      yield* Effect.promise(() => stub.clearPlaintextOutline());
+      return json({ ok: true });
+    }
+    if (url.pathname === "/api/seal/revisions" && request.method === "POST") {
+      // Append-only sealed revision log (opaque). Body is a single envelope.
+      const body = yield* decodeBody(request, SealSnapshotPutBody);
+      yield* Effect.promise(() =>
+        stub.appendSealedRevision(JSON.stringify(body.envelope)),
+      );
+      return json({ ok: true });
     }
 
     return yield* Effect.fail(new RouteNotFound({ path: url.pathname }));

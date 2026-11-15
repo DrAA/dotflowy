@@ -18,7 +18,11 @@ export type MediaRow = {
   width: number;
   height: number;
   createdAt: number;
+  /** ADR 0063: body on R2 is ciphertext; contentType is the plaintext type. */
+  sealed?: boolean;
 };
+
+const ALLOWED_IMAGE_TYPES = new Set<string>(Object.values(IMAGE_TYPES));
 
 /** R2 object key: `media/<userId>/<attachmentId>`. */
 export function mediaR2Key(userId: string, attachmentId: string): string {
@@ -238,14 +242,30 @@ async function postMedia(
     return json({ error: "empty body" }, 400);
   }
 
-  const contentType = sniffImage(buf);
-  if (!contentType) {
-    mediaLog("warn", "post.reject", {
-      ...base,
-      reason: "unsupported type",
-      bytes: buf.byteLength,
-    });
-    return json({ error: "unsupported type" }, 415);
+  const sealed = request.headers.get("x-seal-envelope") === "1";
+  let contentType: SniffedImageType | null = null;
+  if (sealed) {
+    const claimed = request.headers.get("x-seal-content-type") ?? "";
+    if (!ALLOWED_IMAGE_TYPES.has(claimed)) {
+      mediaLog("warn", "post.reject", {
+        ...base,
+        reason: "unsupported sealed type",
+        bytes: buf.byteLength,
+        claimed,
+      });
+      return json({ error: "unsupported type" }, 415);
+    }
+    contentType = claimed as SniffedImageType;
+  } else {
+    contentType = sniffImage(buf);
+    if (!contentType) {
+      mediaLog("warn", "post.reject", {
+        ...base,
+        reason: "unsupported type",
+        bytes: buf.byteLength,
+      });
+      return json({ error: "unsupported type" }, 415);
+    }
   }
 
   const width = parseDim(request.headers.get("x-image-width"));
@@ -260,12 +280,16 @@ async function postMedia(
     width,
     height,
     createdAt,
+    ...(sealed ? { sealed: true } : {}),
   };
 
   // nodeId in customMetadata survives kv GC so R2 orphans can be attributed.
+  // Sealed bodies are opaque ciphertext — content-type on R2 is octet-stream.
   await env.MEDIA.put(mediaR2Key(userId, id), buf, {
-    httpMetadata: { contentType },
-    customMetadata: { nodeId },
+    httpMetadata: {
+      contentType: sealed ? "application/octet-stream" : contentType,
+    },
+    customMetadata: { nodeId, ...(sealed ? { sealed: "1" } : {}) },
   });
   await stub.upsertKv("media", [{ key: id, value: row }]);
   mediaLog("info", "post.ok", {
@@ -302,8 +326,9 @@ async function getMedia(
   }
   return new Response(obj.body, {
     headers: {
-      "content-type": row.contentType,
+      "content-type": row.sealed ? "application/octet-stream" : row.contentType,
       "cache-control": "private, max-age=31536000, immutable",
+      ...(row.sealed ? { "x-seal-envelope": "1" } : {}),
     },
   });
 }

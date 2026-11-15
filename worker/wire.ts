@@ -127,3 +127,13 @@ export const CopilotChatBody = Schema.Struct({
   prompt: Schema.String,
   timeZone: Schema.optional(Schema.String),
 });
+
+/** PUT /api/seal/keybag — opaque client keybag JSON (ADR 0063). */
+export const SealKeybagPutBody = Schema.Struct({
+  keybag: Schema.Unknown,
+});
+
+/** PUT /api/seal/snapshot — opaque sealed envelope JSON (ADR 0063). */
+export const SealSnapshotPutBody = Schema.Struct({
+  envelope: Schema.Unknown,
+});

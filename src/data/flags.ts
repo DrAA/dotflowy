@@ -106,3 +106,34 @@ export function isLunoraSyncEnabled(): boolean {
   }
   return LUNORA_SYNC_DEFAULT;
 }
+
+/** ADR 0063 sealed outline — dogfood flag. Default OFF until cutover; shipping
+ *  flips this to mandatory (ADR). Enable via Settings / localStorage / `?sealed-outline=on`. */
+export const SEALED_OUTLINE_FLAG_KEY = "dotflowy:flag:sealed-outline";
+const SEALED_OUTLINE_DEFAULT = false;
+
+export function isSealedOutlineEnabled(): boolean {
+  if (typeof window === "undefined") return SEALED_OUTLINE_DEFAULT;
+  try {
+    const q = new URLSearchParams(window.location.search).get("sealed-outline");
+    if (q === "on" || q === "1") return true;
+    if (q === "off" || q === "0") return false;
+    const v = window.localStorage.getItem(SEALED_OUTLINE_FLAG_KEY);
+    if (v === "on") return true;
+    if (v === "off") return false;
+  } catch {
+    // ignore
+  }
+  return SEALED_OUTLINE_DEFAULT;
+}
+
+export function setSealedOutlineEnabled(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(
+      SEALED_OUTLINE_FLAG_KEY,
+      enabled ? "on" : "off",
+    );
+  } catch {
+    // ignore
+  }
+}

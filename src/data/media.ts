@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import type { PluginContext } from "../plugins/types";
 
-import { isLocalDataEnabled } from "./flags";
+import { isLocalDataEnabled, isSealedOutlineEnabled } from "./flags";
 import { capture, registerHistoryExtra } from "./history";
 import { kvDelete, kvFetch, kvPut, toKvKeys, toKvRows } from "./kv-api";
 import {
@@ -22,6 +22,8 @@ import {
   type MediaSnapshotRow,
 } from "./media-snapshot";
 import { queryClient } from "./query-client";
+import { sealMediaFile, unsealMediaBytes } from "./seal/media";
+import { getSealDek } from "./seal/session";
 import { trueSourceOf } from "./tree";
 import { getTreeIndex, subscribeTree } from "./tree-store";
 
@@ -51,7 +53,11 @@ const mediaSchema = Schema.Struct({
   width: Schema.Number,
   height: Schema.Number,
   createdAt: Schema.Number,
+  sealed: Schema.optional(Schema.Boolean),
 });
+
+const sealedObjectUrls = new Map<string, string>();
+const sealedInflight = new Set<string>();
 
 export type MediaRow = Schema.Schema.Type<typeof mediaSchema>;
 
@@ -362,13 +368,57 @@ export function startMedia(): void {
   ensureStarted();
   if (isLocalDataEnabled()) {
     void hydrateLocalMediaUrls().then(() => rebuild());
+  } else {
+    hydrateSealedMediaUrls();
   }
 }
 
-/** Blob URL in local-data mode, otherwise the Worker media route. */
+/** Blob URL in local-data / sealed modes, otherwise the Worker media route. */
 export function mediaUrl(id: string): string {
   if (isLocalDataEnabled()) return localMediaObjectUrl(id) ?? "";
+  if (isSealedOutlineEnabled()) {
+    const cached = sealedObjectUrls.get(id);
+    if (cached) return cached;
+    // Kick async decrypt; callers re-render via media collection / overlays.
+    void ensureSealedObjectUrl(id);
+    return sealedObjectUrls.get(id) ?? "";
+  }
   return `/api/media/${id}`;
+}
+
+async function ensureSealedObjectUrl(id: string): Promise<void> {
+  if (sealedObjectUrls.has(id) || !getSealDek() || sealedInflight.has(id)) {
+    return;
+  }
+  sealedInflight.add(id);
+  try {
+    const res = await fetch(`/api/media/${id}`, { credentials: "same-origin" });
+    if (!res.ok) return;
+    const packed = new Uint8Array(await res.arrayBuffer());
+    const row = mediaCollection.toArray.find((r) => r.id === id);
+    const plain = row?.sealed ? await unsealMediaBytes(packed) : packed;
+    const blob = new Blob([plain], {
+      type: row?.contentType || "application/octet-stream",
+    });
+    const url = URL.createObjectURL(blob);
+    sealedObjectUrls.set(id, url);
+    for (const cb of listeners) cb();
+  } catch (err) {
+    mediaLog("error", "sealed.decrypt-fail", {
+      mediaId: id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    sealedInflight.delete(id);
+  }
+}
+
+/** Decrypt sealed attachments after unlock (idempotent). */
+export function hydrateSealedMediaUrls(): void {
+  if (!isSealedOutlineEnabled() || !getSealDek()) return;
+  for (const row of mediaCollection.toArray) {
+    if (row.sealed) void ensureSealedObjectUrl(row.id);
+  }
 }
 
 function subscribe(cb: () => void): () => void {
@@ -572,28 +622,46 @@ async function postMedia(
       createdAt: Date.now(),
     };
   }
+  const sealed = isSealedOutlineEnabled() && !!getSealDek();
+  const contentType = file.type || "application/octet-stream";
+  let body: BodyInit = file;
+  const headers: Record<string, string> = {
+    "content-type": sealed ? "application/octet-stream" : contentType,
+    "x-image-width": String(width),
+    "x-image-height": String(height),
+    ...(batchId ? { "x-media-batch-id": batchId } : {}),
+    ...(index != null ? { "x-media-batch-index": String(index) } : {}),
+  };
+  if (sealed) {
+    const packed = await sealMediaFile(file);
+    body = packed;
+    headers["x-seal-envelope"] = "1";
+    headers["x-seal-content-type"] = contentType;
+  }
   const res = await fetch(`/api/media?nodeId=${encodeURIComponent(nodeId)}`, {
     method: "POST",
     credentials: "same-origin",
-    headers: {
-      "content-type": file.type || "application/octet-stream",
-      "x-image-width": String(width),
-      "x-image-height": String(height),
-      ...(batchId ? { "x-media-batch-id": batchId } : {}),
-      ...(index != null ? { "x-media-batch-index": String(index) } : {}),
-    },
-    body: file,
+    headers,
+    body,
   });
   if (!res.ok) {
-    let body = "";
+    let errBody = "";
     try {
-      body = (await res.text()).slice(0, 200);
+      errBody = (await res.text()).slice(0, 200);
     } catch {
       /* ignore */
     }
-    throw new Error(`upload ${res.status}${body ? `: ${body}` : ""}`);
+    throw new Error(`upload ${res.status}${errBody ? `: ${errBody}` : ""}`);
   }
-  return (await res.json()) as MediaRow;
+  const row = (await res.json()) as MediaRow;
+  // Preview from the plaintext file we still hold — skip a decrypt round-trip.
+  if (row.sealed) {
+    const prev = sealedObjectUrls.get(row.id);
+    if (prev) URL.revokeObjectURL(prev);
+    sealedObjectUrls.set(row.id, URL.createObjectURL(file));
+    for (const cb of listeners) cb();
+  }
+  return row;
 }
 
 /** Detach one attachment (kv row only; R2 stays for undo). */

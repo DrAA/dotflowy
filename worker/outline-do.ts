@@ -901,6 +901,93 @@ export class UserOutlineDO extends DurableObject<Env> {
     return row ? JSON.parse(row.value) : value;
   }
 
+  // --- sealed outline (ADR 0063) ---------------------------------------------
+  // Keybag + sealed snapshot live in `meta` as opaque JSON. The DO never
+  // decrypts. Plaintext `nodes` remain until the client one-shot migration
+  // clears them (follow-up); getSealState reports both sides for the gate.
+
+  private metaGet(key: string): string | null {
+    const row = this.sql
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)
+      .toArray()[0];
+    return row?.value ?? null;
+  }
+
+  private metaSet(key: string, value: string): void {
+    this.sql.exec(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      key,
+      value,
+    );
+  }
+
+  putSealKeybag(keybagJson: string): void {
+    this.metaSet("seal_keybag", keybagJson);
+  }
+
+  putSealedSnapshot(envelopeJson: string): void {
+    this.metaSet("seal_snapshot", envelopeJson);
+  }
+
+  getSealedSnapshot(): string | null {
+    return this.metaGet("seal_snapshot");
+  }
+
+  /**
+   * After the client uploads a sealed snapshot, drop plaintext outline rows so
+   * the DO no longer holds readable node text (ADR 0063 migration).
+   */
+  clearPlaintextOutline(): void {
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM nodes");
+      this.sql.exec("DELETE FROM changelog");
+      this.setSeq(this.currentSeq() + 1);
+      this.metaSet("seal_active", "1");
+    });
+  }
+
+  isSealActive(): boolean {
+    return this.metaGet("seal_active") === "1";
+  }
+
+  /** Keep the last N sealed revision envelopes (opaque JSON strings). */
+  appendSealedRevision(envelopeJson: string): void {
+    const raw = this.metaGet("seal_revisions");
+    let list: string[] = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed))
+          list = parsed.filter((x) => typeof x === "string");
+      } catch {
+        list = [];
+      }
+    }
+    list.push(envelopeJson);
+    const KEEP = 32;
+    if (list.length > KEEP) list = list.slice(list.length - KEEP);
+    this.metaSet("seal_revisions", JSON.stringify(list));
+  }
+
+  getSealState(): {
+    keybag: string | null;
+    hasSealedSnapshot: boolean;
+    hasPlaintextNodes: boolean;
+    sealActive: boolean;
+  } {
+    const keybag = this.metaGet("seal_keybag");
+    const snap = this.metaGet("seal_snapshot");
+    const count = this.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM nodes")
+      .toArray()[0];
+    return {
+      keybag,
+      hasSealedSnapshot: snap != null && snap.length > 0,
+      hasPlaintextNodes: (count?.n ?? 0) > 0,
+      sealActive: this.metaGet("seal_active") === "1",
+    };
+  }
+
   // --- account deletion ------------------------------------------------------
 
   /**

@@ -2,6 +2,8 @@ import { stripeClient } from "@better-auth/stripe/client";
 import { createAuthClient } from "better-auth/react";
 import { toast } from "sonner";
 
+import { clearSealSession } from "../data/seal/session";
+
 /**
  * Better Auth browser client. Same-origin: baseURL defaults to the current
  * origin and the default basePath (/api/auth) matches the Worker's route. The
@@ -75,6 +77,8 @@ export function connectGoogle() {
  * auth boundary funnels through this.
  */
 export function hardReset(target: string = "/") {
+  // Drop the in-memory seal DEK before navigation (ADR 0063).
+  clearSealSession();
   window.location.replace(target);
 }
 

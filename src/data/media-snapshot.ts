@@ -15,6 +15,7 @@ export type MediaSnapshotRow = {
   width: number;
   height: number;
   createdAt: number;
+  sealed?: boolean;
 };
 
 /**

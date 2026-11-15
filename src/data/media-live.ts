@@ -15,6 +15,7 @@ export type RemoteMediaRow = {
   width: number;
   height: number;
   createdAt: number;
+  sealed?: boolean;
 };
 
 type Handlers = {

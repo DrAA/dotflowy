@@ -18,6 +18,7 @@ import {
   isLocalDataEnabled,
   isLunoraSyncEnabled,
   isMirrorsEnabled,
+  isSealedOutlineEnabled,
 } from "./flags";
 import {
   captureFocusedNodeText,
@@ -37,6 +38,12 @@ import { makeSyncStream } from "./realtime";
 import { appRuntime } from "./runtime";
 import { persistOrQueue } from "./save-failure";
 import { nodeSchema } from "./schema";
+import {
+  flushPersistSealedNodes,
+  isSealUnlocked,
+  loadSealedNodes,
+  schedulePersistSealedNodes,
+} from "./seal";
 import { chainDisagreements } from "./sibling-chain";
 import {
   decideSyncRecovery,
@@ -641,6 +648,39 @@ export const nodesCollection = createCollection({
         return () => {};
       }
 
+      // Sealed outline (ADR 0063): decrypt snapshot (migrate plaintext once).
+      if (isSealedOutlineEnabled()) {
+        if (!isSealUnlocked()) {
+          markReady();
+          markSyncReady();
+          return () => {};
+        }
+        let cancelled = false;
+        void (async () => {
+          try {
+            const local = await loadSealedNodes();
+            if (cancelled) return;
+            begin();
+            for (const n of local) {
+              write({ type: "insert", value: withNodeDefaults(n) });
+            }
+            commit();
+            seedEchoedTextFromNodes(local);
+          } catch (cause) {
+            initialError =
+              cause instanceof Error ? cause : new Error(String(cause));
+          } finally {
+            if (!cancelled) {
+              markReady();
+              markSyncReady();
+            }
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }
+
       // ADR 0058 flag-swap: Lunora owns outline sync. Keep this collection idle
       // (ready+empty) so e2e / default OFF path is unchanged; tree-store feeds
       // from the Lunora collection instead. Don't markSyncReady here — Lunora
@@ -899,6 +939,10 @@ export const nodesCollection = createCollection({
       persistLocalOutline();
       return { refetch: false };
     }
+    if (isSealedOutlineEnabled()) {
+      schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
+      return { refetch: false };
+    }
     if (suppressPersist) return { refetch: false };
     const nodes = transaction.mutations.map((m) => m.modified as Node);
     await persistOrQueue(createNodes(nodes), () =>
@@ -912,6 +956,10 @@ export const nodesCollection = createCollection({
   onUpdate: async ({ transaction }) => {
     if (isLocalDataEnabled()) {
       persistLocalOutline();
+      return { refetch: false };
+    }
+    if (isSealedOutlineEnabled()) {
+      schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
       return { refetch: false };
     }
     if (suppressPersist) return { refetch: false };
@@ -932,6 +980,10 @@ export const nodesCollection = createCollection({
       persistLocalOutline();
       return { refetch: false };
     }
+    if (isSealedOutlineEnabled()) {
+      schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
+      return { refetch: false };
+    }
     if (suppressPersist) return { refetch: false };
     const ids = transaction.mutations.map((m) => m.key as string);
     await persistOrQueue(deleteNodes(ids), () =>
@@ -949,4 +1001,9 @@ bindLiveTextLookup((id) => {
 /** Snapshot the live outline into localStorage (local-data mode). */
 export function persistLocalOutline(): void {
   writeLocalNodes(nodesCollection.toArray as Node[]);
+}
+
+/** Flush sealed snapshot (structural edits — await before continuing). */
+export async function persistSealedOutline(): Promise<void> {
+  await flushPersistSealedNodes(nodesCollection.toArray as Node[]);
 }

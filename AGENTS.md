@@ -38,6 +38,7 @@ New feature or design: `ls docs/adr/` and read the ADRs that match the surface. 
 | Spotlight dim + typewriter centering                   | 0033, 0060                                             |
 | Lunora sync (experimental, flag-gated)                 | 0058                                                   |
 | Microsoft 365 Copilot `/copilot`                       | 0062                                                   |
+| Sealed outline (client passphrase, ciphertext in DO)   | 0063                                                   |
 
 ## Architecture
 

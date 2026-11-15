@@ -10,9 +10,14 @@ import { persistBatchE } from "./api";
 import {
   nodesCollection,
   persistLocalOutline,
+  persistSealedOutline,
   waitForSeqE,
 } from "./collection";
-import { isLocalDataEnabled, isLunoraSyncEnabled } from "./flags";
+import {
+  isLocalDataEnabled,
+  isLunoraSyncEnabled,
+  isSealedOutlineEnabled,
+} from "./flags";
 import {
   isNodesLimitError,
   isRetriableNodesError,
@@ -145,6 +150,10 @@ export function runStructuralTracked<T>(body: () => T): {
         persistLocalOutline();
         return;
       }
+      if (isSealedOutlineEnabled()) {
+        await persistSealedOutline();
+        return;
+      }
       // P1 (atomic, writeSem-serialized send) → P2 (hold optimistic until the
       // echo) as ONE Effect program, bridged once here at the async mutationFn
       // seam (ADR 0021). waitForSeqE never fails, so the only rejection — which
@@ -208,6 +217,10 @@ export async function runStructuralSliced(
       if (ops.length === 0) return;
       if (isLocalDataEnabled()) {
         persistLocalOutline();
+        return;
+      }
+      if (isSealedOutlineEnabled()) {
+        await persistSealedOutline();
         return;
       }
       await persistStructuralBatch(ops);

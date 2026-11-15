@@ -29,6 +29,7 @@ import { OAuthCallbackErrorToast } from "../components/oauth-callback-error";
 import { OpmlImportDialog } from "../components/opml-import-dialog";
 import { OutlineWidthProvider } from "../components/outline-width-provider";
 import { QuickAdd } from "../components/quick-add";
+import { SealGate } from "../components/seal-gate";
 import { SettingsNavRegistrar } from "../components/settings-nav-registrar";
 import { ShowCompletedProvider } from "../components/show-completed-provider";
 import { SpotlightController } from "../components/spotlight-mode";
@@ -37,7 +38,7 @@ import { ThemeProvider } from "../components/theme-provider";
 import { Toaster } from "../components/ui/sonner";
 import { UpdateAvailableToast } from "../components/update-available";
 import { AccountPrefsController } from "../data/account-prefs";
-import { isLocalDataEnabled } from "../data/flags";
+import { isLocalDataEnabled, isSealedOutlineEnabled } from "../data/flags";
 import { APP_TITLE } from "../lib/app-title";
 import { hardReset, useSession } from "../lib/auth-client";
 import { FAVICON_DARK, FAVICON_LIGHT } from "../lib/favicon";
@@ -229,7 +230,12 @@ let firstUserId: string | null = null;
 
 function AuthGate({ children }: Readonly<{ children: ReactNode }>) {
   if (isLocalDataEnabled()) return <>{children}</>;
-  return <CloudAuthGate>{children}</CloudAuthGate>;
+  const body = isSealedOutlineEnabled() ? (
+    <SealGate>{children}</SealGate>
+  ) : (
+    children
+  );
+  return <CloudAuthGate>{body}</CloudAuthGate>;
 }
 
 function CloudAuthGate({ children }: Readonly<{ children: ReactNode }>) {

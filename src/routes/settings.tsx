@@ -38,7 +38,11 @@ import { setLunoraBetaEnabled, useLunoraBetaPref } from "../data/account-prefs";
 import { exportContentBackupFile } from "../data/content-backup";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
-import { isLocalDataEnabled } from "../data/flags";
+import {
+  isLocalDataEnabled,
+  isSealedOutlineEnabled,
+  setSealedOutlineEnabled,
+} from "../data/flags";
 import { setLocalDataMode } from "../data/local-data";
 import { outlineToMarkdown } from "../data/markdown";
 import { imageCountsByNode } from "../data/media";
@@ -46,6 +50,7 @@ import { exportOpml } from "../data/opml-export";
 import { PLAN_LABELS, type PlanName } from "../data/plans";
 import { childrenOf } from "../data/tree";
 import { getTreeIndex } from "../data/tree-store";
+import { hardReset } from "../lib/auth-client";
 import {
   connectGoogle,
   signOutAndReload,
@@ -943,6 +948,7 @@ function BetaSection() {
   // unhandled rejection with no explanation (the switch just snaps back), and
   // a double tap would fire two writes plus two reloads.
   const [saving, setSaving] = useState(false);
+  const sealed = isSealedOutlineEnabled();
   const onToggle = useCallback((checked: boolean) => {
     setSaving(true);
     setLunoraBetaEnabled(checked).catch(() => {
@@ -951,6 +957,10 @@ function BetaSection() {
     });
     // No `finally`: on success `hardReset` tears this tree down, so leaving
     // the switch disabled through the reload is the honest state.
+  }, []);
+  const onSealedToggle = useCallback((checked: boolean) => {
+    setSealedOutlineEnabled(checked);
+    hardReset();
   }, []);
   return (
     <Section
@@ -977,6 +987,17 @@ function BetaSection() {
               disabled={!ready || saving}
               onCheckedChange={onToggle}
               aria-label="Upgraded outline sync beta"
+            />
+          }
+        />
+        <SettingRow
+          title="Sealed outline (dogfood)"
+          description="Client seal passphrase; keybag stored on the server as opaque ciphertext (ADR 0063). Live sync still uses plaintext nodes until the sealed sync cutover — this flag exercises unlock UI and keybag storage. Reloads the app."
+          action={
+            <Switch
+              checked={sealed}
+              onCheckedChange={onSealedToggle}
+              aria-label="Sealed outline dogfood"
             />
           }
         />
