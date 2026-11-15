@@ -1,19 +1,14 @@
-// Links plugin (ADR 0001). Rich links -- `[label](url)` -- as a token plugin.
-// The one token that FOLDS: it shows raw markdown only when the caret is on it
-// (per-link reveal, ADR 0005), otherwise a clean <a>. Slice 1 ports the token
-// render (Seam A); the delegated open (Seam B) and paste (Seam I) follow.
+// Links plugin (ADR 0001). Rich links -- `[label](url)` as a token plugin.
+// Always FOLDS to a clean <a> (label + edit pencil); the caret never expands
+// raw markdown into the line. Edit label/url via the pencil popover. Source
+// stays markdown in node.text (ADR 0005); this is only the decoration half.
 //
-// The pure link layer (parse/strip/encode) stays in src/data/links.ts; this is
-// just the decoration half expressed as El descriptors.
+// The pure link layer (parse/strip/encode) stays in src/data/links.ts.
 
 import { Duration, Effect } from "effect";
 import { LinkIcon } from "lucide-react";
 
-import {
-  getSelectionRange,
-  mdPunct,
-  readSource,
-} from "../../components/inline-code";
+import { getSelectionRange, readSource } from "../../components/inline-code";
 import { openUrlInFocusedTab } from "../../components/open-url";
 import { htmlClipboardToText } from "../../data/clipboard-html";
 import { isLocalDataEnabled } from "../../data/flags";
@@ -27,7 +22,7 @@ import {
   swapLinkLabel,
 } from "../../data/links";
 import { getTreeIndex } from "../../data/tree-store";
-import { isRevealed, resolveNodeId } from "../token-kit";
+import { resolveNodeId } from "../token-kit";
 import { definePlugin, type El, type PluginContext } from "../types";
 import {
   openLinkCreatePopover,
@@ -40,41 +35,9 @@ const LINK_PARTS = /^\[([^\]]*)\]\(([^)]*)\)$/;
 
 const LINK_CLASS = "node-link cursor-pointer";
 
-// The host of a folded link's url, for the favicon lookup -- or null if the url
-// won't parse (a hand-typed rough edge). The token's url is percent-encoded for
-// `( ) space` only, so `new URL` parses the scheme + host fine.
-function linkHost(url: string): string | null {
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
-}
-
-// The site's favicon, served by Google's long-lived s2/favicons endpoint, which
-// falls back to a generic glyph on a miss -- so the <img> never shows a broken-
-// image icon. Chosen over smaller services for longevity (it renders on every
-// link, forever). `sz=64` stays crisp on hi-dpi at the small render box. It
-// rides INSIDE the folded <a>, so a click on it opens the link like any other
-// part of the anchor. Not lazy: the row is already windowed, and translateY
-// rows sit at layout top 0, so Edge would defer the icon until scroll/reload.
-function faviconImgEl(host: string): El {
-  return {
-    tag: "img",
-    attrs: {
-      class: "link-favicon",
-      src: `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
-      alt: "",
-      "aria-hidden": "true",
-      draggable: "false",
-    },
-  };
-}
-
 // The trailing pencil affordance -- a text-free span (icon painted by CSS mask)
-// that opens the Edit Link popover. Inside a folded <a> it's invisible to
-// source/caret math (readSource stops at the atom's `data-src`); inside the
-// revealed url chip it's interior to that atom, same story.
+// that opens the Edit Link popover. Invisible to source/caret math (readSource
+// stops at the atom's `data-src`).
 function editIconEl(): El {
   return {
     tag: "span",
@@ -82,15 +45,13 @@ function editIconEl(): El {
   };
 }
 
-// A folded link: a clean, ATOMIC <a> showing the site favicon + label + the
-// edit pencil. The whole `(url)` is hidden; `contenteditable="false"` makes it
-// one indivisible caret unit. `data-src`/`data-src-len` carry the full markdown
-// so the core's readSource can reconstruct it and the caret helpers can count
-// it (ADR 0005) -- readSource stops at the <a> and reads `data-src`, so the
-// inner <img>/pencil never perturb source/caret math. Attr order is preserved
-// verbatim so the generated HTML stays byte-identical.
+// A folded link: a clean, ATOMIC <a> showing the label + edit pencil. The
+// whole `[label](url)` is hidden; `contenteditable="false"` makes it one
+// indivisible caret unit. `data-src`/`data-src-len` carry the full markdown so
+// the core's readSource can reconstruct it and the caret helpers can count it
+// (ADR 0005) -- readSource stops at the <a> and reads `data-src`, so the
+// pencil never perturbs source/caret math.
 function foldedLinkEl(label: string, url: string, tok: string): El {
-  const host = linkHost(url);
   return {
     tag: "a",
     attrs: {
@@ -103,74 +64,23 @@ function foldedLinkEl(label: string, url: string, tok: string): El {
       target: "_blank",
       rel: "noopener noreferrer",
     },
-    children: host
-      ? [faviconImgEl(host), label, editIconEl()]
-      : [label, editIconEl()],
+    children: [label, editIconEl()],
   };
 }
 
-// A revealed link (bracket reveal, ADR 0005): `[label]` as editable text -- the
-// brackets appear so the label edits as raw markdown -- but the URL itself
-// NEVER expands into the line. Only the bare `url` folds to one atomic chip
-// (`data-src` carries it, so readSource still reconstructs the full token and
-// the caret jumps over it) rendered as a pencil; the parens around it are REAL
-// text, so the caret walks through `](` and `)` one step at a time, and typing
-// between `]` and `(` breaks the token match -- the link splits open to raw
-// text. Clicking the chip opens the Edit Link popover. Everything except the
-// chip stays 1:1 with its slice of the source.
-function revealedLinkEl(label: string, url: string): El {
-  return {
-    tag: "span",
-    attrs: { class: "link-reveal", "data-link-reveal": true },
-    children: [
-      mdPunct("["),
-      { tag: "span", attrs: { class: "link-label" }, children: [label] },
-      mdPunct("]"),
-      mdPunct("("),
-      {
-        tag: "span",
-        attrs: {
-          class: "link-url-chip",
-          "data-src": url,
-          "data-src-len": url.length,
-          contenteditable: "false",
-          title: "Edit link",
-        },
-        children: [editIconEl()],
-      },
-      mdPunct(")"),
-    ],
-  };
-}
-
-// Resolve a click on an edit affordance to (nodeId, token, anchor rect) and
-// open the popover. The pencil inside a folded <a> reads the full token off
-// the anchor's data-src; the revealed url chip reads its own data-src (the
-// bare url) plus the label from the sibling span (fresh -- every keystroke
-// re-decorates). The node id comes from the enclosing row's `data-node-id`;
-// the zoomed title has no row, so it falls back to the zoom root (which IS
-// the title's node).
+// Resolve a click on the edit pencil to (nodeId, token, anchor rect) and open
+// the popover. The node id comes from the enclosing row's `data-node-id`; the
+// zoomed title has no row, so it falls back to the zoom root.
 function openEditFor(el: HTMLElement, ctx: PluginContext): void {
   const anchor = el.closest<HTMLElement>("a[data-link]");
-  let token: string;
-  let rectEl: HTMLElement;
-  if (anchor) {
-    token = anchor.getAttribute("data-src") ?? "";
-    rectEl = anchor;
-  } else {
-    const chip = el.closest<HTMLElement>(".link-url-chip");
-    if (!chip) return;
-    const reveal = chip.closest<HTMLElement>(".link-reveal");
-    const label = reveal?.querySelector(".link-label")?.textContent ?? "";
-    token = `[${label}](${chip.getAttribute("data-src") ?? ""})`;
-    rectEl = reveal ?? chip;
-  }
+  if (!anchor) return;
+  const token = anchor.getAttribute("data-src") ?? "";
   const parts = LINK_PARTS.exec(token);
   if (!parts) return;
   const nodeId = resolveNodeId(el);
   if (!nodeId) return;
   const textEl = el.closest<HTMLElement>(".node-text");
-  const rect = rectEl.getBoundingClientRect();
+  const rect = anchor.getBoundingClientRect();
   openLinkEditPopover(
     {
       nodeId,
@@ -186,7 +96,7 @@ function openEditFor(el: HTMLElement, ctx: PluginContext): void {
 }
 
 // While its title is being fetched, a just-pasted bare-url link wears this
-// transient class (ADR 0016) -- CSS swaps its favicon slot for a spinner. Same
+// transient class (ADR 0016) -- CSS shows a leading spinner via ::before. Same
 // one-shot-class mechanic as flash-node / rejectRow: applied imperatively here,
 // removed on resolve; the success re-decorate replaces the <a> outright.
 const UNFURLING_CLASS = "link-unfurling";
@@ -282,13 +192,13 @@ export default definePlugin({
       // `#tag` or `code` run inside a label/url never becomes its own chip.
       precedence: 0,
       folds: true,
-      render: (tok, view) => {
+      render: (tok) => {
         const parts = LINK_PARTS.exec(tok);
         const label = parts?.[1] ?? "";
         const url = parts?.[2] ?? "";
-        return isRevealed(view)
-          ? revealedLinkEl(label, url)
-          : foldedLinkEl(label, url, tok);
+        // Always fold: caret on the link never expands markdown into the line.
+        // Label/url edits go through the pencil popover.
+        return foldedLinkEl(label, url, tok);
       },
     },
   ],
@@ -323,15 +233,14 @@ export default definePlugin({
     },
   ],
 
-  // Seam B: the edit pencil (in a folded <a> AND the revealed `(url)` chip)
-  // opens the Edit Link popover -- listed FIRST so a click on the pencil inside
-  // the anchor dispatches here, not to the open-in-new-tab handler below. A
-  // folded link itself opens in a new tab; its mousedown blocks the editing
-  // caret (editing the label is done from its edges -- click beside it reveals
-  // the brackets; editing the url is the popover's job).
+  // Seam B: the edit pencil opens the Edit Link popover -- listed FIRST so a
+  // click on the pencil inside the anchor dispatches here, not to the
+  // open-in-new-tab handler below. A folded link itself opens in a new tab;
+  // its mousedown blocks the editing caret (label/url edits are the
+  // popover's job; the link stays folded under the caret).
   interactions: [
     {
-      selector: ".link-edit-icon, .link-url-chip",
+      selector: ".link-edit-icon",
       blockCaretOnMouseDown: true,
       onClick: (el, ctx, e) => {
         e.preventDefault();
@@ -359,11 +268,10 @@ export default definePlugin({
   // 0017). Returns null to defer to core plain-text when none apply.
   //
   // Pasting a link (no selection) appends a trailing space so the caret lands
-  // PAST the link: it's no longer under the caret, so it folds to a clean <a>
-  // immediately instead of sitting revealed-raw until you click away. Wrapping
-  // an existing SELECTION keeps the old end-of-link caret (no stray space).
-  // Rich HTML with one or more anchors is converted to markdown links (the
-  // core also upgrades multi-line plain from HTML when plain lacks `](`).
+  // PAST the link. Wrapping an existing SELECTION keeps the old end-of-link
+  // caret (no stray space). Rich HTML with one or more anchors is converted
+  // to markdown links (the core also upgrades multi-line plain from HTML when
+  // plain lacks `](`). Links always render folded.
   input: {
     onPaste: ({ plain, html, selectedText, hasSelection }) => {
       const selUrl = bareHttpUrl(plain);

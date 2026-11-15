@@ -1487,11 +1487,10 @@ body.dragging-active * {
   }
 }
 
-/* Rich links (ADR 0005, bracket reveal). A link FOLDS to a clean <a> with a
-   leading site favicon and a trailing edit pencil when the caret isn't on it;
-   when the caret is within/adjacent, the BRACKETS appear around the editable
-   label but the URL stays folded behind a `(✎)` chip -- the raw url never
-   expands into the line. At most one link reveals at a time (under caret). */
+/* Rich links (ADR 0005). A link always FOLDS to a clean <a> (label + trailing
+   edit pencil). The caret never expands raw markdown into the line; label/url
+   edits go through the pencil popover. Source stays `[label](url)` in
+   node.text. */
 .node-link {
   color: oklch(0.5 0.18 255);
   text-decoration-color: oklch(0.5 0.18 255 / 0.5);
@@ -1506,47 +1505,16 @@ body.dragging-active * {
   text-decoration-color: currentColor;
 }
 
-/* Revealed-link decoration: faint `[]` punctuation (most-dimmed) around a
-   normal-color label -- mimicking Obsidian Live Preview, minus the raw url.
-   The label carries no underline (raw editing mode); only the folded <a>
-   underlines. */
+/* Shared markdown punctuation (code/highlight/etc. still use mdPunct). */
 .md-punct {
   color: var(--muted-foreground);
   opacity: 0.6;
 }
 
-.link-label {
-  color: oklch(0.5 0.18 255);
-}
-
-.dark .link-label {
-  color: oklch(0.78 0.13 245);
-}
-
-/* The site favicon, leading a folded link (Google s2/favicons). It sits inside the <a>
-   but contributes no textContent, so caret math is unaffected. A fixed em box
-   keeps it aligned with the text regardless of the source icon's size. */
-.link-favicon {
-  display: inline-block;
-  width: 0.95em;
-  height: 0.95em;
-  margin-right: 0.25em;
-  vertical-align: -0.15em;
-  border-radius: 2px;
-  object-fit: contain;
-  user-select: none;
-  @apply bg-muted;
-}
-
 /* Title-unfurl loading state (ADR 0016). While a just-pasted bare-url link's
-   title is being fetched, the <a> wears `.link-unfurling`: the favicon slot
-   becomes a spinner (same em box, so nothing shifts), the url label stays and
-   the link stays clickable. A transient class applied imperatively by the links
-   plugin, like flash-node / rejectRow. */
-.node-link.link-unfurling .link-favicon {
-  display: none;
-}
-
+   title is being fetched, the <a> wears `.link-unfurling`: a leading spinner
+   via ::before, the url label stays, and the link stays clickable. A transient
+   class applied imperatively by the links plugin, like flash-node / rejectRow. */
 .node-link.link-unfurling::before {
   content: "";
   display: inline-block;
@@ -1599,11 +1567,10 @@ body.dragging-active * {
   }
 }
 
-/* The edit affordance (ADR 0005, bracket reveal): a small pencil painted with
-   the current text color via an SVG mask (lucide `pencil`). It trails the label
-   inside a folded <a> and fills the revealed link's `(✎)` chip -- a text-free
-   span, so source/caret math is unaffected. Clicking it opens the Edit Link
-   popover (Seam B). */
+/* The edit affordance (ADR 0005): a small pencil painted with the current text
+   color via an SVG mask (lucide `pencil`). It trails the label inside the
+   folded <a> -- a text-free span, so source/caret math is unaffected. Clicking
+   it opens the Edit Link popover (Seam B). */
 .link-edit-icon {
   display: inline-block;
   width: 0.7em;
@@ -1618,27 +1585,8 @@ body.dragging-active * {
   mask: var(--link-edit-icon) no-repeat center / contain;
 }
 
-.node-link:hover .link-edit-icon,
-.link-url-chip:hover .link-edit-icon {
+.node-link:hover .link-edit-icon {
   opacity: 1;
-}
-
-/* The revealed link's folded URL: the pencil stands in for the bare url
-   (carried in its data-src); the parens around it are real `.md-punct` text,
-   so the caret walks through them. Link-colored like the folded <a>, so it
-   reads as "the link half". */
-.link-url-chip {
-  cursor: pointer;
-  user-select: none;
-  color: oklch(0.5 0.18 255);
-}
-
-.dark .link-url-chip {
-  color: oklch(0.78 0.13 245);
-}
-
-.link-url-chip .link-edit-icon {
-  margin-left: 0;
 }
 
 dotflowy-widget[data-bible-ref][data-atom-selected] > span {
