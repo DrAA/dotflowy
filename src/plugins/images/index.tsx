@@ -1,5 +1,5 @@
 import { ImageIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button, Dialog, DialogContent, DialogTitle } from "@/plugins/kit";
 
@@ -23,6 +23,87 @@ import {
 import { trueSourceOf } from "../../data/tree";
 import { getTreeIndex } from "../../data/tree-store";
 import { definePlugin } from "../types";
+
+const PREVIEW_ZOOM_MIN = 1;
+const PREVIEW_ZOOM_MAX = 8;
+const PREVIEW_ZOOM_FACTOR = 1.12;
+
+function ImagePreview({ src }: { src: string }) {
+  const [zoom, setZoom] = useState(1);
+  const [fit, setFit] = useState<{ w: number; h: number } | null>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const captureFit = () => {
+    const img = imgRef.current;
+    if (!img || img.clientWidth === 0) return;
+    setFit({ w: img.clientWidth, h: img.clientHeight });
+  };
+
+  // Cached images may skip onLoad; measure after the fit layout paints.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      if (imgRef.current?.complete) captureFit();
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Non-passive: Ctrl+wheel must preventDefault or the browser page-zooms.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const factor =
+        e.deltaY < 0 ? PREVIEW_ZOOM_FACTOR : 1 / PREVIEW_ZOOM_FACTOR;
+      setZoom((z) =>
+        Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, z * factor)),
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  return (
+    <div
+      ref={scrollerRef}
+      className="max-h-[95vh] overflow-auto overscroll-contain"
+    >
+      <div
+        className="relative mx-auto"
+        style={fit ? { width: fit.w * zoom, height: fit.h * zoom } : undefined}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt=""
+          draggable={false}
+          onLoad={captureFit}
+          className="block object-contain"
+          style={
+            fit
+              ? {
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: fit.w,
+                  height: fit.h,
+                  maxWidth: "none",
+                  transform: `scale(${zoom})`,
+                  transformOrigin: "top left",
+                }
+              : {
+                  width: "100%",
+                  maxHeight: "95vh",
+                }
+          }
+        />
+      </div>
+    </div>
+  );
+}
 
 function NodeImages({
   node,
@@ -65,11 +146,7 @@ function NodeImages({
         >
           <DialogTitle className="sr-only">Attached image</DialogTitle>
           {openRow && (
-            <img
-              src={mediaUrl(openRow.id)}
-              alt=""
-              className="max-h-[95vh] w-full object-contain"
-            />
+            <ImagePreview key={openRow.id} src={mediaUrl(openRow.id)} />
           )}
         </DialogContent>
       </Dialog>
