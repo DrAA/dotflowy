@@ -38,7 +38,7 @@ Search/filter stay client-side over the decrypted in-memory outline ([ADR 0047](
 ## Consequences
 
 - New client crypto: KDF, keybag, envelope codec, unlock/lock UI, recovery-key ceremony, remember-device wrapping.
-- Sync adapter speaks sealed snapshot + sealed revisions; DO meta holds keybag + flags; R2 holds bulk sealed envelopes (snapshot + revision log).
+- Sync adapter speaks a full sealed **snapshot** (live object) plus sealed **revision deltas** (upserts/deletes vs the prior revision baseline); DO meta holds keybag + flags; R2 holds those opaque envelopes. Field edits debounce onto the snapshot only; revisions append on structural flush / idle — not a second full-outline upload per keystroke.
 - Media upload/download encrypt/decrypt on the client.
 - Cutover UX for every existing account; support docs for “lost passphrase + lost recovery key = data gone.”
 - Hosted MCP deferred until the client bridge exists; product copy must not promise server-side agents over sealed data.
