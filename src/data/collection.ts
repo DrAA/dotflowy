@@ -42,6 +42,7 @@ import {
   flushPersistSealedNodes,
   isSealUnlocked,
   loadSealedNodes,
+  queuePersistSealedNodes,
   schedulePersistSealedNodes,
 } from "./seal";
 import { chainDisagreements } from "./sibling-chain";
@@ -939,11 +940,15 @@ export const nodesCollection = createCollection({
       persistLocalOutline();
       return { refetch: false };
     }
+    if (suppressPersist) return { refetch: false };
     if (isSealedOutlineEnabled()) {
+      for (const m of transaction.mutations) {
+        const n = m.modified as Node;
+        noteEchoedText(n.id, n.text);
+      }
       schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
       return { refetch: false };
     }
-    if (suppressPersist) return { refetch: false };
     const nodes = transaction.mutations.map((m) => m.modified as Node);
     await persistOrQueue(createNodes(nodes), () =>
       enqueueWrite(
@@ -958,11 +963,15 @@ export const nodesCollection = createCollection({
       persistLocalOutline();
       return { refetch: false };
     }
+    if (suppressPersist) return { refetch: false };
     if (isSealedOutlineEnabled()) {
+      for (const m of transaction.mutations) {
+        const n = m.modified as Node;
+        noteEchoedText(n.id, n.text);
+      }
       schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
       return { refetch: false };
     }
-    if (suppressPersist) return { refetch: false };
     const updates = transaction.mutations.map((m) => ({
       id: m.key as string,
       changes: m.changes as Partial<Node>,
@@ -980,11 +989,14 @@ export const nodesCollection = createCollection({
       persistLocalOutline();
       return { refetch: false };
     }
+    if (suppressPersist) return { refetch: false };
     if (isSealedOutlineEnabled()) {
+      for (const m of transaction.mutations) {
+        clearEchoedText(m.key as string);
+      }
       schedulePersistSealedNodes(nodesCollection.toArray as Node[]);
       return { refetch: false };
     }
-    if (suppressPersist) return { refetch: false };
     const ids = transaction.mutations.map((m) => m.key as string);
     await persistOrQueue(deleteNodes(ids), () =>
       enqueueWrite({ kind: "delete", ids }, nodesCollection.toArray as Node[]),
@@ -1003,7 +1015,26 @@ export function persistLocalOutline(): void {
   writeLocalNodes(nodesCollection.toArray as Node[]);
 }
 
-/** Flush sealed snapshot (structural edits — await before continuing). */
+/** Flush sealed snapshot (await — OPML / callers that need durability). */
 export async function persistSealedOutline(): Promise<void> {
   await flushPersistSealedNodes(nodesCollection.toArray as Node[]);
+}
+
+/**
+ * Queue sealed snapshot+revision without awaiting. `runStructural` uses this so
+ * Enter does not hold the optimistic overlay across encrypt/upload (new empty
+ * bullets otherwise appear focused but accept no keystrokes until the flush
+ * finishes).
+ */
+export function queueSealedOutlinePersist(opts?: { revision?: boolean }): void {
+  queuePersistSealedNodes(nodesCollection.toArray as Node[], opts);
+}
+
+/** Record server-ish echo for sealed/local writes (ADR 0010 focused hold). */
+export function noteEchoedText(id: string, text: string): void {
+  echoedText.set(id, text);
+}
+
+export function clearEchoedText(id: string): void {
+  echoedText.delete(id);
 }

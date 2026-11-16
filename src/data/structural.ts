@@ -8,9 +8,12 @@ import type { Node } from "./schema";
 import { openSettings } from "../components/settings-nav";
 import { persistBatchE } from "./api";
 import {
+  clearEchoedText,
   nodesCollection,
+  noteEchoedText,
   persistLocalOutline,
   persistSealedOutline,
+  queueSealedOutlinePersist,
   waitForSeqE,
 } from "./collection";
 import {
@@ -151,7 +154,11 @@ export function runStructuralTracked<T>(body: () => T): {
         return;
       }
       if (isSealedOutlineEnabled()) {
-        await persistSealedOutline();
+        // Do NOT await encrypt/upload here — a large sealed outline blocks the
+        // main thread and holds this transaction's overlay, so the new bullet
+        // from Enter looks focused but drops keystrokes until flush completes.
+        noteSealedEchoes(ops);
+        queueSealedOutlinePersist({ revision: true });
         return;
       }
       // P1 (atomic, writeSem-serialized send) → P2 (hold optimistic until the
@@ -263,6 +270,14 @@ function nodeMutations(mutations: readonly MutationLike[]): MutationLike[] {
 function toChangeOp(m: MutationLike): ChangeOp {
   if (m.type === "delete") return { op: "delete", key: String(m.key) };
   return { op: m.type as "insert" | "update", value: m.modified as Node };
+}
+
+/** Sealed mode has no WS echo — seed ADR 0010 hold from the structural batch. */
+function noteSealedEchoes(ops: readonly ChangeOp[]): void {
+  for (const op of ops) {
+    if (op.op === "delete") clearEchoedText(op.key);
+    else noteEchoedText(op.value.id, op.value.text);
+  }
 }
 
 /**
