@@ -44,6 +44,19 @@ describe("shouldHoldUnfocusedAckGap", () => {
     ).toBe(true);
   });
 
+  test("does not hold a behind/empty paint key after a structural store write", () => {
+    // Multi-line paste absorbs line 1 into the store; syncedRef still has the
+    // pre-paste empty DOM. Holding here left the first line blank forever.
+    expect(
+      shouldHoldUnfocusedAckGap({
+        storeText: "alpha",
+        echoedText: "alpha",
+        syncedKey: textPaintKey("", ""),
+        paintedEcho: "alpha",
+      }),
+    ).toBe(false);
+  });
+
   test("does not hold a remote edit that advanced the echo", () => {
     // The other page's text arrives as a new echo equal to the store. The
     // paint key is still the old caption. Holding here left only the image.
@@ -191,6 +204,19 @@ describe("classifyFocusedStoreSync", () => {
         liveText: "hello",
         echoedText: "hello",
         syncedKey: null,
+      }),
+    ).toBe("apply");
+  });
+
+  test("applies a structural paste that wrote the store ahead of the DOM", () => {
+    // Sealed/local noteEchoedText makes echo === store immediately; syncedRef
+    // still has the pre-paste empty bullet. Holding then let blur wipe line 1.
+    expect(
+      classifyFocusedStoreSync({
+        storeText: "alpha",
+        liveText: "alpha",
+        echoedText: "alpha",
+        syncedKey: textPaintKey("", ""),
       }),
     ).toBe("apply");
   });

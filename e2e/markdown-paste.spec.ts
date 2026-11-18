@@ -99,6 +99,23 @@ test.describe("Structural markdown paste", () => {
     ]);
   });
 
+  test("the absorbed first line survives blur after focus leaves the anchor", async ({
+    page,
+  }) => {
+    // Regression: when the seam moves to a new sibling, a stale empty DOM on
+    // the anchor used to be pushed back over store text on blur (ADR 0010).
+    await load(page, one);
+    await caretAt(page, "n", 0);
+    await pasteInto(text(page, "n"), "alpha\nbravo\ncharlie");
+
+    expect(await rows(page)).toEqual(["0:alpha", "0:bravo", "0:charlie"]);
+
+    // Blur the focused seam bullet; the anchor must still show line 1.
+    await page.locator("body").click({ position: { x: 2, y: 2 } });
+    await expect(text(page, "n")).toHaveText("alpha");
+    expect(await rows(page)).toEqual(["0:alpha", "0:bravo", "0:charlie"]);
+  });
+
   test("headings drive nesting; the shallowest normalizes to depth 0", async ({
     page,
   }) => {

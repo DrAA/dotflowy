@@ -162,14 +162,7 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
         toast.error("Couldn't paste there — try again.");
         return true;
       }
-      const seam = resolveSeam(plan, anchorId, count);
-      if (seam.id === anchorId)
-        focus.placeCaretHere(plan.anchor.text, seam.offset);
-      else {
-        const key = focusKeyFor(seam.id, activeKey);
-        focus.setPendingFocus(key, seam.offset);
-        scrollRowIntoView(key);
-      }
+      handOffPasteFocus(plan, anchorId, activeKey, count, focus);
       return true;
     }
     void runLunoraSlicedPaste(plan, anchorId, timestamp, lunora, count);
@@ -226,16 +219,7 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
       drop();
       throw err;
     }
-    const seam = resolveSeam(plan, anchorId, count);
-    if (seam.id === anchorId)
-      focus.placeCaretHere(plan.anchor.text, seam.offset);
-    else {
-      // The seam row may not be mounted (a long paste in the windowed list), so
-      // scroll it in and let it claim the pending focus on mount (ADR 0019).
-      const key = focusKeyFor(seam.id, activeKey);
-      focus.setPendingFocus(key, seam.offset);
-      scrollRowIntoView(key);
-    }
+    handOffPasteFocus(plan, anchorId, activeKey, count, focus);
     return true;
   }
 
@@ -419,6 +403,33 @@ async function runLunoraSlicedPaste(
         : "The paste could not be fully saved. Earlier chunks landed — press Cmd+Z to remove them.",
     );
   }
+}
+
+/**
+ * Paint the absorbed first line into the still-focused anchor, then hand the
+ * caret to the seam. Always paint first: when the seam leaves the anchor,
+ * `blurReconcileStoreText` would otherwise push the stale pre-paste DOM back
+ * over `plan.anchor.text` (ADR 0010 blur = DOM→store).
+ */
+function handOffPasteFocus(
+  plan: MdPastePlan,
+  anchorId: string,
+  activeKey: string,
+  count: number,
+  focus: PasteFocusSink,
+): void {
+  const seam = resolveSeam(plan, anchorId, count);
+  if (seam.id === anchorId) {
+    focus.placeCaretHere(plan.anchor.text, seam.offset);
+    return;
+  }
+  // Caret on the anchor is brief — FocusPass / mount claim moves it to `seam`.
+  focus.placeCaretHere(plan.anchor.text, plan.anchor.text.length);
+  // The seam row may not be mounted (a long paste in the windowed list), so
+  // scroll it in and let it claim the pending focus on mount (ADR 0019).
+  const key = focusKeyFor(seam.id, activeKey);
+  focus.setPendingFocus(key, seam.offset);
+  scrollRowIntoView(key);
 }
 
 /**

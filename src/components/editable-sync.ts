@@ -69,9 +69,10 @@ bindFocusedTypingCapture(captureFocusedNodeText);
  * - **apply** -- genuine external write (undo/redo, slash insert, sibling
  *   mirror) that is not an echo of our own typing.
  *
- * A prefix `dom.startsWith(storeText)` guard is NOT used: `"".startsWith` is
- * true for every string, so undo-to-empty (and other prefix shrinks) would
- * never land.
+ * A `storeText.startsWith(dom)` / `dom.startsWith(storeText)` undo guard is
+ * NOT used as a blanket rule: `"".startsWith` is true for every string, so
+ * undo-to-empty (and other prefix shrinks) would never land. The echo hold
+ * below only treats DOM as "ahead" when it is a proper extension of the store.
  */
 export function classifyFocusedStoreSync(args: {
   storeText: string;
@@ -86,7 +87,16 @@ export function classifyFocusedStoreSync(args: {
   // No prior paint key: apply store. Holding on a null key leaves a fresh
   // contentEditable blank forever (zoomed title mount; echo === store for
   // every snapshot-seeded node).
-  if (syncedKey != null && echoedText === storeText) return "hold";
+  if (syncedKey != null && echoedText === storeText) {
+    // Hold only when painted DOM looks like local typing ahead of the echo.
+    // Structural paste writes the store first; holding a behind/empty DOM then
+    // lets blurReconcileStoreText push that stale text back over the absorbed
+    // first line (ADR 0044 + ADR 0010).
+    if (syncedText.startsWith(storeText) && syncedText !== storeText) {
+      return "hold";
+    }
+    return "apply";
+  }
   return "apply";
 }
 
@@ -112,7 +122,13 @@ export function shouldHoldUnfocusedAckGap(args: {
   if (args.syncedKey == null) return false;
   if (args.echoedText !== args.paintedEcho) return false;
   const syncedText = textPaintSource(args.syncedKey);
-  return args.echoedText === args.storeText && syncedText !== args.storeText;
+  // Same ahead-only rule as classifyFocusedStoreSync: a behind/empty paint key
+  // after a structural write must not block applying the store.
+  return (
+    args.echoedText === args.storeText &&
+    syncedText.startsWith(args.storeText) &&
+    syncedText !== args.storeText
+  );
 }
 
 /**
