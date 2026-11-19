@@ -39,6 +39,7 @@ New feature or design: `ls docs/adr/` and read the ADRs that match the surface. 
 | Lunora sync (experimental, flag-gated)                 | 0058                                                   |
 | Microsoft 365 Copilot `/copilot`                       | 0062                                                   |
 | Sealed outline (client passphrase, ciphertext in DO)   | 0063                                                   |
+| Sealed live multi-device revisions                     | 0064                                                   |
 
 ## Architecture
 

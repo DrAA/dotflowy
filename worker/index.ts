@@ -78,7 +78,12 @@ import { handleMedia } from "./media";
 import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
 import { FREE_NODE_LIMIT, getPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
-import { pruneSealRevisions, sealRevKey, sealSnapshotKey } from "./seal-r2";
+import {
+  listSealRevisionsAfter,
+  pruneSealRevisions,
+  sealRevKey,
+  sealSnapshotKey,
+} from "./seal-r2";
 import { workerSentryOptions } from "./sentry";
 import { isHttpUrlString, unfurlTitleE } from "./unfurl";
 import {
@@ -92,6 +97,7 @@ import {
   NodesDeleteBody,
   NodesPatchBody,
   NodesPostBody,
+  SealEnvelopeBody,
   SealKeybagPutBody,
   SealSnapshotPutBody,
   WaitlistPostBody,
@@ -288,6 +294,14 @@ class BadRequest extends Data.TaggedError("BadRequest")<{ reason: string }> {
     return `bad request: ${this.reason}`;
   }
 }
+
+/**
+ * Sealed snapshot OCC miss — another device/tab already advanced
+ * `seal_snapshot_seq`. Mapped to HTTP 409 with the current seq.
+ */
+class SealSnapshotConflict extends Data.TaggedError("SealSnapshotConflict")<{
+  seq: number;
+}> {}
 
 /**
  * /api/sync was reached without a WebSocket Upgrade header. The caller must
@@ -1163,6 +1177,9 @@ function handleApiRequest(
         hasSealedSnapshot: state.hasSealedSnapshot,
         hasPlaintextNodes: state.hasPlaintextNodes,
         sealActive: state.sealActive,
+        snapshotSeq: state.snapshotSeq,
+        snapshotAtRev: state.snapshotAtRev,
+        revSeq: state.revSeq,
       });
     }
     if (url.pathname === "/api/seal/keybag" && request.method === "PUT") {
@@ -1177,10 +1194,21 @@ function handleApiRequest(
       if (request.method === "GET") {
         // Bulk envelope in R2 — DO only has a presence flag (SQLITE_TOOBIG).
         const obj = yield* Effect.promise(() => env.BACKUPS.get(snapKey));
-        if (!obj) return json({ envelope: null }, 404);
+        const snapshotSeq = yield* Effect.promise(() =>
+          stub.getSealSnapshotSeq(),
+        );
+        const snapshotAtRev = yield* Effect.promise(() =>
+          stub.getSealSnapshotAtRev(),
+        );
+        if (!obj)
+          return json({ envelope: null, snapshotSeq, snapshotAtRev }, 404);
         const raw = yield* Effect.promise(() => obj.text());
         try {
-          return json({ envelope: JSON.parse(raw) as unknown });
+          return json({
+            envelope: JSON.parse(raw) as unknown,
+            snapshotSeq,
+            snapshotAtRev,
+          });
         } catch {
           return yield* Effect.fail(
             new BadRequest({ reason: "sealed snapshot is not valid JSON" }),
@@ -1189,14 +1217,26 @@ function handleApiRequest(
       }
       if (request.method === "PUT") {
         const body = yield* decodeBody(request, SealSnapshotPutBody);
+        // OCC before R2 write so a stale tab cannot clobber a newer snapshot.
+        const commit = yield* Effect.promise(() =>
+          stub.commitSealSnapshot(body.expectedSeq),
+        );
+        if (!commit.ok) {
+          return yield* Effect.fail(
+            new SealSnapshotConflict({ seq: commit.seq }),
+          );
+        }
         const payload = JSON.stringify(body.envelope);
         yield* Effect.promise(() =>
           env.BACKUPS.put(snapKey, payload, {
             httpMetadata: { contentType: "application/json" },
           }),
         );
-        yield* Effect.promise(() => stub.markSealedSnapshotStored());
-        return json({ ok: true });
+        return json({
+          ok: true,
+          snapshotSeq: commit.seq,
+          snapshotAtRev: commit.atRev,
+        });
       }
       return json({ error: "method not allowed" }, 405);
     }
@@ -1207,9 +1247,24 @@ function handleApiRequest(
       yield* Effect.promise(() => stub.clearPlaintextOutline());
       return json({ ok: true });
     }
+    if (url.pathname === "/api/seal/revisions" && request.method === "GET") {
+      // Pull sealed revision envelopes after `after` (Phase B live multi-writer).
+      const afterRaw = url.searchParams.get("after");
+      const after = afterRaw ? Number.parseInt(afterRaw, 10) : 0;
+      if (!Number.isFinite(after) || after < 0) {
+        return yield* Effect.fail(
+          new BadRequest({ reason: "after must be a non-negative integer" }),
+        );
+      }
+      const items = yield* Effect.promise(() =>
+        listSealRevisionsAfter(env.BACKUPS, session.user.id, after),
+      );
+      const revSeq = yield* Effect.promise(() => stub.getSealRevSeq());
+      return json({ revisions: items, revSeq });
+    }
     if (url.pathname === "/api/seal/revisions" && request.method === "POST") {
       // Append-only sealed revision log in R2 (opaque). DO allocates seq only.
-      const body = yield* decodeBody(request, SealSnapshotPutBody);
+      const body = yield* decodeBody(request, SealEnvelopeBody);
       const seq = yield* Effect.promise(() => stub.nextSealRevSeq());
       const revKey = sealRevKey(session.user.id, seq);
       yield* Effect.promise(() =>
@@ -1220,7 +1275,9 @@ function handleApiRequest(
       yield* Effect.promise(() =>
         pruneSealRevisions(env.BACKUPS, session.user.id),
       );
-      return json({ ok: true });
+      // Poke after R2 is readable so other unlocked tabs pull immediately.
+      yield* Effect.promise(() => stub.notifySealRev(seq));
+      return json({ ok: true, revSeq: seq });
     }
 
     return yield* Effect.fail(new RouteNotFound({ path: url.pathname }));
@@ -1446,6 +1503,11 @@ const handler = {
       handleApiRequest(request, url, env, ctx).pipe(
         Effect.catchTag("BadRequest", (e) =>
           Effect.succeed(json({ error: e.message }, 400)),
+        ),
+        Effect.catchTag("SealSnapshotConflict", (e) =>
+          Effect.succeed(
+            json({ error: "seal_snapshot_conflict", snapshotSeq: e.seq }, 409),
+          ),
         ),
         Effect.catchTag("UnknownCollection", (e) =>
           Effect.succeed(json({ error: e.message }, 400)),

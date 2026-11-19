@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Node } from "../schema";
 
 import {
+  applySealRevisionDeltaToMap,
   buildSealRevisionDelta,
   nodesToBaselineMap,
   sealRevisionDeltaIsEmpty,
@@ -54,5 +55,38 @@ describe("buildSealRevisionDelta", () => {
     const nodes = [node("a", "one")];
     const delta = buildSealRevisionDelta(nodes, nodesToBaselineMap(nodes));
     expect(sealRevisionDeltaIsEmpty(delta)).toBe(true);
+  });
+});
+
+describe("applySealRevisionDeltaToMap", () => {
+  test("LWW prefers the newer updatedAt on conflict", () => {
+    const map = nodesToBaselineMap([node("a", "old", { updatedAt: 1 })]);
+    applySealRevisionDeltaToMap(map, {
+      v: 1,
+      upserts: [node("a", "new", { updatedAt: 5 })],
+      deletes: [],
+    });
+    expect(map.get("a")!.text).toBe("new");
+  });
+
+  test("does not apply an older remote upsert", () => {
+    const map = nodesToBaselineMap([node("a", "local", { updatedAt: 9 })]);
+    applySealRevisionDeltaToMap(map, {
+      v: 1,
+      upserts: [node("a", "stale", { updatedAt: 2 })],
+      deletes: [],
+    });
+    expect(map.get("a")!.text).toBe("local");
+  });
+
+  test("deletes remove rows", () => {
+    const map = nodesToBaselineMap([node("a", "x"), node("b", "y")]);
+    applySealRevisionDeltaToMap(map, {
+      v: 1,
+      upserts: [],
+      deletes: ["a"],
+    });
+    expect(map.has("a")).toBe(false);
+    expect(map.has("b")).toBe(true);
   });
 });

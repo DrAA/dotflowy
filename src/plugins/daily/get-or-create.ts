@@ -14,6 +14,7 @@
 
 import { toast } from "sonner";
 
+import type { Node } from "../../data/schema";
 import type { PluginContext } from "../types";
 
 import { setRestoreProgress } from "../../components/history-restore";
@@ -26,7 +27,7 @@ import {
   scaffoldLabel,
   weekKeyToMonthKey,
 } from "../../data/date-links";
-import { isLunoraSyncEnabled } from "../../data/flags";
+import { isLunoraSyncEnabled, isSealedOutlineEnabled } from "../../data/flags";
 import { RESTORE_SLICE_OPS, capture } from "../../data/history";
 import { getLiveNodes } from "../../data/live-nodes";
 import { getLunoraOutlineContext } from "../../data/lunora-sync";
@@ -46,6 +47,7 @@ import {
   rowToNode,
   type OutlineNode,
 } from "../../data/outline-plans";
+import { flushPersistSealedNodes } from "../../data/seal";
 import {
   runStructural,
   runStructuralSliced,
@@ -320,6 +322,19 @@ async function materializeNewDay(
     await persisted;
   } catch (err) {
     return { id: null, cause: err };
+  }
+  // Sealed path: classic `persisted` resolves before the multi-MB snapshot
+  // upload (queuePersist). Await the seal flush so we never navigate to a day
+  // whose mapping landed in kv but whose nodes never reached R2.
+  if (isSealedOutlineEnabled()) {
+    try {
+      await flushPersistSealedNodes(getLiveNodes() as Node[]);
+    } catch (err) {
+      toast.error(
+        "Couldn't save today's note to the sealed backup. Try again before leaving.",
+      );
+      return { id: null, cause: err };
+    }
   }
   if (hasNode(day.id)) return { id: day.id };
   resyncNodes();

@@ -39,11 +39,14 @@ import { appRuntime } from "./runtime";
 import { persistOrQueue } from "./save-failure";
 import { nodeSchema } from "./schema";
 import {
+  bindSealCollectionBridge,
   flushPersistSealedNodes,
   isSealUnlocked,
   loadSealedNodes,
   queuePersistSealedNodes,
+  requestSealRevisionPull,
   schedulePersistSealedNodes,
+  type SealRevisionDelta,
 } from "./seal";
 import { chainDisagreements } from "./sibling-chain";
 import {
@@ -649,7 +652,8 @@ export const nodesCollection = createCollection({
         return () => {};
       }
 
-      // Sealed outline (ADR 0063): decrypt snapshot (migrate plaintext once).
+      // Sealed outline (ADR 0063 / 0064): hydrate from R2, then keep /api/sync
+      // open for `seal_rev` pokes (and media). Outline rows never ride the WS.
       if (isSealedOutlineEnabled()) {
         if (!isSealUnlocked()) {
           markReady();
@@ -657,6 +661,8 @@ export const nodesCollection = createCollection({
           return () => {};
         }
         let cancelled = false;
+        let unbindWake: (() => void) | null = null;
+        let pokeFiber: Fiber.Fiber<void, unknown> | null = null;
         void (async () => {
           try {
             const local = await loadSealedNodes();
@@ -676,9 +682,53 @@ export const nodesCollection = createCollection({
               markSyncReady();
             }
           }
+          if (cancelled) return;
+
+          const { events, reconnect } = Effect.runSync(
+            makeSyncStream(Effect.succeed(null)),
+          );
+          unbindWake = bindSyncWakeHandlers(() => {
+            if (cancelled) return;
+            appRuntime.runFork(reconnect);
+            void requestSealRevisionPull();
+          });
+          const drainPokes = Stream.runForEach(events, (event: SyncEvent) =>
+            Effect.sync(() => {
+              if (event._tag === "InitialError") {
+                console.error("[seal] sync poke socket:", event.error);
+                return;
+              }
+              const msg = event.message;
+              if (msg.type === "seal_rev") {
+                void requestSealRevisionPull();
+                return;
+              }
+              if (msg.type === "media") {
+                applyRemoteMedia(msg);
+                return;
+              }
+              // Empty sealed handshake snapshot / classic change frames: ignore.
+              if (msg.type === "snapshot" || msg.type === "resume") {
+                noteServerVersion(msg.serverVersion);
+              }
+            }),
+          );
+          pokeFiber = appRuntime.runFork(
+            drainPokes.pipe(
+              Effect.catchCause((cause) => {
+                console.error(
+                  "[seal] poke consumer stopped",
+                  Cause.pretty(cause),
+                );
+                return Effect.void;
+              }),
+            ),
+          );
         })();
         return () => {
           cancelled = true;
+          unbindWake?.();
+          if (pokeFiber) appRuntime.runFork(Fiber.interrupt(pokeFiber));
         };
       }
 
@@ -750,10 +800,14 @@ export const nodesCollection = createCollection({
           applyRemoteMedia(msg);
           return;
         }
+        // Sealed poke frames are for unlocked sealed tabs only (ADR 0064).
+        if (msg.type === "seal_rev") return;
         // Both handshake frames carry the Worker's version; a mismatch means this
         // tab's bundle is stale and offers a reload (ADR 0046). Live `change`
         // frames don't carry it -- a reconnect is when the deploy gap appears.
-        if (msg.type !== "change") noteServerVersion(msg.serverVersion);
+        if (msg.type === "snapshot" || msg.type === "resume") {
+          noteServerVersion(msg.serverVersion);
+        }
         if (msg.type === "snapshot") {
           // Replace the whole collection: truncate, then write the full set.
           // Idempotent on first connect (empty) and on a resync past the
@@ -1038,3 +1092,28 @@ export function noteEchoedText(id: string, text: string): void {
 export function clearEchoedText(id: string): void {
   echoedText.delete(id);
 }
+
+/** Apply a remote sealed revision without re-persisting (ADR 0064). */
+function applySealedRemoteDelta(delta: SealRevisionDelta): void {
+  withPersistSuppressed(() => {
+    const live = nodesCollection.toArray as Node[];
+    const byId = new Map(live.map((n) => [n.id, n]));
+    for (const id of delta.deletes) {
+      if (byId.has(id)) nodesCollection.delete(id);
+    }
+    for (const n of delta.upserts) {
+      const prev = byId.get(n.id);
+      if (prev && n.updatedAt < prev.updatedAt) continue;
+      if (prev) {
+        nodesCollection.update(n.id, (draft) => {
+          Object.assign(draft, n);
+        });
+      } else {
+        nodesCollection.insert(n);
+      }
+      echoedText.set(n.id, n.text);
+    }
+  });
+}
+
+bindSealCollectionBridge({ applyRemoteDelta: applySealedRemoteDelta });

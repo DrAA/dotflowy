@@ -74,3 +74,18 @@ export function nodesToBaselineMap(nodes: readonly Node[]): Map<string, Node> {
   for (const n of nodes) map.set(n.id, n);
   return map;
 }
+
+/**
+ * Apply a remote revision onto a node map (ADR 0064). Deletes always win;
+ * upserts use node-level last-write-wins on `updatedAt` (tie → prefer remote).
+ */
+export function applySealRevisionDeltaToMap(
+  byId: Map<string, Node>,
+  delta: SealRevisionDelta,
+): void {
+  for (const id of delta.deletes) byId.delete(id);
+  for (const n of delta.upserts) {
+    const prev = byId.get(n.id);
+    if (!prev || n.updatedAt >= prev.updatedAt) byId.set(n.id, n);
+  }
+}

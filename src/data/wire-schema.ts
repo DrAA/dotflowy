@@ -132,6 +132,15 @@ const MediaMessage = Schema.Struct({
   deletes: Schema.Array(Schema.String),
 });
 
+/**
+ * Sealed multi-writer poke (ADR 0064): a revision envelope landed in R2.
+ * Clients pull `GET /api/seal/revisions?after=` — the frame carries no ciphertext.
+ */
+const SealRevMessage = Schema.Struct({
+  type: Schema.Literal("seal_rev"),
+  revSeq: Schema.Number,
+});
+
 /** The union of every DO→client frame. `realtime.ts` decodes inbound frames
  *  against this (closing the last unchecked `as ServerMessage` cast); the DO
  *  builds these frames and `satisfies` this type on the way out. */
@@ -140,5 +149,6 @@ export const ServerMessageSchema = Schema.Union([
   ResumeMessage,
   ChangeMessage,
   MediaMessage,
+  SealRevMessage,
 ]);
 export type ServerMessage = Schema.Schema.Type<typeof ServerMessageSchema>;

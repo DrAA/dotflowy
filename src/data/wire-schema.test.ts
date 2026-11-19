@@ -117,6 +117,12 @@ describe("ServerMessageSchema (DO → client frames)", () => {
     ).toBe(true);
   });
 
+  it("accepts a sealed revision poke", () => {
+    expect(decodes(ServerMessageSchema, { type: "seal_rev", revSeq: 12 })).toBe(
+      true,
+    );
+  });
+
   it("rejects an unknown frame type", () => {
     expect(decodes(ServerMessageSchema, { type: "bogus", seq: 1 })).toBe(false);
   });

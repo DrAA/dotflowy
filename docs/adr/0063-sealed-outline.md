@@ -39,6 +39,8 @@ Search/filter stay client-side over the decrypted in-memory outline ([ADR 0047](
 
 - New client crypto: KDF, keybag, envelope codec, unlock/lock UI, recovery-key ceremony, remember-device wrapping.
 - Sync adapter speaks a full sealed **snapshot** (live object) plus sealed **revision deltas** (upserts/deletes vs the prior revision baseline); DO meta holds keybag + flags; R2 holds those opaque envelopes. Field edits debounce onto the snapshot only; revisions append on structural flush / idle — not a second full-outline upload per keystroke.
+- **Snapshot OCC (`seal_snapshot_seq`)** — `PUT /api/seal/snapshot` requires `expectedSeq`; mismatch → 409 + reload. Stops silent last-writer-wins clobber across Firefox/Edge/phone. Concurrent tabs are **detect-and-reload** until live revision pull ([ADR 0064](./0064-sealed-live-revisions.md)). Prefer one unlocked session when possible; multi-writer convergence is Phase B.
+- Persist failures toast and retry; `pagehide` / `visibilitychange` flush; day create awaits seal flush so `daily-index` claims are not left without a durable snapshot.
 - Media upload/download encrypt/decrypt on the client.
 - Cutover UX for every existing account; support docs for “lost passphrase + lost recovery key = data gone.”
 - Hosted MCP deferred until the client bridge exists; product copy must not promise server-side agents over sealed data.

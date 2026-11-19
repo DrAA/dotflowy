@@ -133,7 +133,14 @@ export const SealKeybagPutBody = Schema.Struct({
   keybag: Schema.Unknown,
 });
 
-/** PUT /api/seal/snapshot — opaque sealed envelope JSON (ADR 0063). */
+/** Opaque sealed envelope only (revision append). */
+export const SealEnvelopeBody = Schema.Struct({
+  envelope: Schema.Unknown,
+});
+
+/** PUT /api/seal/snapshot — opaque sealed envelope + OCC token (ADR 0063). */
 export const SealSnapshotPutBody = Schema.Struct({
   envelope: Schema.Unknown,
+  /** Client's last known `seal_snapshot_seq`; must match DO or PUT is 409. */
+  expectedSeq: Schema.Number,
 });

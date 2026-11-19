@@ -10,6 +10,7 @@ import {
   queuePersistSealedNodes,
   resetSealPersistForTests,
   schedulePersistSealedNodes,
+  setSealSyncCursorsForTests,
 } from "./sync";
 
 function node(id: string, text: string): Node {
@@ -27,8 +28,14 @@ function node(id: string, text: string): Node {
 }
 
 describe("sealed persist coalesce", () => {
-  const calls: Array<{ path: string; method: string; bodySize: number }> = [];
+  const calls: Array<{
+    path: string;
+    method: string;
+    bodySize: number;
+    expectedSeq?: number;
+  }> = [];
   let originalFetch: typeof fetch;
+  let serverSnapshotSeq = 0;
 
   beforeEach(async () => {
     await resetSealPersistForTests();
@@ -36,6 +43,8 @@ describe("sealed persist coalesce", () => {
       fieldDebounceMs: 40,
       idleRevisionMs: 80,
     });
+    setSealSyncCursorsForTests({ snapshotSeq: 0, revSeq: 0 });
+    serverSnapshotSeq = 0;
     calls.length = 0;
     const { dek } = await createSeal("seal persist test passphrase");
     setSealDek(dek);
@@ -46,12 +55,41 @@ describe("sealed persist coalesce", () => {
         const path = url.startsWith("http")
           ? new URL(url).pathname
           : url.split("?")[0]!;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as { expectedSeq?: number })
+            : {};
         const bodySize = typeof init?.body === "string" ? init.body.length : 0;
+        const method = (init?.method ?? "GET").toUpperCase();
         calls.push({
           path,
-          method: (init?.method ?? "GET").toUpperCase(),
+          method,
           bodySize,
+          expectedSeq: body.expectedSeq,
         });
+        if (path === "/api/seal/snapshot" && method === "PUT") {
+          const expected =
+            typeof body.expectedSeq === "number" ? body.expectedSeq : -1;
+          if (expected !== serverSnapshotSeq) {
+            return new Response(
+              JSON.stringify({
+                error: "seal_snapshot_conflict",
+                snapshotSeq: serverSnapshotSeq,
+              }),
+              { status: 409 },
+            );
+          }
+          serverSnapshotSeq += 1;
+          return new Response(
+            JSON.stringify({ ok: true, snapshotSeq: serverSnapshotSeq }),
+            { status: 200 },
+          );
+        }
+        if (path === "/api/seal/revisions" && method === "POST") {
+          return new Response(JSON.stringify({ ok: true, revSeq: 1 }), {
+            status: 200,
+          });
+        }
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       },
     ) as typeof fetch;
@@ -63,7 +101,7 @@ describe("sealed persist coalesce", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("field schedule writes snapshot only, not a revision", async () => {
+  test("field schedule writes snapshot and revision for multi-device poke", async () => {
     schedulePersistSealedNodes([node("a", "one")]);
     await Bun.sleep(70);
     // Let the encrypt+PUT settle.
@@ -75,7 +113,8 @@ describe("sealed persist coalesce", () => {
       (c) => c.path === "/api/seal/revisions" && c.method === "POST",
     );
     expect(snapshots.length).toBe(1);
-    expect(revisions.length).toBe(0);
+    expect(snapshots[0]!.expectedSeq).toBe(0);
+    expect(revisions.length).toBe(1);
   });
 
   test("coalesces burst of field schedules into one snapshot", async () => {
@@ -102,19 +141,20 @@ describe("sealed persist coalesce", () => {
     expect(revisions.length).toBe(1);
   });
 
-  test("idle quiet after field persist appends one revision", async () => {
+  test("idle quiet after field revision does not double-post", async () => {
     schedulePersistSealedNodes([node("a", "idle")]);
     await Bun.sleep(70);
     await Bun.sleep(30);
     const afterField = calls.filter(
       (c) => c.path === "/api/seal/revisions" && c.method === "POST",
     ).length;
-    expect(afterField).toBe(0);
+    expect(afterField).toBe(1);
     await Bun.sleep(100);
     await Bun.sleep(30);
     const revisions = calls.filter(
       (c) => c.path === "/api/seal/revisions" && c.method === "POST",
     );
+    // Baseline already matches — idle arm skips an empty delta.
     expect(revisions.length).toBe(1);
   });
 
@@ -127,17 +167,32 @@ describe("sealed persist coalesce", () => {
         const path = url.startsWith("http")
           ? new URL(url).pathname
           : url.split("?")[0]!;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as { expectedSeq?: number })
+            : {};
         const bodySize = typeof init?.body === "string" ? init.body.length : 0;
+        const method = (init?.method ?? "GET").toUpperCase();
         calls.push({
           path,
-          method: (init?.method ?? "GET").toUpperCase(),
+          method,
           bodySize,
+          expectedSeq: body.expectedSeq,
         });
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await Bun.sleep(25);
         inFlight--;
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        if (path === "/api/seal/snapshot" && method === "PUT") {
+          serverSnapshotSeq += 1;
+          return new Response(
+            JSON.stringify({ ok: true, snapshotSeq: serverSnapshotSeq }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, revSeq: 1 }), {
+          status: 200,
+        });
       },
     ) as typeof fetch;
 
@@ -208,5 +263,48 @@ describe("sealed persist coalesce", () => {
       calls.filter((c) => c.path === "/api/seal/snapshot" && c.method === "PUT")
         .length,
     ).toBe(1);
+  });
+
+  test("OCC 409 rejects a stale expectedSeq", async () => {
+    await flushPersistSealedNodes([node("a", "first")]);
+    expect(serverSnapshotSeq).toBe(1);
+    // Simulate another device advancing the server seq without updating local.
+    serverSnapshotSeq = 5;
+    setSealSyncCursorsForTests({ snapshotSeq: 1 });
+    await expect(flushPersistSealedNodes([node("a", "stale")])).rejects.toThrow(
+      /conflict/i,
+    );
+  });
+
+  test("retries a transient 400 then succeeds", async () => {
+    let attempts = 0;
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const path = url.startsWith("http")
+          ? new URL(url).pathname
+          : url.split("?")[0]!;
+        const method = (init?.method ?? "GET").toUpperCase();
+        const bodySize = typeof init?.body === "string" ? init.body.length : 0;
+        calls.push({ path, method, bodySize });
+        if (path === "/api/seal/snapshot" && method === "PUT") {
+          attempts++;
+          if (attempts < 3) {
+            return new Response("", { status: 400 });
+          }
+          serverSnapshotSeq += 1;
+          return new Response(
+            JSON.stringify({ ok: true, snapshotSeq: serverSnapshotSeq }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, revSeq: 1 }), {
+          status: 200,
+        });
+      },
+    ) as typeof fetch;
+
+    await flushPersistSealedNodes([node("a", "retry")]);
+    expect(attempts).toBe(3);
   });
 });

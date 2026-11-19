@@ -682,6 +682,17 @@ export class UserOutlineDO extends DurableObject<Env> {
    */
   private initialFrame(since: number | null): ServerMessage {
     const seq = this.currentSeq();
+    // Sealed accounts keep outline ciphertext in R2 — never fan out plaintext
+    // node rows on the classic sync socket (ADR 0063 / 0064). Handshake is an
+    // empty snapshot so the socket stays up for `seal_rev` / media pokes.
+    if (this.isSealActive()) {
+      return {
+        type: "snapshot",
+        seq,
+        nodes: [],
+        serverVersion: APP_VERSION,
+      };
+    }
     if (since !== null && since <= seq) {
       const oldest =
         this.sql
@@ -715,6 +726,24 @@ export class UserOutlineDO extends DurableObject<Env> {
       nodes: this.getNodes(),
       serverVersion: APP_VERSION,
     };
+  }
+
+  /**
+   * Notify every live sync socket that sealed revision `revSeq` is readable in
+   * R2. Call only AFTER the envelope PUT succeeds (ADR 0064).
+   */
+  notifySealRev(revSeq: number): void {
+    const data = JSON.stringify({
+      type: "seal_rev",
+      revSeq,
+    } satisfies ServerMessage);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(data);
+      } catch {
+        // already gone
+      }
+    }
   }
 
   // --- kv side-collections ---------------------------------------------------
@@ -929,11 +958,55 @@ export class UserOutlineDO extends DurableObject<Env> {
     this.metaSet("seal_keybag", keybagJson);
   }
 
-  /** Worker wrote the sealed snapshot to R2 — record a small presence flag. */
-  markSealedSnapshotStored(): void {
-    this.ctx.storage.transactionSync(() => {
+  /** Current OCC token for the live sealed snapshot (0 = never written). */
+  getSealSnapshotSeq(): number {
+    const raw = this.metaGet("seal_snapshot_seq");
+    if (!raw) return 0;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  /** Rev-seq watermark of the live snapshot (pull baseline for ADR 0064). */
+  getSealSnapshotAtRev(): number {
+    const raw = this.metaGet("seal_snapshot_at_rev");
+    if (!raw) return 0;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  /**
+   * OCC commit before R2 PUT: bump `seal_snapshot_seq` only when `expectedSeq`
+   * matches. Returns the new seq on success, or `{ ok:false, seq }` on conflict
+   * so the Worker can 409 without having overwritten R2 with a stale envelope.
+   * Also stamps `seal_snapshot_at_rev` so unlock/pull starts after this compact.
+   */
+  commitSealSnapshot(
+    expectedSeq: number,
+  ): { ok: true; seq: number; atRev: number } | { ok: false; seq: number } {
+    return this.ctx.storage.transactionSync(() => {
+      const current = this.getSealSnapshotSeq();
+      if (expectedSeq !== current) {
+        return { ok: false as const, seq: current };
+      }
+      const next = current + 1;
+      const atRev = this.getSealRevSeq();
+      this.metaSet("seal_snapshot_seq", String(next));
+      this.metaSet("seal_snapshot_at_rev", String(atRev));
       this.metaSet("seal_snapshot_r2", "1");
       // Drop any legacy in-meta blob / revision array (pre-R2 dogfood).
+      this.metaDelete("seal_snapshot");
+      this.metaDelete("seal_revisions");
+      return { ok: true as const, seq: next, atRev };
+    });
+  }
+
+  /** @deprecated Prefer {@link commitSealSnapshot}; kept for backup restore. */
+  markSealedSnapshotStored(): void {
+    this.ctx.storage.transactionSync(() => {
+      const next = this.getSealSnapshotSeq() + 1;
+      this.metaSet("seal_snapshot_seq", String(next));
+      this.metaSet("seal_snapshot_at_rev", String(this.getSealRevSeq()));
+      this.metaSet("seal_snapshot_r2", "1");
       this.metaDelete("seal_snapshot");
       this.metaDelete("seal_revisions");
     });
@@ -941,6 +1014,14 @@ export class UserOutlineDO extends DurableObject<Env> {
 
   hasSealedSnapshotFlag(): boolean {
     return this.metaGet("seal_snapshot_r2") === "1";
+  }
+
+  /** Highest allocated sealed revision seq (0 if none). */
+  getSealRevSeq(): number {
+    const raw = this.metaGet("seal_rev_seq");
+    if (!raw) return 0;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
   }
 
   /**
@@ -974,6 +1055,9 @@ export class UserOutlineDO extends DurableObject<Env> {
     hasSealedSnapshot: boolean;
     hasPlaintextNodes: boolean;
     sealActive: boolean;
+    snapshotSeq: number;
+    snapshotAtRev: number;
+    revSeq: number;
   } {
     const keybag = this.metaGet("seal_keybag");
     const count = this.sql
@@ -984,6 +1068,9 @@ export class UserOutlineDO extends DurableObject<Env> {
       hasSealedSnapshot: this.hasSealedSnapshotFlag(),
       hasPlaintextNodes: (count?.n ?? 0) > 0,
       sealActive: this.metaGet("seal_active") === "1",
+      snapshotSeq: this.getSealSnapshotSeq(),
+      snapshotAtRev: this.getSealSnapshotAtRev(),
+      revSeq: this.getSealRevSeq(),
     };
   }
 
