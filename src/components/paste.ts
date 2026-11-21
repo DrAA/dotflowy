@@ -251,17 +251,15 @@ export function copySourceSelection(
   e.preventDefault();
   const slice = source.slice(range.start, range.end);
   cd.setData("text/plain", slice);
-  // Word / Docs ignore a bare <a> fragment and fall back to text/plain
-  // (markdown). A StartFragment document + RTF hyperlink fields make the
-  // paste a real link in those apps; Dotflowy still round-trips via plain
+  // Word / Docs ignore a bare <a>/<b> fragment and fall back to text/plain
+  // (markdown). A StartFragment document + RTF hyperlink/emphasis fields make
+  // the paste rich in those apps; Dotflowy still round-trips via plain
   // markdown or HTML→markdown on paste.
   cd.setData("text/html", markdownToClipboardHtml(slice));
-  if (hasLink(slice)) {
-    try {
-      cd.setData("text/rtf", markdownLinksToRtf(slice));
-    } catch {
-      // Some browsers reject text/rtf on the event clipboard — HTML still ships.
-    }
+  try {
+    cd.setData("text/rtf", markdownLinksToRtf(slice));
+  } catch {
+    // Some browsers reject text/rtf on the event clipboard — HTML still ships.
   }
   return { source, ...range };
 }

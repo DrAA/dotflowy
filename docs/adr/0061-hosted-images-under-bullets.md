@@ -64,8 +64,12 @@ Markdown and OPML append a counted `[image]` placeholder — never a private
 
 ## In-app copy / paste
 
-Selection / “Copy as Markdown” still put placeholders on `text/plain` (and
-HTML/RTF for external apps). For Dotflowy↔Dotflowy paste, image bytes ride a
-hidden `<!--aaflowy-outline:…-->` marker inside `text/html`; paste strips the
-placeholders and re-uploads attachments onto the new node ids. Cap ~8 MB so the
-system clipboard stays usable.
+Selection / “Copy as Markdown” keep `[image]` placeholders on `text/plain`
+(and never a private `/api/media/:id` URL). The same copy writes rich
+`text/html`: emphasis as `<b>`/`<i>`/…, links as `<a>`, and hosted image bytes
+as data-URI `<img>`s so Word / Docs paste real pictures. Dotflowy↔Dotflowy
+paste also reads a hidden `<!--aaflowy-outline:…-->` marker in that HTML,
+strips the placeholders, and re-uploads attachments onto the new node ids.
+Cap ~8 MB so the system clipboard stays usable. RTF is omitted when the copy
+carries images — Word prefers RTF over HTML and would otherwise drop the
+pictures.
