@@ -265,15 +265,15 @@ describe("sealed persist coalesce", () => {
     ).toBe(1);
   });
 
-  test("OCC 409 rejects a stale expectedSeq", async () => {
+  test("OCC 409 soft-recovers and retries the snapshot", async () => {
     await flushPersistSealedNodes([node("a", "first")]);
     expect(serverSnapshotSeq).toBe(1);
     // Simulate another device advancing the server seq without updating local.
     serverSnapshotSeq = 5;
     setSealSyncCursorsForTests({ snapshotSeq: 1 });
-    await expect(flushPersistSealedNodes([node("a", "stale")])).rejects.toThrow(
-      /conflict/i,
-    );
+    await flushPersistSealedNodes([node("a", "local")]);
+    // Adopted seq 5, then compacted successfully to 6 — no reload / throw.
+    expect(serverSnapshotSeq).toBe(6);
   });
 
   test("retries a transient 400 then succeeds", async () => {

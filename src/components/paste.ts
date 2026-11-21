@@ -25,6 +25,11 @@ import {
   markdownToClipboardHtml,
 } from "../data/clipboard-html";
 import { hasLink } from "../data/links";
+import {
+  outlineClipboardHasImages,
+  readOutlineClipboardPayload,
+  stripImagePlaceholders,
+} from "../data/outline-clipboard";
 import { afterPaste, pasteFiles, pasteReplacement } from "../plugins/registry";
 import {
   decorate,
@@ -141,6 +146,7 @@ export function pasteIntoBullet(
     .replace(/\r\n?/g, "\n")
     .replace(/\n$/, "");
   const html = cd.getData("text/html");
+  const outlineImages = readOutlineClipboardPayload(cd);
 
   // Rich clipboard often puts the URL only in text/html (Docs / Word /
   // browser selection) while text/plain is just the label. Prefer the
@@ -173,9 +179,17 @@ export function pasteIntoBullet(
   // destructive one. Splitting a joined paragraph back apart is retyping;
   // merging two bullets is one Backspace. The core pre-pass runs BEFORE the
   // Seam I chain and never returns to it.
-  if (structural && plain.includes("\n")) {
+  //
+  // In-app copies that carry hosted images also take the structural path even
+  // for a single line so the image slots can land on the new node ids.
+  const structuralPaste =
+    structural &&
+    (plain.includes("\n") || outlineClipboardHasImages(outlineImages));
+  if (structuralPaste && structural) {
     const handled = pasteMarkdownTree({
-      source: plain,
+      source: outlineClipboardHasImages(outlineImages)
+        ? stripImagePlaceholders(plain)
+        : plain,
       literal,
       anchorId: nodeId,
       activeKey: structural.activeKey,
@@ -184,6 +198,7 @@ export function pasteIntoBullet(
       tail: source.slice(end),
       rowEl: structural.rowEl,
       focus: structural.focus,
+      outlineImages,
     });
     // The collection now owns the anchor's text; the row's sync effect
     // re-decorates from it. Reporting null keeps the caller's `syncedRef` stale,

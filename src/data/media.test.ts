@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  inferImageContentType,
   isAttachableImage,
   MEDIA_GC_GRACE_MS,
   mediaDeletePermitsLiveNode,
   mediaOrphansToDelete,
   nodeHasImage,
   retainFileBytes,
+  sniffImageContentType,
 } from "./media";
 import { isMediaGcSuppressed, withMediaGcSuppressed } from "./media-snapshot";
 
@@ -36,6 +38,22 @@ describe("isAttachableImage", () => {
     expect(
       isAttachableImage(new File([], "notes.txt", { type: "text/plain" })),
     ).toBe(false);
+  });
+
+  test("infers MIME for typeless clipboard-style names", () => {
+    expect(inferImageContentType(new File([], "image", { type: "" }))).toBe(
+      "image/png",
+    );
+    expect(inferImageContentType(new File([], "image.png", { type: "" }))).toBe(
+      "image/png",
+    );
+  });
+
+  test("sniffs PNG magic bytes", () => {
+    const png = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0,
+    ]);
+    expect(sniffImageContentType(png)).toBe("image/png");
   });
 });
 

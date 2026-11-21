@@ -1330,5 +1330,6 @@ function asMediaSyncRow(value: unknown): MediaSyncRow | null {
     width: r.width,
     height: r.height,
     createdAt: r.createdAt,
+    ...(r.sealed === true ? { sealed: true as const } : {}),
   };
 }

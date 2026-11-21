@@ -21,8 +21,17 @@ import {
   mediaRowsToReapply,
   type MediaSnapshotRow,
 } from "./media-snapshot";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  OUTLINE_CLIPBOARD_MAX_BYTES,
+  outlineClipboardContentIds,
+  type OutlineClipboardImage,
+  type OutlineClipboardPayload,
+  type OutlineClipboardSlot,
+} from "./outline-clipboard";
 import { queryClient } from "./query-client";
-import { sealMediaBytes, sealMediaFile, unsealMediaBytes } from "./seal/media";
+import { sealMediaBytes, unsealMediaBytes } from "./seal/media";
 import { getSealDek } from "./seal/session";
 import { trueSourceOf } from "./tree";
 import { getTreeIndex, subscribeTree } from "./tree-store";
@@ -109,17 +118,81 @@ const ACCEPT = new Set([
 ]);
 
 export function isAttachableImage(file: File): boolean {
-  if (ACCEPT.has(file.type)) return true;
+  if (inferImageContentType(file) != null) return true;
+  // Clipboard bitmaps sometimes have no MIME and no extension; sniff later.
+  return file.type === "" && file.size > 32;
+}
+
+/**
+ * MIME for upload. Clipboard pastes often arrive with an empty `File.type`
+ * (Firefox/Safari); sealed POST rejects anything outside ALLOWED_IMAGE_TYPES,
+ * so we must not send `application/octet-stream`.
+ */
+export function inferImageContentType(file: File): string | null {
+  if (ACCEPT.has(file.type)) return file.type;
   const name = file.name.toLowerCase();
-  return (
-    file.type === "" &&
-    (name.endsWith(".png") ||
-      name.endsWith(".jpg") ||
-      name.endsWith(".jpeg") ||
-      name.endsWith(".gif") ||
-      name.endsWith(".webp") ||
-      name.endsWith(".avif"))
-  );
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".avif")) return "image/avif";
+  // Screenshot / OS paste often names the file "image.png" or bare "image".
+  if (file.type === "" && (name === "image" || name.startsWith("image."))) {
+    return "image/png";
+  }
+  return null;
+}
+
+/** Magic-byte sniff (same signatures as worker/media.ts) for typeless pastes. */
+export function sniffImageContentType(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) return null;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38
+  ) {
+    return "image/gif";
+  }
+  if (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  // ftyp....avif / avis
+  if (
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70
+  ) {
+    const brand = String.fromCharCode(
+      bytes[8]!,
+      bytes[9]!,
+      bytes[10]!,
+      bytes[11]!,
+    );
+    if (brand === "avif" || brand === "avis") return "image/avif";
+  }
+  return null;
 }
 
 export type MediaOverlay = {
@@ -181,6 +254,17 @@ function rebuild(): void {
   // and leave <img src=""> after reload).
   rows = mediaCollection.toArray.slice();
   for (const l of listeners) l();
+}
+
+/** Cache a plaintext object URL and force a media re-render (ADR 0063). */
+function cacheSealedObjectUrl(id: string, url: string): void {
+  const prev = sealedObjectUrls.get(id);
+  if (prev) URL.revokeObjectURL(prev);
+  sealedObjectUrls.set(id, url);
+  // Must rebuild — notifying listeners alone keeps the same `rows` reference
+  // and useSyncExternalStore skips the paint (blank <img> after sealed paste
+  // when the live echo inserted the row before this cache landed).
+  rebuild();
 }
 
 function restoreMediaSnapshot(data: unknown): void {
@@ -312,9 +396,18 @@ function bindSnapshotHandlers(): void {
 function applyRemoteMediaRows(rows: readonly RemoteMediaRow[]): void {
   // writeUpsert lands in the synced store and does not PUT back to the server.
   // A local upload that already inserted the row is an update of the same id.
+  const sealedMode = isSealedOutlineEnabled();
   for (const row of rows) {
     try {
-      mediaCollection.utils.writeUpsert(row);
+      const prev = mediaCollection.toArray.find((r) => r.id === row.id);
+      // Live frames used to omit `sealed`; in sealed mode every attachment is
+      // ciphertext after migrate, so mark + decrypt even when the poke lacks it.
+      const sealed = sealedMode || row.sealed === true || prev?.sealed === true;
+      mediaCollection.utils.writeUpsert({
+        ...row,
+        ...(sealed ? { sealed: true } : {}),
+      });
+      if (sealedMode) void ensureSealedObjectUrl(row.id);
     } catch (err) {
       mediaLog("warn", "remote.upsert.skip", {
         mediaId: row.id,
@@ -322,6 +415,9 @@ function applyRemoteMediaRows(rows: readonly RemoteMediaRow[]): void {
       });
     }
   }
+  // writeUpsert can be quiet to useSyncExternalStore; force a paint so the
+  // peer shows the new row (and later the blob URL) without a full reload.
+  rebuild();
 }
 
 function applyRemoteMediaDeletes(ids: readonly string[]): void {
@@ -396,13 +492,35 @@ async function ensureSealedObjectUrl(id: string): Promise<void> {
     if (!res.ok) return;
     const packed = new Uint8Array(await res.arrayBuffer());
     const row = mediaCollection.toArray.find((r) => r.id === id);
-    const plain = row?.sealed ? await unsealMediaBytes(packed) : packed;
+    const headerSealed = res.headers.get("x-seal-envelope") === "1";
+    // Sealed accounts always fetch ciphertext after migrate. Fall back to raw
+    // bytes only when decrypt fails and the server did not claim an envelope
+    // (pre-reseal plaintext leftover).
+    const preferUnseal =
+      isSealedOutlineEnabled() || row?.sealed === true || headerSealed;
+    let plain: Uint8Array<ArrayBuffer>;
+    if (preferUnseal) {
+      try {
+        plain = await unsealMediaBytes(packed);
+      } catch (err) {
+        if (headerSealed || row?.sealed) throw err;
+        const copy = new Uint8Array(packed.byteLength);
+        copy.set(packed);
+        plain = copy;
+      }
+    } else {
+      const copy = new Uint8Array(packed.byteLength);
+      copy.set(packed);
+      plain = copy;
+    }
     const blob = new Blob([plain], {
       type: row?.contentType || "application/octet-stream",
     });
     const url = URL.createObjectURL(blob);
-    sealedObjectUrls.set(id, url);
-    for (const cb of listeners) cb();
+    if (preferUnseal && row && !row.sealed && mediaCollection.has(id)) {
+      mediaCollection.utils.writeUpsert({ ...row, sealed: true });
+    }
+    cacheSealedObjectUrl(id, url);
   } catch (err) {
     mediaLog("error", "sealed.decrypt-fail", {
       mediaId: id,
@@ -498,11 +616,9 @@ export async function resealExistingMedia(): Promise<void> {
           mediaCollection.utils.writeUpsert(next);
         }
         // Cache plaintext we still hold for immediate display.
-        const prev = sealedObjectUrls.get(row.id);
-        if (prev) URL.revokeObjectURL(prev);
         const view = new Uint8Array(plain.byteLength);
         view.set(plain);
-        sealedObjectUrls.set(
+        cacheSealedObjectUrl(
           row.id,
           URL.createObjectURL(new Blob([view], { type: contentType })),
         );
@@ -518,7 +634,7 @@ export async function resealExistingMedia(): Promise<void> {
   } finally {
     resealRunning = false;
     mediaLog("info", "reseal.done", { sealed, failed });
-    for (const cb of listeners) cb();
+    rebuild();
   }
 }
 
@@ -570,6 +686,143 @@ export function imageCountsByNode(): Map<string, number> {
     map.set(row.nodeId, (map.get(row.nodeId) ?? 0) + 1);
   }
   return map;
+}
+
+async function readMediaPlainBytes(row: MediaRow): Promise<Uint8Array | null> {
+  const cached = sealedObjectUrls.get(row.id);
+  if (cached) {
+    try {
+      const res = await fetch(cached);
+      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      /* fall through */
+    }
+  }
+  if (isLocalDataEnabled()) {
+    const url = localMediaObjectUrl(row.id);
+    if (!url) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const res = await fetch(`/api/media/${row.id}`, {
+      credentials: "same-origin",
+    });
+    if (!res.ok) return null;
+    const packed = new Uint8Array(await res.arrayBuffer());
+    const headerSealed = res.headers.get("x-seal-envelope") === "1";
+    if (row.sealed || headerSealed || isSealedOutlineEnabled()) {
+      try {
+        return await unsealMediaBytes(packed);
+      } catch {
+        if (headerSealed || row.sealed) return null;
+        return packed;
+      }
+    }
+    return packed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the in-app image payload for a copy of `rootIds` (DFS slot order).
+ * Returns null when there are no images or the payload would exceed the cap.
+ */
+export async function buildOutlineClipboardImages(
+  rootIds: readonly string[],
+): Promise<OutlineClipboardPayload | null> {
+  ensureStarted();
+  const index = getTreeIndex();
+  const contentIds = outlineClipboardContentIds(index, rootIds);
+  const slots: OutlineClipboardSlot[] = [];
+  let total = 0;
+  for (let slot = 0; slot < contentIds.length; slot++) {
+    const contentId = contentIds[slot]!;
+    const rows = mediaForNode(contentId, mediaCollection.toArray);
+    if (rows.length === 0) continue;
+    const items: OutlineClipboardImage[] = [];
+    for (const row of rows) {
+      const plain = await readMediaPlainBytes(row);
+      if (!plain || plain.byteLength === 0) continue;
+      total += plain.byteLength;
+      if (total > OUTLINE_CLIPBOARD_MAX_BYTES) {
+        mediaLog("warn", "outline-clipboard.too-large", {
+          roots: rootIds.length,
+          bytes: total,
+        });
+        return null;
+      }
+      items.push({
+        contentType: row.contentType || "application/octet-stream",
+        width: row.width,
+        height: row.height,
+        data: bytesToBase64(plain),
+      });
+    }
+    if (items.length) slots.push({ slot, items });
+  }
+  if (slots.length === 0) return null;
+  return { v: 1, images: slots };
+}
+
+/** Re-upload clipboard images onto pasted node ids (slot → target). */
+export async function attachOutlineClipboardImages(
+  targetIds: readonly string[],
+  payload: OutlineClipboardPayload,
+): Promise<void> {
+  ensureStarted();
+  let attached = 0;
+  let failed = 0;
+  for (const slot of payload.images) {
+    const nodeId = targetIds[slot.slot];
+    if (!nodeId) continue;
+    for (const item of slot.items) {
+      try {
+        const bytes = base64ToBytes(item.data);
+        const ext =
+          item.contentType === "image/jpeg"
+            ? "jpg"
+            : item.contentType === "image/png"
+              ? "png"
+              : item.contentType === "image/gif"
+                ? "gif"
+                : item.contentType === "image/webp"
+                  ? "webp"
+                  : item.contentType === "image/avif"
+                    ? "avif"
+                    : "bin";
+        const file = new File([bytes], `pasted.${ext}`, {
+          type: item.contentType,
+        });
+        const row = await postMedia(file, nodeId, item.width, item.height);
+        if (mediaCollection.has(row.id)) {
+          mediaCollection.utils.writeUpsert(row);
+        } else {
+          mediaCollection.insert(row);
+        }
+        attached++;
+      } catch (err) {
+        failed++;
+        mediaLog("error", "outline-clipboard.attach-fail", {
+          slot: slot.slot,
+          nodeId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+  if (attached) rebuild();
+  if (failed && !attached) {
+    toast.error("Couldn't attach the copied images.");
+  } else if (failed) {
+    toast.error("Some copied images couldn't be attached.");
+  }
 }
 
 /** Live rows for non-React callers (filter predicates). Starts the collection. */
@@ -674,8 +927,20 @@ async function uploadAll(
         });
       }
       const row = await postMedia(file, contentId, width, height, batchId, i);
-      // The live echo can land before this insert. A second insert throws.
-      if (!mediaCollection.has(row.id)) mediaCollection.insert(row);
+      // The live echo can land before this insert. Merge so we keep `sealed`
+      // even if an older peer frame omitted it; a second insert throws.
+      if (mediaCollection.has(row.id)) {
+        const prev = mediaCollection.toArray.find((r) => r.id === row.id);
+        mediaCollection.utils.writeUpsert({
+          ...prev,
+          ...row,
+          ...(prev?.sealed || row.sealed ? { sealed: true } : {}),
+        });
+      } else {
+        mediaCollection.insert(row);
+      }
+      // Echo may have painted with src="" before the blob URL was cached.
+      rebuild();
       mediaLog("info", "upload.ok", {
         batchId,
         index: i,
@@ -724,7 +989,15 @@ async function postMedia(
     };
   }
   const sealed = isSealedOutlineEnabled() && !!getSealDek();
-  const contentType = file.type || "application/octet-stream";
+  const plainBytes = new Uint8Array(await file.arrayBuffer());
+  const contentType =
+    inferImageContentType(file) ||
+    sniffImageContentType(plainBytes) ||
+    file.type ||
+    "";
+  if (!ACCEPT.has(contentType)) {
+    throw new Error(`unsupported image type (${contentType || "unknown"})`);
+  }
   let body: BodyInit = file;
   const headers: Record<string, string> = {
     "content-type": sealed ? "application/octet-stream" : contentType,
@@ -734,10 +1007,12 @@ async function postMedia(
     ...(index != null ? { "x-media-batch-index": String(index) } : {}),
   };
   if (sealed) {
-    const packed = await sealMediaFile(file);
+    const packed = await sealMediaBytes(plainBytes);
     body = packed;
     headers["x-seal-envelope"] = "1";
     headers["x-seal-content-type"] = contentType;
+  } else {
+    body = plainBytes;
   }
   const res = await fetch(`/api/media?nodeId=${encodeURIComponent(nodeId)}`, {
     method: "POST",
@@ -756,11 +1031,8 @@ async function postMedia(
   }
   const row = (await res.json()) as MediaRow;
   // Preview from the plaintext file we still hold — skip a decrypt round-trip.
-  if (row.sealed) {
-    const prev = sealedObjectUrls.get(row.id);
-    if (prev) URL.revokeObjectURL(prev);
-    sealedObjectUrls.set(row.id, URL.createObjectURL(file));
-    for (const cb of listeners) cb();
+  if (sealed || row.sealed) {
+    cacheSealedObjectUrl(row.id, URL.createObjectURL(file));
   }
   return row;
 }

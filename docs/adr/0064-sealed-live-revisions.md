@@ -12,8 +12,8 @@ Sealed mode ([ADR 0063](./0063-sealed-outline.md)) stores the live outline as on
 2. **`GET /api/seal/revisions?after=N`** returns envelopes with seq `> N` (plus current `revSeq`). Clients decrypt locally with the DEK.
 3. **On unlock**: hydrate snapshot, then apply revisions with seq `>` DO `seal_snapshot_at_rev` (stamped on every OCC snapshot commit). Do not start at tip — that skips catch-up.
 4. **While unlocked**: `/api/sync` stays open for opaque `seal_rev` pokes (revSeq only — no ciphertext). On poke, clients `GET /api/seal/revisions?after=N` and apply with **node-level last-write-wins on `updatedAt`** (tie → prefer remote). Deletes always apply. Sibling-chain heal stays the existing tree invariant. A slow poll is fallback only. Persist pulls once more immediately before snapshot compact so a writer cannot omit nodes another device already appended. When `seal_active`, the classic hello snapshot is empty so plaintext never fans out.
-5. **Local edits** still debounce onto the OCC-gated snapshot and append revision deltas on structural flush / idle (unchanged from 0063).
-6. **OCC snapshot conflict** still forces reload when two tabs race a full snapshot PUT; revision pull handles the common case of concurrent edits under different parents without a full reload.
+5. **Local edits** append a sealed revision first (so peers poke+pull immediately), then best-effort OCC-compact the live snapshot. Snapshot is compaction, not the multi-writer wire.
+6. **OCC snapshot conflict** adopts the server seq, pulls missing revisions, and retries compact once — **no page reload**. Concurrent tabs converge via revisions; a lost snapshot race must not discard local ciphertext that already landed as a revision.
 
 ## Considered and rejected
 

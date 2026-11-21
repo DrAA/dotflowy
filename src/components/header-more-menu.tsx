@@ -25,7 +25,7 @@ import { isLocalDataEnabled } from "../data/flags";
 import { capture } from "../data/history";
 import { flattenInline } from "../data/inline-text";
 import { outlineToMarkdown } from "../data/markdown";
-import { imageCountsByNode } from "../data/media";
+import { buildOutlineClipboardImages, imageCountsByNode } from "../data/media";
 import { toggleCollapsed } from "../data/mutations";
 import { exportOpml } from "../data/opml-export";
 import { runStructural } from "../data/structural";
@@ -81,7 +81,8 @@ export async function copyOutlineAsMarkdown() {
     return;
   }
   try {
-    await writeMarkdownToClipboard(markdown);
+    const outline = await buildOutlineClipboardImages(rootIds);
+    await writeMarkdownToClipboard(markdown, outline);
     toast.success("Copied as Markdown");
   } catch {
     toast.error("Couldn't copy to clipboard");

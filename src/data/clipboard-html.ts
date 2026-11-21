@@ -22,6 +22,10 @@ import {
   isHttpUrl,
   sanitizeLinkLabel,
 } from "./links";
+import {
+  appendOutlinePayloadToHtml,
+  type OutlineClipboardPayload,
+} from "./outline-clipboard";
 
 /** Same shape as links.ts's LINK_RE — capturing groups for label + url. */
 const LINK_RE = () => /\[([^\]]*)\]\(([^)]*)\)/g;
@@ -149,9 +153,18 @@ export function markdownLinksToRtf(text: string): string {
  * Write markdown to the system clipboard as text/plain + text/html (+ text/rtf
  * when ClipboardItem accepts it). Used by node multi-select and menu "Copy as
  * Markdown" so external apps receive real hyperlinks, not `[label](url)`.
+ *
+ * Optional `outline` embeds hosted-image bytes in the HTML for in-app paste
+ * (ADR 0061 placeholders remain in text/plain for external apps).
  */
-export async function writeMarkdownToClipboard(md: string): Promise<void> {
-  const html = markdownToClipboardHtml(md);
+export async function writeMarkdownToClipboard(
+  md: string,
+  outline?: OutlineClipboardPayload | null,
+): Promise<void> {
+  const html = appendOutlinePayloadToHtml(
+    markdownToClipboardHtml(md),
+    outline ?? { v: 1, images: [] },
+  );
   const rtf = markdownLinksToRtf(md);
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     try {

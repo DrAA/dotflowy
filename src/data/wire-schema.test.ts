@@ -117,6 +117,27 @@ describe("ServerMessageSchema (DO → client frames)", () => {
     ).toBe(true);
   });
 
+  it("accepts a sealed media frame", () => {
+    expect(
+      decodes(ServerMessageSchema, {
+        type: "media",
+        upserts: [
+          {
+            id: "m1",
+            nodeId: "n1",
+            contentType: "image/png",
+            bytes: 12,
+            width: 1,
+            height: 1,
+            createdAt: 1,
+            sealed: true,
+          },
+        ],
+        deletes: [],
+      }),
+    ).toBe(true);
+  });
+
   it("accepts a sealed revision poke", () => {
     expect(decodes(ServerMessageSchema, { type: "seal_rev", revSeq: 12 })).toBe(
       true,

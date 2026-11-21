@@ -122,6 +122,8 @@ export const MediaSyncRowSchema = Schema.Struct({
   width: Schema.Number,
   height: Schema.Number,
   createdAt: Schema.Number,
+  /** True when R2 body is a sealed envelope (ADR 0063). Optional for older frames. */
+  sealed: Schema.optional(Schema.Boolean),
 });
 export type MediaSyncRow = Schema.Schema.Type<typeof MediaSyncRowSchema>;
 

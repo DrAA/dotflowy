@@ -31,7 +31,7 @@ import { paragraphCommand } from "../data/core-commands";
 import { isMirrorsEnabled } from "../data/flags";
 import { capture, drop } from "../data/history";
 import { outlineToMarkdown } from "../data/markdown";
-import { imageCountsByNode } from "../data/media";
+import { buildOutlineClipboardImages, imageCountsByNode } from "../data/media";
 import {
   indentManyNodes,
   moveManyDown,
@@ -126,15 +126,18 @@ function makeSelectionOps({
   // ADR 0017 serializer verbatim). Also writes HTML + RTF so Word / Docs get
   // real hyperlinks. Read-only, so the selection persists.
   const copy = () => {
-    const md = outlineToMarkdown(
-      getTreeIndex(),
-      getSelectionRootIds(),
-      imageCountsByNode(),
-    );
+    const ids = getSelectionRootIds();
+    const md = outlineToMarkdown(getTreeIndex(), ids, imageCountsByNode());
     if (!md) return;
-    writeMarkdownToClipboard(md)
-      .then(() => toast.success("Copied as Markdown"))
-      .catch(() => toast.error("Couldn't copy to clipboard"));
+    void (async () => {
+      try {
+        const outline = await buildOutlineClipboardImages(ids);
+        await writeMarkdownToClipboard(md, outline);
+        toast.success("Copied as Markdown");
+      } catch {
+        toast.error("Couldn't copy to clipboard");
+      }
+    })();
   };
 
   // Delete every selected root (and its subtree) in ONE atomic batch
@@ -233,12 +236,16 @@ function makeSelectionOps({
     if (ids.length === 0) return;
     const md = outlineToMarkdown(getTreeIndex(), ids, imageCountsByNode());
     if (!md) return;
-    writeMarkdownToClipboard(md)
-      .then(() => {
+    void (async () => {
+      try {
+        const outline = await buildOutlineClipboardImages(ids);
+        await writeMarkdownToClipboard(md, outline);
         toast.success("Cut as Markdown");
         remove(ids);
-      })
-      .catch(() => toast.error("Couldn't cut to clipboard"));
+      } catch {
+        toast.error("Couldn't cut to clipboard");
+      }
+    })();
   };
 
   // Open the destination picker for the whole run (the dialog moves them as one

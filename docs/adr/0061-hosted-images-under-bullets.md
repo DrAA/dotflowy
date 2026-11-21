@@ -61,3 +61,11 @@ because that mode has no DO.
 
 Markdown and OPML append a counted `[image]` placeholder — never a private
 `/api/media/:id` URL. MCP flatten mentions `[image]` and does not send bytes.
+
+## In-app copy / paste
+
+Selection / “Copy as Markdown” still put placeholders on `text/plain` (and
+HTML/RTF for external apps). For Dotflowy↔Dotflowy paste, image bytes ride a
+hidden `<!--aaflowy-outline:…-->` marker inside `text/html`; paste strips the
+placeholders and re-uploads attachments onto the new node ids. Cap ~8 MB so the
+system clipboard stays usable.

@@ -32,6 +32,13 @@ import {
   type MdPastePlacement,
   type MdPastePlan,
 } from "../data/markdown-import";
+import { attachOutlineClipboardImages } from "../data/media";
+import {
+  outlineClipboardHasImages,
+  outlinePasteTargetIds,
+  stripImagePlaceholders,
+  type OutlineClipboardPayload,
+} from "../data/outline-clipboard";
 import { runStructural, runStructuralSliced } from "../data/structural";
 import { buildTreeIndex, makeNode, now } from "../data/tree";
 import { getTreeIndex } from "../data/tree-store";
@@ -72,6 +79,8 @@ export interface MarkdownPasteArgs {
   /** The `.outline-row` to shake when a protection guard rejects. */
   rowEl: Element | null;
   focus: PasteFocusSink;
+  /** In-app copy payload: re-attach hosted images after the tree lands. */
+  outlineImages?: OutlineClipboardPayload | null;
 }
 
 /**
@@ -81,7 +90,6 @@ export interface MarkdownPasteArgs {
  */
 export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
   const {
-    source,
     literal,
     anchorId,
     activeKey,
@@ -90,7 +98,13 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
     tail,
     rowEl,
     focus,
+    outlineImages,
   } = args;
+  // Drop export placeholders when we will re-attach real images (or even when
+  // we won't — a stale `[image]` in the bullet text is never useful).
+  const source = outlineClipboardHasImages(outlineImages)
+    ? stripImagePlaceholders(args.source)
+    : args.source;
 
   // Guard the raw input before the line scan, the OPML byte-ceiling's shape.
   if (source.length > PASTE_MAX_LENGTH) {
@@ -135,6 +149,17 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
 
   const timestamp = now();
   const opCount = 1 + plan.insertCount + plan.repoints.length;
+  const scheduleImages = () => {
+    if (!outlineClipboardHasImages(outlineImages)) return;
+    const targets = outlinePasteTargetIds(
+      anchorId,
+      plan.inserts.map((n) => n.id),
+    );
+    void attachOutlineClipboardImages(targets, outlineImages!).catch((err) => {
+      console.error("[paste] outline images", err);
+      toast.error("Couldn't attach the copied images.");
+    });
+  };
 
   // Lunora flag-ON: classic `nodesCollection` is idle — land via
   // `applyChangeOps` watermarks (delta only: anchor + inserts + repoints). A
@@ -163,9 +188,12 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
         return true;
       }
       handOffPasteFocus(plan, anchorId, activeKey, count, focus);
+      scheduleImages();
       return true;
     }
-    void runLunoraSlicedPaste(plan, anchorId, timestamp, lunora, count);
+    void runLunoraSlicedPaste(plan, anchorId, timestamp, lunora, count).then(
+      () => scheduleImages(),
+    );
     return true;
   }
 
@@ -220,6 +248,7 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
       throw err;
     }
     handOffPasteFocus(plan, anchorId, activeKey, count, focus);
+    scheduleImages();
     return true;
   }
 
@@ -231,7 +260,7 @@ export function pasteMarkdownTree(args: MarkdownPasteArgs): boolean {
     writeInsert,
     writeRepoints,
     count,
-  });
+  }).then(() => scheduleImages());
   return true;
 }
 

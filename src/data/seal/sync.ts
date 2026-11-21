@@ -46,15 +46,15 @@ export type SealedOutlinePayload = {
   nodes: Node[];
 };
 
-/** Debounce for keystroke/field persists (snapshot only). */
-export const SEAL_FIELD_DEBOUNCE_MS = 4000;
+/** Debounce for keystroke/field persists (revision + snapshot compact). */
+export const SEAL_FIELD_DEBOUNCE_MS = 800;
 /** After the last snapshot-only persist, append one revision once idle. */
 export const SEAL_IDLE_REVISION_MS = 2_000;
 /**
- * Fallback poll while unlocked — WS `seal_rev` is the primary path; this only
- * covers a missed poke / half-open socket.
+ * Fallback poll while unlocked — WS `seal_rev` is primary; keep this short so a
+ * missed poke still converges in a couple of seconds.
  */
-export const SEAL_REVISION_POLL_MS = 30_000;
+export const SEAL_REVISION_POLL_MS = 2_000;
 const SEAL_PUT_MAX_ATTEMPTS = 4;
 
 let fieldDebounceMs = SEAL_FIELD_DEBOUNCE_MS;
@@ -152,22 +152,19 @@ async function appendRevision(envelope: SealedEnvelope): Promise<void> {
   if (revSeq > localRevSeq) localRevSeq = revSeq;
 }
 
-function handleSnapshotConflict(err: SealSnapshotConflictError): void {
-  conflictBlocked = true;
+/**
+ * Another device compacted the live snapshot. Adopt their OCC token, pull any
+ * revisions we missed, and keep editing — never reload (ADR 0064).
+ */
+async function recoverSnapshotConflict(
+  err: SealSnapshotConflictError,
+): Promise<void> {
   localSnapshotSeq = err.snapshotSeq;
-  queuedNodes = null;
-  queuedWantRevision = false;
-  clearPersistTimer();
-  clearIdleRevisionTimer();
-  // Detect-and-reload (Phase A). Phase B soft-merges via revision pull; OCC
-  // still forces a full rehydrate when the live snapshot diverged.
-  if (typeof window !== "undefined") {
-    toast.error("Another device saved a newer outline. Reloading…", {
-      duration: 8_000,
-    });
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 600);
+  conflictBlocked = false;
+  try {
+    await pullRemoteRevisionsOnce();
+  } catch (pullErr) {
+    console.error("[seal] conflict recovery pull failed", pullErr);
   }
 }
 
@@ -204,7 +201,11 @@ async function putSnapshotWithRetry(
     : new Error("Couldn't save sealed snapshot.");
 }
 
-/** Seal + upload. Returns false when superseded by a newer queued outline. */
+/**
+ * Fan out a revision (peers converge), then best-effort OCC-compact the
+ * snapshot. Revision is posted first so a lost snapshot race never drops
+ * local edits or forces a reload.
+ */
 async function writeSealedSnapshot(
   nodes: readonly Node[],
   opts: { revision: boolean },
@@ -213,8 +214,7 @@ async function writeSealedSnapshot(
   const dek = getSealDek();
   if (!dek) throw new Error("Seal is locked.");
 
-  // Merge remote revisions before compacting so a snapshot cannot omit nodes
-  // another device already appended (ADR 0064).
+  // Merge remote revisions before we compute our delta / compact.
   try {
     await pullRemoteRevisionsOnce();
   } catch (err) {
@@ -225,54 +225,62 @@ async function writeSealedSnapshot(
     return false;
   }
   // Prefer the post-pull outline (local queue + remote LWW merges).
-  const toWrite = latestNodes ? [...latestNodes] : [...nodes];
-
-  const snapshotSeq = ++persistSeq;
-  const expectedSeq = localSnapshotSeq;
-  const snapshotEnvelope = await sealJson(dek, "snapshot", snapshotSeq, {
-    nodes: toWrite,
-  });
-  // Drop work that went stale during encrypt; keep revision intent for the
-  // newer queue so a structural flush is not lost behind a follow-up keystroke.
-  if (queuedNodes) {
-    if (opts.revision) queuedWantRevision = true;
-    return false;
-  }
-  try {
-    localSnapshotSeq = await putSnapshotWithRetry(
-      snapshotEnvelope,
-      expectedSeq,
-    );
-  } catch (err) {
-    if (err instanceof SealSnapshotConflictError) {
-      handleSnapshotConflict(err);
-      throw err;
-    }
-    throw err;
-  }
+  let toWrite = latestNodes ? [...latestNodes] : [...nodes];
+  const clientSeq = ++persistSeq;
 
   if (opts.revision) {
     const delta = buildSealRevisionDelta(toWrite, revisionBaseline);
     if (!sealRevisionDeltaIsEmpty(delta)) {
-      // Re-check supersession after the snapshot PUT (network can be slow).
       if (queuedNodes) {
         queuedWantRevision = true;
-        return true;
+        return false;
       }
       const revisionEnvelope = await sealJson(
         dek,
         "revision",
-        snapshotSeq,
+        clientSeq,
         delta,
       );
       if (queuedNodes) {
         queuedWantRevision = true;
-        return true;
+        return false;
       }
       await appendRevision(revisionEnvelope);
       setRevisionBaseline(toWrite);
     }
   }
+
+  // Snapshot compact is best-effort. Peers already have the revision.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (queuedNodes) {
+      if (opts.revision) queuedWantRevision = true;
+      return true;
+    }
+    toWrite = latestNodes ? [...latestNodes] : toWrite;
+    const expectedSeq = localSnapshotSeq;
+    const snapshotEnvelope = await sealJson(dek, "snapshot", clientSeq, {
+      nodes: toWrite,
+    });
+    if (queuedNodes) {
+      if (opts.revision) queuedWantRevision = true;
+      return true;
+    }
+    try {
+      localSnapshotSeq = await putSnapshotWithRetry(
+        snapshotEnvelope,
+        expectedSeq,
+      );
+      return true;
+    } catch (err) {
+      if (err instanceof SealSnapshotConflictError) {
+        await recoverSnapshotConflict(err);
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Still racing after one recovery — leave revision durable; next persist
+  // will compact once the other device settles.
   return true;
 }
 
@@ -298,7 +306,6 @@ async function drainPersistQueue(): Promise<void> {
       lastError = undefined;
     } catch (err) {
       lastError = err;
-      if (err instanceof SealSnapshotConflictError) break;
       notifyPersistFailed(err);
       // Re-queue so a later flush / pagehide / visibility can retry.
       if (!queuedNodes) {
@@ -308,10 +315,9 @@ async function drainPersistQueue(): Promise<void> {
       break;
     }
   }
-  if (lastError && !(lastError instanceof SealSnapshotConflictError)) {
+  if (lastError) {
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
-  if (lastError instanceof SealSnapshotConflictError) throw lastError;
 }
 
 function kickPersist(): Promise<void> {
